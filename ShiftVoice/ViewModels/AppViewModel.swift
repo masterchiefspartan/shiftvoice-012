@@ -498,26 +498,35 @@ final class AppViewModel {
                 actionItems = generateActionItems(from: categorizedItems)
             }
 
-            let newNote = ShiftNote(
-                authorId: currentUserId,
-                authorName: currentUserName,
-                authorInitials: currentUserInitials,
-                locationId: selectedLocationId,
-                shiftType: currentShiftType,
-                shiftTemplateId: shiftInfo.id,
+            pendingReviewData = PendingNoteReviewData(
                 rawTranscript: transcript,
-                audioUrl: audioURL?.lastPathComponent,
                 audioDuration: duration,
+                audioUrl: audioURL?.lastPathComponent,
+                shiftInfo: shiftInfo,
                 summary: summary,
                 categorizedItems: categorizedItems,
                 actionItems: actionItems
             )
-
             isProcessing = false
-            shiftNotes.insert(newNote, at: 0)
-            updateUnacknowledgedCount()
-            persistData()
         }
+    }
+
+    func publishReviewedNote(_ note: ShiftNote) {
+        shiftNotes.insert(note, at: 0)
+        updateUnacknowledgedCount()
+        persistData()
+        pendingReviewData = nil
+    }
+
+    func discardPendingNote() {
+        pendingReviewData = nil
+    }
+
+    func updateActionItemAssignee(noteId: String, actionItemId: String, assignee: String?) {
+        guard let noteIndex = shiftNotes.firstIndex(where: { $0.id == noteId }),
+              let itemIndex = shiftNotes[noteIndex].actionItems.firstIndex(where: { $0.id == actionItemId }) else { return }
+        shiftNotes[noteIndex].actionItems[itemIndex].assignee = assignee
+        persistData()
     }
 
     private func generateSummary(from transcript: String) -> String {
@@ -751,6 +760,7 @@ final class AppViewModel {
         forceSync()
     }
 
+    var pendingReviewData: PendingNoteReviewData?
     var pendingNoteId: String?
 
     func handlePushNotificationTap(noteId: String) {

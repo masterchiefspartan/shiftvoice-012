@@ -8,6 +8,7 @@ struct RecordView: View {
     @State private var permissionGranted: Bool = true
     @State private var showPermissionAlert: Bool = false
     @State private var showPaywall: Bool = false
+    @State private var showReview: Bool = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dismiss) private var dismiss
     private let subscription = SubscriptionService.shared
@@ -17,6 +18,39 @@ struct RecordView: View {
     }
 
     var body: some View {
+        Group {
+            if showReview, let reviewData = viewModel.pendingReviewData {
+                NoteReviewView(
+                    viewModel: viewModel,
+                    rawTranscript: reviewData.rawTranscript,
+                    audioDuration: reviewData.audioDuration,
+                    audioUrl: reviewData.audioUrl,
+                    shiftInfo: reviewData.shiftInfo,
+                    summary: reviewData.summary,
+                    categorizedItems: reviewData.categorizedItems,
+                    actionItems: reviewData.actionItems,
+                    onDiscard: {
+                        viewModel.discardPendingNote()
+                        dismiss()
+                    },
+                    onPublish: { note in
+                        viewModel.publishReviewedNote(note)
+                        showReview = false
+                        showSuccess = true
+                        Task {
+                            try? await Task.sleep(for: .seconds(1.5))
+                            showSuccess = false
+                            dismiss()
+                        }
+                    }
+                )
+            } else {
+                recordingFlow
+            }
+        }
+    }
+
+    private var recordingFlow: some View {
         NavigationStack {
             ZStack {
                 SVTheme.background.ignoresSafeArea()
@@ -60,6 +94,11 @@ struct RecordView: View {
             .onChange(of: viewModel.audioRecorder.didAutoStop) { _, didAutoStop in
                 if didAutoStop {
                     stopRecording()
+                }
+            }
+            .onChange(of: viewModel.isProcessing) { oldValue, newValue in
+                if oldValue && !newValue && viewModel.pendingReviewData != nil {
+                    showReview = true
                 }
             }
         }
@@ -326,16 +365,6 @@ struct RecordView: View {
     private func stopRecording() {
         pulseScale = 1.0
         viewModel.stopRecording(selectedShift: selectedShiftDisplay)
-
-        Task {
-            while viewModel.isProcessing {
-                try? await Task.sleep(for: .milliseconds(100))
-            }
-            showSuccess = true
-            try? await Task.sleep(for: .seconds(1.5))
-            showSuccess = false
-            dismiss()
-        }
     }
 
     private func formatDuration(_ duration: TimeInterval) -> String {

@@ -37,7 +37,11 @@ struct ShiftFeedView: View {
                     ShiftNoteDetailView(
                         note: note,
                         isAcknowledged: viewModel.isNoteAcknowledged(note),
-                        onAcknowledge: { viewModel.acknowledgeNote(noteId) }
+                        teamMembers: viewModel.teamMembers,
+                        onAcknowledge: { viewModel.acknowledgeNote(noteId) },
+                        onAssignAction: { actionItemId, assignee in
+                            viewModel.updateActionItemAssignee(noteId: noteId, actionItemId: actionItemId, assignee: assignee)
+                        }
                     )
                 }
             }

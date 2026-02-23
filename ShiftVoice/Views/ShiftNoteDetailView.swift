@@ -3,12 +3,16 @@ import SwiftUI
 struct ShiftNoteDetailView: View {
     let note: ShiftNote
     let isAcknowledged: Bool
+    let teamMembers: [TeamMember]
     let onAcknowledge: () -> Void
+    let onAssignAction: (String, String?) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var isPlayingAudio: Bool = false
     @State private var audioProgress: Double = 0
     @State private var showTranscript: Bool = false
+    @State private var showAssignSheet: Bool = false
+    @State private var assigningActionId: String?
 
     var body: some View {
         ScrollView {
@@ -47,6 +51,20 @@ struct ShiftNoteDetailView: View {
         }
         .toolbarBackground(SVTheme.surface, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
+        .sheet(isPresented: $showAssignSheet) {
+            if let actionId = assigningActionId {
+                AssigneePickerView(
+                    teamMembers: teamMembers,
+                    currentAssignee: note.actionItems.first(where: { $0.id == actionId })?.assignee
+                ) { selectedName in
+                    onAssignAction(actionId, selectedName)
+                    showAssignSheet = false
+                    assigningActionId = nil
+                }
+                .presentationDetents([.medium])
+                .presentationDragIndicator(.visible)
+            }
+        }
     }
 
     private var headerSection: some View {
@@ -248,7 +266,7 @@ struct ShiftNoteDetailView: View {
                             .font(.body)
                             .foregroundStyle(item.status == .resolved ? SVTheme.successGreen : SVTheme.textTertiary)
 
-                        VStack(alignment: .leading, spacing: 4) {
+                        VStack(alignment: .leading, spacing: 6) {
                             Text(item.task)
                                 .font(.subheadline)
                                 .foregroundStyle(item.status == .resolved ? SVTheme.textTertiary : SVTheme.textPrimary)
@@ -257,14 +275,22 @@ struct ShiftNoteDetailView: View {
 
                             HStack(spacing: 8) {
                                 UrgencyBadge(urgency: item.urgency)
-                                if let assignee = item.assignee {
-                                    Text(assignee)
-                                        .font(.caption2.weight(.medium))
-                                        .foregroundStyle(SVTheme.accent)
-                                        .padding(.horizontal, 6)
-                                        .padding(.vertical, 2)
-                                        .background(SVTheme.accent.opacity(0.08))
-                                        .clipShape(.rect(cornerRadius: 4))
+
+                                Button {
+                                    assigningActionId = item.id
+                                    showAssignSheet = true
+                                } label: {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: item.assignee != nil ? "person.fill" : "person.badge.plus")
+                                            .font(.system(size: 10))
+                                        Text(item.assignee ?? "Assign")
+                                            .font(.caption2.weight(.medium))
+                                    }
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
+                                    .foregroundStyle(item.assignee != nil ? SVTheme.accent : SVTheme.textTertiary)
+                                    .background(item.assignee != nil ? SVTheme.accent.opacity(0.08) : SVTheme.iconBackground)
+                                    .clipShape(.rect(cornerRadius: 6))
                                 }
                             }
                         }
