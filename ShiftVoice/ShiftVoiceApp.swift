@@ -90,6 +90,7 @@ struct ShiftVoiceApp: App {
                 if pushService.authorizationStatus == .authorized {
                     pushService.checkAuthorizationStatus()
                 }
+                authService.validateAndRefreshSession()
             }
         }
     }

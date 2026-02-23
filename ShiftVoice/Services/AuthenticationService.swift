@@ -66,9 +66,11 @@ final class AuthenticationService {
         return currentUser?.profile?.imageURL(withDimension: 120)
     }
 
+    private var backendAuthRetryCount: Int = 0
+    private let maxBackendAuthRetries: Int = 3
+
     init() {
         configureGoogleSignIn()
-        restoreBackendToken()
         restorePreviousSignIn()
     }
 
@@ -93,6 +95,13 @@ final class AuthenticationService {
         isLoading = true
 
         if let session = KeychainService.loadSessionToken() {
+            guard session.expiry > Date() else {
+                KeychainService.clearSessionToken()
+                UserDefaults.standard.removeObject(forKey: "sv_backend_token")
+                isLoading = false
+                return
+            }
+
             let savedMethod = UserDefaults.standard.string(forKey: "sv_auth_method")
             let method = savedMethod.flatMap { AuthMethod(rawValue: $0) }
 
@@ -102,6 +111,7 @@ final class AuthenticationService {
                     currentUserId = session.userId
                     authMethod = .email
                     isSignedIn = true
+                    restoreBackendToken()
                     refreshSessionIfNeeded()
                 }
                 isLoading = false
@@ -120,12 +130,14 @@ final class AuthenticationService {
                                 self.authMethod = .google
                                 self.isSignedIn = true
                                 self.persistGoogleUserProfile()
+                                self.restoreBackendToken()
                                 self.authenticateGoogleWithBackend()
                             } else if let profile = PersistenceService.shared.loadUserProfile(for: session.userId) {
                                 self.emailUserProfile = profile
                                 self.currentUserId = session.userId
                                 self.authMethod = .google
                                 self.isSignedIn = true
+                                self.restoreBackendToken()
                             }
                             self.isLoading = false
                         }
@@ -135,6 +147,7 @@ final class AuthenticationService {
                     currentUserId = session.userId
                     authMethod = .google
                     isSignedIn = true
+                    restoreBackendToken()
                     isLoading = false
                     return
                 }
@@ -535,33 +548,21 @@ final class AuthenticationService {
 
     private func registerWithBackend(name: String, email: String, password: String, userId: String) {
         guard APIService.shared.isConfigured else { return }
+        backendAuthRetryCount = 0
         Task {
-            do {
-                let response = try await APIService.shared.register(name: name, email: email, password: password)
-                if response.success, let token = response.token {
-                    backendToken = token
-                    UserDefaults.standard.set(token, forKey: "sv_backend_token")
-                    APIService.shared.setAuth(token: token, userId: response.userId ?? userId)
-                }
-            } catch {
-                print("Backend register error: \(error.localizedDescription)")
-            }
+            await performBackendAuth({
+                try await APIService.shared.register(name: name, email: email, password: password)
+            }, userId: userId)
         }
     }
 
     private func loginWithBackend(email: String, password: String, userId: String) {
         guard APIService.shared.isConfigured else { return }
+        backendAuthRetryCount = 0
         Task {
-            do {
-                let response = try await APIService.shared.login(email: email, password: password)
-                if response.success, let token = response.token {
-                    backendToken = token
-                    UserDefaults.standard.set(token, forKey: "sv_backend_token")
-                    APIService.shared.setAuth(token: token, userId: response.userId ?? userId)
-                }
-            } catch {
-                print("Backend login error: \(error.localizedDescription)")
-            }
+            await performBackendAuth({
+                try await APIService.shared.login(email: email, password: password)
+            }, userId: userId)
         }
     }
 
@@ -569,20 +570,56 @@ final class AuthenticationService {
         guard APIService.shared.isConfigured else { return }
         guard let user = currentUser, let profile = user.profile else { return }
         let googleUserId = user.userID ?? UUID().uuidString
+        backendAuthRetryCount = 0
         Task {
-            do {
-                let response = try await APIService.shared.googleAuth(
+            await performBackendAuth({
+                try await APIService.shared.googleAuth(
                     googleUserId: googleUserId,
                     name: profile.name,
                     email: profile.email
                 )
+            }, userId: googleUserId)
+        }
+    }
+
+    private func performBackendAuth(_ authCall: () async throws -> AuthResponse, userId: String) async {
+        var lastError: Error?
+        for attempt in 0...maxBackendAuthRetries {
+            do {
+                let response = try await authCall()
                 if response.success, let token = response.token {
                     backendToken = token
                     UserDefaults.standard.set(token, forKey: "sv_backend_token")
-                    APIService.shared.setAuth(token: token, userId: response.userId ?? googleUserId)
+                    APIService.shared.setAuth(token: token, userId: response.userId ?? userId)
+                    return
+                } else if let serverError = response.error {
+                    errorMessage = serverError
+                    return
                 }
+            } catch let error as APIError {
+                lastError = error
+                if error.isRetryable && attempt < maxBackendAuthRetries {
+                    let delay = Double(1 << attempt) * 0.5
+                    try? await Task.sleep(for: .seconds(delay))
+                    continue
+                }
+                if case .validationError(let msg) = error {
+                    errorMessage = msg
+                } else if case .unauthorized = error {
+                    errorMessage = "Session expired. Please sign in again."
+                } else {
+                    errorMessage = "Unable to connect to server. Your data is saved locally."
+                }
+                return
             } catch {
-                print("Backend Google auth error: \(error.localizedDescription)")
+                lastError = error
+                if attempt < maxBackendAuthRetries {
+                    let delay = Double(1 << attempt) * 0.5
+                    try? await Task.sleep(for: .seconds(delay))
+                    continue
+                }
+                errorMessage = "Unable to connect to server. Your data is saved locally."
+                return
             }
         }
     }
@@ -595,11 +632,37 @@ final class AuthenticationService {
     }
 
     func restoreBackendToken() {
-        if let token = UserDefaults.standard.string(forKey: "sv_backend_token"), !token.isEmpty {
-            backendToken = token
-            if let userId = currentUserId {
-                APIService.shared.setAuth(token: token, userId: userId)
-            }
+        guard let token = UserDefaults.standard.string(forKey: "sv_backend_token"), !token.isEmpty else { return }
+        backendToken = token
+        guard let userId = currentUserId, !userId.isEmpty else { return }
+        APIService.shared.setAuth(token: token, userId: userId)
+    }
+
+    func validateAndRefreshSession() {
+        guard isSignedIn else { return }
+        guard let session = KeychainService.loadSessionToken() else {
+            signOut()
+            return
+        }
+        if session.expiry < Date() {
+            signOut()
+            errorMessage = "Your session has expired. Please sign in again."
+            return
+        }
+        refreshSessionIfNeeded()
+
+        if backendToken == nil, APIService.shared.isConfigured {
+            retryBackendAuthIfNeeded()
+        }
+    }
+
+    private func retryBackendAuthIfNeeded() {
+        guard let method = authMethod else { return }
+        switch method {
+        case .google:
+            authenticateGoogleWithBackend()
+        case .email:
+            break
         }
     }
 }
