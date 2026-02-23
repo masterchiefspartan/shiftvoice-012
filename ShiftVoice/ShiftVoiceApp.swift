@@ -35,6 +35,9 @@ struct ShiftVoiceApp: App {
             .animation(.easeOut(duration: 0.25), value: hasCompletedOnboarding)
             .onChange(of: authService.isSignedIn) { _, isSignedIn in
                 if isSignedIn, let userId = authService.currentUserId {
+                    if let token = authService.backendToken {
+                        appViewModel.setBackendAuth(token: token, userId: userId)
+                    }
                     appViewModel.setAuthenticatedUser(userId)
                 } else {
                     appViewModel.clearAuthenticatedUser()
@@ -43,16 +46,25 @@ struct ShiftVoiceApp: App {
             }
             .onChange(of: authService.currentUserId) { _, userId in
                 if authService.isSignedIn, let userId {
+                    if let token = authService.backendToken {
+                        appViewModel.setBackendAuth(token: token, userId: userId)
+                    }
                     appViewModel.setAuthenticatedUser(userId)
                 }
             }
             .onAppear {
                 if authService.isSignedIn, let userId = authService.currentUserId {
+                    if let token = authService.backendToken {
+                        appViewModel.setBackendAuth(token: token, userId: userId)
+                    }
                     appViewModel.setAuthenticatedUser(userId)
                 }
             }
             .onOpenURL { url in
                 _ = authService.handleURL(url)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .networkReconnected)) { _ in
+                appViewModel.handleNetworkReconnect()
             }
         }
     }

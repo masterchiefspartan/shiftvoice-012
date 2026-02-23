@@ -43,7 +43,11 @@ final class AppViewModel {
     var audioLevels: [CGFloat] { audioRecorder.audioLevels }
 
     private let persistence = PersistenceService.shared
+    private let api = APIService.shared
     private var authenticatedUserId: String?
+    private var isSyncing: Bool = false
+    var lastSyncDate: Date?
+    var syncError: String?
 
     var currentUserId: String {
         authenticatedUserId ?? ""
@@ -117,9 +121,11 @@ final class AppViewModel {
     func setAuthenticatedUser(_ userId: String) {
         authenticatedUserId = userId
         loadData()
+        syncFromBackend()
     }
 
     func clearAuthenticatedUser() {
+        api.clearAuth()
         authenticatedUserId = nil
         shiftNotes = []
         locations = []
@@ -128,6 +134,8 @@ final class AppViewModel {
         organization = MockDataService.organization
         selectedLocationId = ""
         unacknowledgedCount = 0
+        lastSyncDate = nil
+        syncError = nil
     }
 
     private func loadData() {
@@ -166,6 +174,98 @@ final class AppViewModel {
         )
         persistence.save(appData, for: userId)
         saveError = nil
+
+        pushToBackend()
+    }
+
+    // MARK: - Backend Sync
+
+    func setBackendAuth(token: String, userId: String) {
+        api.setAuth(token: token, userId: userId)
+    }
+
+    func syncFromBackend() {
+        guard api.isConfigured, !isSyncing else { return }
+        isSyncing = true
+        syncError = nil
+
+        Task {
+            do {
+                let response = try await api.pullData()
+                if response.hasData, let data = response.data {
+                    if let orgDTO = data.organization {
+                        organization = api.decodeOrganization(orgDTO)
+                    }
+                    if let locsDTO = data.locations {
+                        locations = locsDTO.map { api.decodeLocation($0) }
+                    }
+                    if let teamDTO = data.teamMembers {
+                        teamMembers = teamDTO.map { api.decodeTeamMember($0) }
+                    }
+                    if let notesDTO = data.shiftNotes {
+                        shiftNotes = notesDTO.map { api.decodeShiftNote($0) }
+                    }
+                    if let issuesDTO = data.recurringIssues {
+                        recurringIssues = issuesDTO.map { api.decodeRecurringIssue($0) }
+                    }
+                    if let locId = data.selectedLocationId, !locId.isEmpty {
+                        selectedLocationId = locId
+                    } else if selectedLocationId.isEmpty {
+                        selectedLocationId = locations.first?.id ?? ""
+                    }
+                    updateUnacknowledgedCount()
+
+                    if let userId = authenticatedUserId {
+                        let appData = AppData(
+                            organization: organization,
+                            locations: locations,
+                            teamMembers: teamMembers,
+                            shiftNotes: shiftNotes,
+                            recurringIssues: recurringIssues,
+                            userProfile: persistence.loadUserProfile(for: userId),
+                            selectedLocationId: selectedLocationId
+                        )
+                        persistence.save(appData, for: userId)
+                    }
+                }
+                lastSyncDate = Date()
+                syncError = nil
+            } catch {
+                syncError = error.localizedDescription
+            }
+            isSyncing = false
+        }
+    }
+
+    private func pushToBackend() {
+        guard api.isConfigured, !isOffline else { return }
+        guard let userId = authenticatedUserId else { return }
+
+        let appData = AppData(
+            organization: organization,
+            locations: locations,
+            teamMembers: teamMembers,
+            shiftNotes: shiftNotes,
+            recurringIssues: recurringIssues,
+            userProfile: persistence.loadUserProfile(for: userId),
+            selectedLocationId: selectedLocationId
+        )
+
+        Task {
+            do {
+                _ = try await api.pushData(appData: appData)
+                lastSyncDate = Date()
+                syncError = nil
+            } catch {
+                syncError = error.localizedDescription
+            }
+        }
+    }
+
+    func forceSync() {
+        guard !isSyncing else { return }
+        pushToBackend()
+        syncFromBackend()
     }
 
     func dismissOperationState() {
@@ -479,5 +579,10 @@ final class AppViewModel {
         selectedLocationId = locations.first?.id ?? ""
         updateUnacknowledgedCount()
         persistData()
+    }
+
+    func handleNetworkReconnect() {
+        guard authenticatedUserId != nil else { return }
+        forceSync()
     }
 }

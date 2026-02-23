@@ -9,4 +9,5 @@ import Foundation
 
 enum Config {
     static let GOOGLE_CLIENT_ID = "GOOGLE_CLIENT_ID"
+    static let EXPO_PUBLIC_RORK_API_BASE_URL = "EXPO_PUBLIC_RORK_API_BASE_URL"
 }

@@ -28,6 +28,7 @@ struct SettingsView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                     profileSection
+                    syncSection
                     notificationSection
                     organizationSection
                     locationSection
@@ -107,6 +108,77 @@ struct SettingsView: View {
             .frame(width: 52, height: 52)
             .background(SVTheme.iconBackground)
             .clipShape(Circle())
+    }
+
+    private var syncSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("DATA SYNC")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(SVTheme.textTertiary)
+                .tracking(0.5)
+
+            VStack(spacing: 0) {
+                HStack {
+                    Image(systemName: "arrow.triangle.2.circlepath")
+                        .font(.system(size: 14))
+                        .foregroundStyle(SVTheme.accent)
+                        .frame(width: 28, height: 28)
+                        .background(SVTheme.accent.opacity(0.1))
+                        .clipShape(.rect(cornerRadius: 6))
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Cloud Sync")
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(SVTheme.textPrimary)
+                        if let lastSync = viewModel.lastSyncDate {
+                            Text("Last synced \(lastSync.formatted(.relative(presentation: .named)))")
+                                .font(.caption)
+                                .foregroundStyle(SVTheme.textTertiary)
+                        } else {
+                            Text(APIService.shared.isConfigured ? "Not yet synced" : "Backend not configured")
+                                .font(.caption)
+                                .foregroundStyle(SVTheme.textTertiary)
+                        }
+                    }
+
+                    Spacer()
+
+                    Button {
+                        viewModel.forceSync()
+                    } label: {
+                        Text("Sync Now")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(SVTheme.accent)
+                            .clipShape(Capsule())
+                    }
+                    .disabled(!APIService.shared.isConfigured)
+                }
+                .padding(16)
+
+                if let error = viewModel.syncError {
+                    Rectangle().fill(SVTheme.divider).frame(height: 1).padding(.leading, 16)
+                    HStack(spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.caption)
+                            .foregroundStyle(SVTheme.amber)
+                        Text(error)
+                            .font(.caption)
+                            .foregroundStyle(SVTheme.textSecondary)
+                            .lineLimit(2)
+                    }
+                    .padding(16)
+                }
+            }
+            .background(SVTheme.cardBackground)
+            .clipShape(.rect(cornerRadius: 12))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(SVTheme.surfaceBorder, lineWidth: 1)
+            )
+        }
     }
 
     private var notificationSection: some View {

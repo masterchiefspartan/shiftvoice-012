@@ -36,6 +36,7 @@ final class AuthenticationService {
     private var authMethod: AuthMethod?
     private var emailUserProfile: UserProfile?
     private(set) var currentUserId: String?
+    private(set) var backendToken: String?
 
     var userName: String {
         if authMethod == .email {
@@ -67,6 +68,7 @@ final class AuthenticationService {
 
     init() {
         configureGoogleSignIn()
+        restoreBackendToken()
         restorePreviousSignIn()
     }
 
@@ -111,6 +113,7 @@ final class AuthenticationService {
                         self.currentUserId = userId
                         self.createSession(userId: userId, method: .google)
                         self.persistGoogleUserProfile()
+                        self.authenticateGoogleWithBackend()
                     }
                     self.isLoading = false
                 }
@@ -149,6 +152,7 @@ final class AuthenticationService {
                 UserDefaults.standard.set(AuthMethod.google.rawValue, forKey: "sv_auth_method")
                 self.createSession(userId: userId, method: .google)
                 self.persistGoogleUserProfile()
+                self.authenticateGoogleWithBackend()
             }
         }
     }
@@ -260,6 +264,7 @@ final class AuthenticationService {
         isSubmitting = true
 
         let trimmedEmail = email.lowercased().trimmingCharacters(in: .whitespaces)
+        let trimmedName = name.trimmingCharacters(in: .whitespaces)
 
         if KeychainService.loadPassword(for: trimmedEmail) != nil {
             emailError = "An account with this email already exists"
@@ -285,7 +290,7 @@ final class AuthenticationService {
 
         let profile = UserProfile(
             id: userId,
-            name: name.trimmingCharacters(in: .whitespaces),
+            name: trimmedName,
             email: trimmedEmail,
             initials: initials,
             profileImageURL: nil
@@ -300,6 +305,8 @@ final class AuthenticationService {
         isSubmitting = false
         UserDefaults.standard.set(AuthMethod.email.rawValue, forKey: "sv_auth_method")
         createSession(userId: userId, method: .email)
+
+        registerWithBackend(name: trimmedName, email: trimmedEmail, password: password, userId: userId)
     }
 
     // MARK: - Email/Password Sign In
@@ -351,6 +358,8 @@ final class AuthenticationService {
         isSubmitting = false
         UserDefaults.standard.set(AuthMethod.email.rawValue, forKey: "sv_auth_method")
         createSession(userId: userId, method: .email)
+
+        loginWithBackend(email: trimmedEmail, password: password, userId: userId)
     }
 
     // MARK: - Password Reset
@@ -381,16 +390,19 @@ final class AuthenticationService {
     // MARK: - Sign Out
 
     func signOut() {
+        logoutFromBackend()
         if authMethod == .google {
             GIDSignIn.sharedInstance.signOut()
             currentUser = nil
         }
         emailUserProfile = nil
         currentUserId = nil
+        backendToken = nil
         isSignedIn = false
         authMethod = nil
         KeychainService.clearSessionToken()
         UserDefaults.standard.removeObject(forKey: "sv_auth_method")
+        UserDefaults.standard.removeObject(forKey: "sv_backend_token")
     }
 
     func deleteAccount() {
@@ -472,5 +484,77 @@ final class AuthenticationService {
         let hasLetter = password.contains(where: \.isLetter)
         let hasNumber = password.contains(where: \.isNumber)
         return hasLetter && hasNumber
+    }
+
+    // MARK: - Backend Auth
+
+    private func registerWithBackend(name: String, email: String, password: String, userId: String) {
+        guard APIService.shared.isConfigured else { return }
+        Task {
+            do {
+                let response = try await APIService.shared.register(name: name, email: email, password: password)
+                if response.success, let token = response.token {
+                    backendToken = token
+                    UserDefaults.standard.set(token, forKey: "sv_backend_token")
+                    APIService.shared.setAuth(token: token, userId: response.userId ?? userId)
+                }
+            } catch {
+                print("Backend register error: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func loginWithBackend(email: String, password: String, userId: String) {
+        guard APIService.shared.isConfigured else { return }
+        Task {
+            do {
+                let response = try await APIService.shared.login(email: email, password: password)
+                if response.success, let token = response.token {
+                    backendToken = token
+                    UserDefaults.standard.set(token, forKey: "sv_backend_token")
+                    APIService.shared.setAuth(token: token, userId: response.userId ?? userId)
+                }
+            } catch {
+                print("Backend login error: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func authenticateGoogleWithBackend() {
+        guard APIService.shared.isConfigured else { return }
+        guard let user = currentUser, let profile = user.profile else { return }
+        let googleUserId = user.userID ?? UUID().uuidString
+        Task {
+            do {
+                let response = try await APIService.shared.googleAuth(
+                    googleUserId: googleUserId,
+                    name: profile.name,
+                    email: profile.email
+                )
+                if response.success, let token = response.token {
+                    backendToken = token
+                    UserDefaults.standard.set(token, forKey: "sv_backend_token")
+                    APIService.shared.setAuth(token: token, userId: response.userId ?? googleUserId)
+                }
+            } catch {
+                print("Backend Google auth error: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func logoutFromBackend() {
+        guard APIService.shared.isConfigured, backendToken != nil else { return }
+        Task {
+            try? await APIService.shared.logout()
+        }
+    }
+
+    func restoreBackendToken() {
+        if let token = UserDefaults.standard.string(forKey: "sv_backend_token"), !token.isEmpty {
+            backendToken = token
+            if let userId = currentUserId {
+                APIService.shared.setAuth(token: token, userId: userId)
+            }
+        }
     }
 }
