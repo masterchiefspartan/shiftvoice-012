@@ -100,8 +100,17 @@ final class OnboardingViewModel {
 
         switch currentStep {
         case 0:
-            if locationName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let trimmed = locationName.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty {
                 locationNameError = "Give your \(businessType.terminology.location.lowercased()) a name to continue"
+                return false
+            }
+            if trimmed.count < 2 {
+                locationNameError = "Name must be at least 2 characters"
+                return false
+            }
+            if trimmed.count > 100 {
+                locationNameError = "Name must be under 100 characters"
                 return false
             }
             return true
@@ -113,10 +122,17 @@ final class OnboardingViewModel {
             return true
         case 2:
             var valid = true
+            var seenEmails = Set<String>()
             for invite in teamInvites where !invite.email.isEmpty {
-                if !isValidEmail(invite.email) {
-                    inviteErrors[invite.id] = "Enter a valid email"
+                let lower = invite.email.lowercased().trimmingCharacters(in: .whitespaces)
+                if !isValidEmail(lower) {
+                    inviteErrors[invite.id] = "Enter a valid email address"
                     valid = false
+                } else if seenEmails.contains(lower) {
+                    inviteErrors[invite.id] = "Duplicate email"
+                    valid = false
+                } else {
+                    seenEmails.insert(lower)
                 }
             }
             return valid

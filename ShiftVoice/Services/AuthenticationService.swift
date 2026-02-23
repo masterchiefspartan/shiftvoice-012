@@ -23,9 +23,15 @@ final class AuthenticationService {
     var currentUser: GIDGoogleUser?
     var isSignedIn: Bool = false
     var isLoading: Bool = true
+    var isSubmitting: Bool = false
     var errorMessage: String?
     var showPasswordReset: Bool = false
     var passwordResetSuccess: Bool = false
+
+    var nameError: String?
+    var emailError: String?
+    var passwordError: String?
+    var confirmPasswordError: String?
 
     private var authMethod: AuthMethod?
     private var emailUserProfile: UserProfile?
@@ -149,31 +155,122 @@ final class AuthenticationService {
 
     // MARK: - Email/Password Sign Up
 
-    func signUpWithEmail(name: String, email: String, password: String) {
+    func clearFieldErrors() {
+        nameError = nil
+        emailError = nil
+        passwordError = nil
+        confirmPasswordError = nil
         errorMessage = nil
+    }
 
-        guard !name.trimmingCharacters(in: .whitespaces).isEmpty else {
-            errorMessage = "Please enter your name"
-            return
+    func validateSignUpFields(name: String, email: String, password: String) -> Bool {
+        clearFieldErrors()
+        var valid = true
+
+        let trimmedName = name.trimmingCharacters(in: .whitespaces)
+        if trimmedName.isEmpty {
+            nameError = "Name is required"
+            valid = false
+        } else if trimmedName.count < 2 {
+            nameError = "Name must be at least 2 characters"
+            valid = false
         }
-        guard isValidEmail(email) else {
-            errorMessage = "Please enter a valid email address"
-            return
+
+        let trimmedEmail = email.trimmingCharacters(in: .whitespaces)
+        if trimmedEmail.isEmpty {
+            emailError = "Email is required"
+            valid = false
+        } else if !isValidEmail(trimmedEmail) {
+            emailError = "Enter a valid email address"
+            valid = false
         }
-        guard isStrongPassword(password) else {
-            errorMessage = "Password must be at least 8 characters with a letter and number"
-            return
+
+        if password.isEmpty {
+            passwordError = "Password is required"
+            valid = false
+        } else if password.count < 8 {
+            passwordError = "Must be at least 8 characters"
+            valid = false
+        } else if !password.contains(where: \.isLetter) {
+            passwordError = "Must contain at least one letter"
+            valid = false
+        } else if !password.contains(where: \.isNumber) {
+            passwordError = "Must contain at least one number"
+            valid = false
         }
+
+        return valid
+    }
+
+    func validateSignInFields(email: String, password: String) -> Bool {
+        clearFieldErrors()
+        var valid = true
+
+        let trimmedEmail = email.trimmingCharacters(in: .whitespaces)
+        if trimmedEmail.isEmpty {
+            emailError = "Email is required"
+            valid = false
+        } else if !isValidEmail(trimmedEmail) {
+            emailError = "Enter a valid email address"
+            valid = false
+        }
+
+        if password.isEmpty {
+            passwordError = "Password is required"
+            valid = false
+        }
+
+        return valid
+    }
+
+    func validateResetFields(email: String, newPassword: String, confirmPassword: String) -> Bool {
+        clearFieldErrors()
+        var valid = true
+
+        let trimmedEmail = email.trimmingCharacters(in: .whitespaces)
+        if trimmedEmail.isEmpty {
+            emailError = "Email is required"
+            valid = false
+        } else if !isValidEmail(trimmedEmail) {
+            emailError = "Enter a valid email address"
+            valid = false
+        }
+
+        if newPassword.isEmpty {
+            passwordError = "New password is required"
+            valid = false
+        } else if !isStrongPassword(newPassword) {
+            passwordError = "Must be 8+ characters with a letter and number"
+            valid = false
+        }
+
+        if confirmPassword.isEmpty {
+            confirmPasswordError = "Please confirm your password"
+            valid = false
+        } else if newPassword != confirmPassword {
+            confirmPasswordError = "Passwords do not match"
+            valid = false
+        }
+
+        return valid
+    }
+
+    func signUpWithEmail(name: String, email: String, password: String) {
+        guard validateSignUpFields(name: name, email: email, password: password) else { return }
+        isSubmitting = true
 
         let trimmedEmail = email.lowercased().trimmingCharacters(in: .whitespaces)
 
         if KeychainService.loadPassword(for: trimmedEmail) != nil {
-            errorMessage = "An account with this email already exists. Please sign in."
+            emailError = "An account with this email already exists"
+            errorMessage = "Please sign in instead."
+            isSubmitting = false
             return
         }
 
         guard KeychainService.savePassword(password, for: trimmedEmail) else {
             errorMessage = "Unable to create account. Please try again."
+            isSubmitting = false
             return
         }
 
@@ -200,6 +297,7 @@ final class AuthenticationService {
         currentUserId = userId
         isSignedIn = true
         authMethod = .email
+        isSubmitting = false
         UserDefaults.standard.set(AuthMethod.email.rawValue, forKey: "sv_auth_method")
         createSession(userId: userId, method: .email)
     }
@@ -207,26 +305,21 @@ final class AuthenticationService {
     // MARK: - Email/Password Sign In
 
     func signInWithEmail(email: String, password: String) {
-        errorMessage = nil
+        guard validateSignInFields(email: email, password: password) else { return }
+        isSubmitting = true
 
         let trimmedEmail = email.lowercased().trimmingCharacters(in: .whitespaces)
 
-        guard isValidEmail(trimmedEmail) else {
-            errorMessage = "Please enter a valid email address"
-            return
-        }
-        guard !password.isEmpty else {
-            errorMessage = "Please enter your password"
-            return
-        }
-
         guard let storedPassword = KeychainService.loadPassword(for: trimmedEmail) else {
-            errorMessage = "No account found with this email. Please sign up."
+            emailError = "No account found with this email"
+            errorMessage = "Please sign up instead."
+            isSubmitting = false
             return
         }
 
         guard storedPassword == password else {
-            errorMessage = "Incorrect password. Please try again."
+            passwordError = "Incorrect password"
+            isSubmitting = false
             return
         }
 
@@ -255,6 +348,7 @@ final class AuthenticationService {
         currentUserId = userId
         isSignedIn = true
         authMethod = .email
+        isSubmitting = false
         UserDefaults.standard.set(AuthMethod.email.rawValue, forKey: "sv_auth_method")
         createSession(userId: userId, method: .email)
     }
@@ -262,32 +356,24 @@ final class AuthenticationService {
     // MARK: - Password Reset
 
     func resetPassword(email: String, newPassword: String, confirmPassword: String) {
-        errorMessage = nil
+        guard validateResetFields(email: email, newPassword: newPassword, confirmPassword: confirmPassword) else { return }
+        isSubmitting = true
 
         let trimmedEmail = email.lowercased().trimmingCharacters(in: .whitespaces)
 
-        guard isValidEmail(trimmedEmail) else {
-            errorMessage = "Please enter a valid email address"
-            return
-        }
         guard KeychainService.loadPassword(for: trimmedEmail) != nil else {
-            errorMessage = "No account found with this email."
-            return
-        }
-        guard isStrongPassword(newPassword) else {
-            errorMessage = "Password must be at least 8 characters with a letter and number"
-            return
-        }
-        guard newPassword == confirmPassword else {
-            errorMessage = "Passwords do not match"
+            emailError = "No account found with this email"
+            isSubmitting = false
             return
         }
 
         guard KeychainService.updatePassword(newPassword, for: trimmedEmail) else {
             errorMessage = "Unable to reset password. Please try again."
+            isSubmitting = false
             return
         }
 
+        isSubmitting = false
         passwordResetSuccess = true
         showPasswordReset = false
     }

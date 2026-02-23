@@ -1,6 +1,20 @@
 import SwiftUI
 import AVFoundation
 
+nonisolated enum OperationState: Sendable {
+    case idle
+    case loading
+    case success(String)
+    case failure(String)
+
+    var isVisible: Bool {
+        switch self {
+        case .idle: return false
+        case .loading, .success, .failure: return true
+        }
+    }
+}
+
 @Observable
 final class AppViewModel {
     var shiftNotes: [ShiftNote] = []
@@ -10,10 +24,16 @@ final class AppViewModel {
     var recurringIssues: [RecurringIssue] = []
 
     var selectedLocationId: String = ""
-    var isOffline: Bool = false
     var unacknowledgedCount: Int = 0
 
     var isProcessing: Bool = false
+    var operationState: OperationState = .idle
+    var saveError: String?
+
+    let networkMonitor = NetworkMonitor.shared
+    var isOffline: Bool { !networkMonitor.isConnected }
+
+    var pendingOfflineActions: [PendingAction] = []
 
     let audioRecorder = AudioRecorderService()
     let transcriptionService = TranscriptionService()
@@ -145,6 +165,11 @@ final class AppViewModel {
             selectedLocationId: selectedLocationId
         )
         persistence.save(appData, for: userId)
+        saveError = nil
+    }
+
+    func dismissOperationState() {
+        operationState = .idle
     }
 
     func applyOnboardingData(businessType: BusinessType, locationName: String, timezone: String, teamInvites: [TeamInvite]) {

@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct PasswordResetView: View {
-    let authService: AuthenticationService
+    @Bindable var authService: AuthenticationService
     @Environment(\.dismiss) private var dismiss
     @State private var email: String = ""
     @State private var newPassword: String = ""
@@ -30,62 +30,80 @@ struct PasswordResetView: View {
                     .padding(.top, 16)
 
                     VStack(spacing: 14) {
-                        fieldContainer {
-                            HStack(spacing: 12) {
-                                Image(systemName: "envelope")
-                                    .font(.system(size: 16))
-                                    .foregroundStyle(SVTheme.textTertiary)
-                                    .frame(width: 20)
-                                TextField("Email", text: $email)
-                                    .textContentType(.emailAddress)
-                                    .keyboardType(.emailAddress)
-                                    .textInputAutocapitalization(.never)
-                                    .autocorrectionDisabled()
-                                    .focused($focusedField, equals: .email)
-                                    .submitLabel(.next)
-                                    .onSubmit { focusedField = .newPassword }
+                        VStack(alignment: .leading, spacing: 4) {
+                            fieldContainer(hasError: authService.emailError != nil) {
+                                HStack(spacing: 12) {
+                                    Image(systemName: "envelope")
+                                        .font(.system(size: 16))
+                                        .foregroundStyle(SVTheme.textTertiary)
+                                        .frame(width: 20)
+                                    TextField("Email", text: $email)
+                                        .textContentType(.emailAddress)
+                                        .keyboardType(.emailAddress)
+                                        .textInputAutocapitalization(.never)
+                                        .autocorrectionDisabled()
+                                        .focused($focusedField, equals: .email)
+                                        .submitLabel(.next)
+                                        .onSubmit { focusedField = .newPassword }
+                                        .onChange(of: email) { _, _ in authService.emailError = nil }
+                                }
+                            }
+                            if let error = authService.emailError {
+                                fieldErrorLabel(error)
                             }
                         }
 
-                        fieldContainer {
-                            HStack(spacing: 12) {
-                                Image(systemName: "lock")
-                                    .font(.system(size: 16))
-                                    .foregroundStyle(SVTheme.textTertiary)
-                                    .frame(width: 20)
-                                Group {
-                                    if isNewPasswordVisible {
-                                        TextField("New Password", text: $newPassword)
-                                    } else {
-                                        SecureField("New Password", text: $newPassword)
+                        VStack(alignment: .leading, spacing: 4) {
+                            fieldContainer(hasError: authService.passwordError != nil) {
+                                HStack(spacing: 12) {
+                                    Image(systemName: "lock")
+                                        .font(.system(size: 16))
+                                        .foregroundStyle(SVTheme.textTertiary)
+                                        .frame(width: 20)
+                                    Group {
+                                        if isNewPasswordVisible {
+                                            TextField("New Password", text: $newPassword)
+                                        } else {
+                                            SecureField("New Password", text: $newPassword)
+                                        }
+                                    }
+                                    .textContentType(.newPassword)
+                                    .focused($focusedField, equals: .newPassword)
+                                    .submitLabel(.next)
+                                    .onSubmit { focusedField = .confirmPassword }
+
+                                    Button {
+                                        isNewPasswordVisible.toggle()
+                                    } label: {
+                                        Image(systemName: isNewPasswordVisible ? "eye.slash" : "eye")
+                                            .font(.system(size: 15))
+                                            .foregroundStyle(SVTheme.textTertiary)
                                     }
                                 }
-                                .textContentType(.newPassword)
-                                .focused($focusedField, equals: .newPassword)
-                                .submitLabel(.next)
-                                .onSubmit { focusedField = .confirmPassword }
-
-                                Button {
-                                    isNewPasswordVisible.toggle()
-                                } label: {
-                                    Image(systemName: isNewPasswordVisible ? "eye.slash" : "eye")
-                                        .font(.system(size: 15))
-                                        .foregroundStyle(SVTheme.textTertiary)
-                                }
+                            }
+                            if let error = authService.passwordError {
+                                fieldErrorLabel(error)
                             }
                         }
+                        .onChange(of: newPassword) { _, _ in authService.passwordError = nil }
 
-                        fieldContainer {
-                            HStack(spacing: 12) {
-                                Image(systemName: "lock.fill")
-                                    .font(.system(size: 16))
-                                    .foregroundStyle(SVTheme.textTertiary)
-                                    .frame(width: 20)
-                                SecureField("Confirm Password", text: $confirmPassword)
-                                    .textContentType(.newPassword)
-                                    .focused($focusedField, equals: .confirmPassword)
-                                    .submitLabel(.go)
-                                    .onSubmit { resetPassword() }
+                        VStack(alignment: .leading, spacing: 4) {
+                            fieldContainer(hasError: authService.confirmPasswordError != nil) {
+                                HStack(spacing: 12) {
+                                    Image(systemName: "lock.fill")
+                                        .font(.system(size: 16))
+                                        .foregroundStyle(SVTheme.textTertiary)
+                                        .frame(width: 20)
+                                    SecureField("Confirm Password", text: $confirmPassword)
+                                        .textContentType(.newPassword)
+                                        .focused($focusedField, equals: .confirmPassword)
+                                        .submitLabel(.go)
+                                        .onSubmit { resetPassword() }
+                                        .onChange(of: confirmPassword) { _, _ in authService.confirmPasswordError = nil }
+                                }
+                            }
+                            if let error = authService.confirmPasswordError {
+                                fieldErrorLabel(error)
                             }
                         }
                     }
@@ -100,14 +118,22 @@ struct PasswordResetView: View {
                     Button {
                         resetPassword()
                     } label: {
-                        Text("Reset Password")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 50)
-                            .background(SVTheme.accent)
-                            .clipShape(.rect(cornerRadius: 12))
+                        HStack(spacing: 8) {
+                            if authService.isSubmitting {
+                                ProgressView()
+                                    .tint(.white)
+                                    .scaleEffect(0.8)
+                            }
+                            Text("Reset Password")
+                                .font(.system(size: 16, weight: .semibold))
+                        }
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 50)
+                        .background(authService.isSubmitting ? SVTheme.accent.opacity(0.6) : SVTheme.accent)
+                        .clipShape(.rect(cornerRadius: 12))
                     }
+                    .disabled(authService.isSubmitting)
 
                     Text("Must be at least 8 characters\nwith a letter and a number.")
                         .font(.caption)
@@ -121,7 +147,7 @@ struct PasswordResetView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
-                        authService.errorMessage = nil
+                        authService.clearFieldErrors()
                         dismiss()
                     }
                 }
@@ -129,7 +155,7 @@ struct PasswordResetView: View {
         }
     }
 
-    private func fieldContainer<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+    private func fieldContainer<Content: View>(hasError: Bool = false, @ViewBuilder content: () -> Content) -> some View {
         content()
             .padding(.horizontal, 16)
             .frame(height: 50)
@@ -137,8 +163,20 @@ struct PasswordResetView: View {
             .clipShape(.rect(cornerRadius: 12))
             .overlay(
                 RoundedRectangle(cornerRadius: 12)
-                    .stroke(SVTheme.surfaceBorder, lineWidth: 1)
+                    .stroke(hasError ? SVTheme.urgentRed.opacity(0.6) : SVTheme.surfaceBorder, lineWidth: hasError ? 1.5 : 1)
             )
+    }
+
+    private func fieldErrorLabel(_ text: String) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: "exclamationmark.circle.fill")
+                .font(.system(size: 10))
+            Text(text)
+                .font(.caption)
+        }
+        .foregroundStyle(SVTheme.urgentRed)
+        .padding(.leading, 4)
+        .transition(.opacity.combined(with: .move(edge: .top)))
     }
 
     private func resetPassword() {

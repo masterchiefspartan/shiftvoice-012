@@ -9,6 +9,7 @@ struct SignInView: View {
     @State private var password: String = ""
     @State private var isPasswordVisible: Bool = false
     @FocusState private var focusedField: SignInField?
+    private let networkMonitor = NetworkMonitor.shared
 
     var body: some View {
         ZStack {
@@ -30,6 +31,17 @@ struct SignInView: View {
 
                     googleButton
                         .padding(.horizontal, 24)
+
+                    if !networkMonitor.isConnected {
+                        HStack(spacing: 6) {
+                            Image(systemName: "wifi.slash")
+                                .font(.system(size: 11))
+                            Text("No internet connection")
+                                .font(.caption.weight(.medium))
+                        }
+                        .foregroundStyle(SVTheme.amber)
+                        .padding(.top, 12)
+                    }
 
                     Spacer().frame(height: 24)
 
@@ -105,74 +117,92 @@ struct SignInView: View {
     private var emailForm: some View {
         VStack(spacing: 14) {
             if isSignUp {
-                fieldContainer {
-                    HStack(spacing: 12) {
-                        Image(systemName: "person")
-                            .font(.system(size: 16))
-                            .foregroundStyle(SVTheme.textTertiary)
-                            .frame(width: 20)
-                        TextField("Full Name", text: $name)
-                            .textContentType(.name)
-                            .autocorrectionDisabled()
-                            .focused($focusedField, equals: .name)
-                            .submitLabel(.next)
-                            .onSubmit { focusedField = .email }
+                VStack(alignment: .leading, spacing: 4) {
+                    fieldContainer(hasError: authService.nameError != nil) {
+                        HStack(spacing: 12) {
+                            Image(systemName: "person")
+                                .font(.system(size: 16))
+                                .foregroundStyle(SVTheme.textTertiary)
+                                .frame(width: 20)
+                            TextField("Full Name", text: $name)
+                                .textContentType(.name)
+                                .autocorrectionDisabled()
+                                .focused($focusedField, equals: .name)
+                                .submitLabel(.next)
+                                .onSubmit { focusedField = .email }
+                                .onChange(of: name) { _, _ in authService.nameError = nil }
+                        }
+                    }
+                    if let error = authService.nameError {
+                        fieldErrorLabel(error)
                     }
                 }
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
 
-            fieldContainer {
-                HStack(spacing: 12) {
-                    Image(systemName: "envelope")
-                        .font(.system(size: 16))
-                        .foregroundStyle(SVTheme.textTertiary)
-                        .frame(width: 20)
-                    TextField("Email", text: $email)
-                        .textContentType(.emailAddress)
-                        .keyboardType(.emailAddress)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .focused($focusedField, equals: .email)
-                        .submitLabel(.next)
-                        .onSubmit { focusedField = .password }
+            VStack(alignment: .leading, spacing: 4) {
+                fieldContainer(hasError: authService.emailError != nil) {
+                    HStack(spacing: 12) {
+                        Image(systemName: "envelope")
+                            .font(.system(size: 16))
+                            .foregroundStyle(SVTheme.textTertiary)
+                            .frame(width: 20)
+                        TextField("Email", text: $email)
+                            .textContentType(.emailAddress)
+                            .keyboardType(.emailAddress)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .focused($focusedField, equals: .email)
+                            .submitLabel(.next)
+                            .onSubmit { focusedField = .password }
+                            .onChange(of: email) { _, _ in authService.emailError = nil }
+                    }
+                }
+                if let error = authService.emailError {
+                    fieldErrorLabel(error)
                 }
             }
 
-            fieldContainer {
-                HStack(spacing: 12) {
-                    Image(systemName: "lock")
-                        .font(.system(size: 16))
-                        .foregroundStyle(SVTheme.textTertiary)
-                        .frame(width: 20)
-                    Group {
-                        if isPasswordVisible {
-                            TextField("Password", text: $password)
-                        } else {
-                            SecureField("Password", text: $password)
+            VStack(alignment: .leading, spacing: 4) {
+                fieldContainer(hasError: authService.passwordError != nil) {
+                    HStack(spacing: 12) {
+                        Image(systemName: "lock")
+                            .font(.system(size: 16))
+                            .foregroundStyle(SVTheme.textTertiary)
+                            .frame(width: 20)
+                        Group {
+                            if isPasswordVisible {
+                                TextField("Password", text: $password)
+                            } else {
+                                SecureField("Password", text: $password)
+                            }
+                        }
+                        .textContentType(isSignUp ? .newPassword : .password)
+                        .focused($focusedField, equals: .password)
+                        .submitLabel(.go)
+                        .onSubmit { submitForm() }
+
+                        Button {
+                            isPasswordVisible.toggle()
+                        } label: {
+                            Image(systemName: isPasswordVisible ? "eye.slash" : "eye")
+                                .font(.system(size: 15))
+                                .foregroundStyle(SVTheme.textTertiary)
                         }
                     }
-                    .textContentType(isSignUp ? .newPassword : .password)
-                    .focused($focusedField, equals: .password)
-                    .submitLabel(.go)
-                    .onSubmit { submitForm() }
-
-                    Button {
-                        isPasswordVisible.toggle()
-                    } label: {
-                        Image(systemName: isPasswordVisible ? "eye.slash" : "eye")
-                            .font(.system(size: 15))
-                            .foregroundStyle(SVTheme.textTertiary)
-                    }
+                }
+                if let error = authService.passwordError {
+                    fieldErrorLabel(error)
                 }
             }
+            .onChange(of: password) { _, _ in authService.passwordError = nil }
 
             if !isSignUp {
                 HStack {
                     Spacer()
                     Button {
                         authService.showPasswordReset = true
-                        authService.errorMessage = nil
+                        authService.clearFieldErrors()
                     } label: {
                         Text("Forgot Password?")
                             .font(.caption.weight(.medium))
@@ -185,19 +215,27 @@ struct SignInView: View {
             Button {
                 submitForm()
             } label: {
-                Text(isSignUp ? "Create Account" : "Sign In")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 50)
-                    .background(SVTheme.accent)
-                    .clipShape(.rect(cornerRadius: 12))
+                HStack(spacing: 8) {
+                    if authService.isSubmitting {
+                        ProgressView()
+                            .tint(.white)
+                            .scaleEffect(0.8)
+                    }
+                    Text(isSignUp ? "Create Account" : "Sign In")
+                        .font(.system(size: 16, weight: .semibold))
+                }
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .frame(height: 50)
+                .background(authService.isSubmitting ? SVTheme.accent.opacity(0.6) : SVTheme.accent)
+                .clipShape(.rect(cornerRadius: 12))
             }
+            .disabled(authService.isSubmitting)
             .padding(.top, 4)
         }
     }
 
-    private func fieldContainer<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+    private func fieldContainer<Content: View>(hasError: Bool = false, @ViewBuilder content: () -> Content) -> some View {
         content()
             .padding(.horizontal, 16)
             .frame(height: 50)
@@ -205,8 +243,20 @@ struct SignInView: View {
             .clipShape(.rect(cornerRadius: 12))
             .overlay(
                 RoundedRectangle(cornerRadius: 12)
-                    .stroke(SVTheme.surfaceBorder, lineWidth: 1)
+                    .stroke(hasError ? SVTheme.urgentRed.opacity(0.6) : SVTheme.surfaceBorder, lineWidth: hasError ? 1.5 : 1)
             )
+    }
+
+    private func fieldErrorLabel(_ text: String) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: "exclamationmark.circle.fill")
+                .font(.system(size: 10))
+            Text(text)
+                .font(.caption)
+        }
+        .foregroundStyle(SVTheme.urgentRed)
+        .padding(.leading, 4)
+        .transition(.opacity.combined(with: .move(edge: .top)))
     }
 
     private var dividerRow: some View {
@@ -253,8 +303,7 @@ struct SignInView: View {
             Button {
                 withAnimation {
                     isSignUp.toggle()
-                    authService.errorMessage = nil
-                    authService.passwordResetSuccess = false
+                    clearFormOnModeSwitch()
                 }
             } label: {
                 Text(isSignUp ? "Sign In" : "Sign Up")
@@ -294,6 +343,11 @@ struct SignInView: View {
         } else {
             authService.signInWithEmail(email: email, password: password)
         }
+    }
+
+    private func clearFormOnModeSwitch() {
+        authService.clearFieldErrors()
+        authService.passwordResetSuccess = false
     }
 }
 

@@ -23,14 +23,72 @@ struct ContentView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            customTabBar
+            VStack(spacing: 0) {
+                if viewModel.isOffline {
+                    offlineBanner
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+                customTabBar
+            }
         }
         .ignoresSafeArea(.keyboard)
+        .animation(.easeInOut(duration: 0.3), value: viewModel.isOffline)
         .sheet(isPresented: $showRecordSheet) {
             RecordView(viewModel: viewModel)
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
         }
+        .overlay(alignment: .top) {
+            if case .success(let message) = viewModel.operationState {
+                operationToast(message: message, isError: false)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .onAppear {
+                        Task {
+                            try? await Task.sleep(for: .seconds(2))
+                            withAnimation { viewModel.dismissOperationState() }
+                        }
+                    }
+            } else if case .failure(let message) = viewModel.operationState {
+                operationToast(message: message, isError: true)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .onAppear {
+                        Task {
+                            try? await Task.sleep(for: .seconds(3))
+                            withAnimation { viewModel.dismissOperationState() }
+                        }
+                    }
+            }
+        }
+        .animation(.spring(duration: 0.3), value: viewModel.operationState.isVisible)
+    }
+
+    private var offlineBanner: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "wifi.slash")
+                .font(.system(size: 12, weight: .semibold))
+            Text("You're offline — changes are saved locally")
+                .font(.system(size: 12, weight: .medium))
+        }
+        .foregroundStyle(.white)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 8)
+        .background(SVTheme.amber)
+    }
+
+    private func operationToast(message: String, isError: Bool) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: isError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+                .font(.system(size: 14))
+            Text(message)
+                .font(.system(size: 13, weight: .medium))
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(isError ? SVTheme.urgentRed : SVTheme.successGreen)
+        .clipShape(Capsule())
+        .shadow(color: .black.opacity(0.12), radius: 8, y: 4)
+        .padding(.top, 52)
     }
 
     private var customTabBar: some View {
