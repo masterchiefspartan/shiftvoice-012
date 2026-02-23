@@ -7,8 +7,10 @@ struct RecordView: View {
     @State private var pulseScale: CGFloat = 1.0
     @State private var permissionGranted: Bool = true
     @State private var showPermissionAlert: Bool = false
+    @State private var showPaywall: Bool = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dismiss) private var dismiss
+    private let subscription = SubscriptionService.shared
 
     private var currentShiftDisplay: ShiftDisplayInfo {
         selectedShiftDisplay ?? viewModel.currentShiftDisplayInfo
@@ -47,6 +49,9 @@ struct RecordView: View {
                 Button("Cancel", role: .cancel) {}
             } message: {
                 Text("ShiftVoice needs microphone and speech recognition access to record and transcribe your shift notes. Please enable them in Settings.")
+            }
+            .sheet(isPresented: $showPaywall) {
+                PaywallView()
             }
             .task {
                 let granted = await viewModel.requestRecordingPermissions()
@@ -303,6 +308,11 @@ struct RecordView: View {
     private func startRecording() {
         guard permissionGranted else {
             showPermissionAlert = true
+            return
+        }
+        let thisMonthCount = viewModel.notesThisMonth
+        if !subscription.canRecordNote(currentMonthNoteCount: thisMonthCount) {
+            showPaywall = true
             return
         }
         viewModel.startRecording()

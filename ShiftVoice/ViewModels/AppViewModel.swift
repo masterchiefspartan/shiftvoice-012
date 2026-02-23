@@ -110,6 +110,15 @@ final class AppViewModel {
         return ShiftDisplayInfo(from: best)
     }
 
+    var notesThisMonth: Int {
+        let calendar = Calendar.current
+        let now = Date()
+        return shiftNotes.filter {
+            $0.authorId == currentUserId &&
+            calendar.isDate($0.createdAt, equalTo: now, toGranularity: .month)
+        }.count
+    }
+
     var feedNotes: [ShiftNote] {
         shiftNotes
             .filter { $0.locationId == selectedLocationId }

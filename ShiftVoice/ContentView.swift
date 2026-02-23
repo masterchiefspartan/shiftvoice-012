@@ -5,6 +5,8 @@ struct ContentView: View {
     let viewModel: AppViewModel
     @State private var selectedTab: AppTab = .inbox
     @State private var showRecordSheet: Bool = false
+    @State private var showPaywall: Bool = false
+    private let subscription = SubscriptionService.shared
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -37,6 +39,9 @@ struct ContentView: View {
             RecordView(viewModel: viewModel)
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showPaywall) {
+            PaywallView()
         }
         .overlay(alignment: .top) {
             if case .success(let message) = viewModel.operationState {

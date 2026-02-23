@@ -1,5 +1,6 @@
 import SwiftUI
 import GoogleSignIn
+import RevenueCat
 
 @main
 struct ShiftVoiceApp: App {
@@ -8,6 +9,11 @@ struct ShiftVoiceApp: App {
     @State private var authService = AuthenticationService()
     @State private var appViewModel = AppViewModel()
     private let pushService = PushNotificationService.shared
+    private let subscriptionService = SubscriptionService.shared
+
+    init() {
+        subscriptionService.configure()
+    }
 
     var body: some Scene {
         WindowGroup {
@@ -41,6 +47,7 @@ struct ShiftVoiceApp: App {
                         appViewModel.setBackendAuth(token: token, userId: userId)
                     }
                     appViewModel.setAuthenticatedUser(userId)
+                    subscriptionService.setUserId(userId)
                 } else {
                     appViewModel.clearAuthenticatedUser()
                     hasCompletedOnboarding = false

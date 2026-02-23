@@ -4,6 +4,7 @@ struct SettingsView: View {
     @Bindable var viewModel: AppViewModel
     let authService: AuthenticationService
     private let pushService = PushNotificationService.shared
+    private let subscription = SubscriptionService.shared
     @State private var pushEnabled: Bool = false
     @State private var urgentOnly: Bool = false
     @State private var quietHoursEnabled: Bool = true
@@ -12,6 +13,7 @@ struct SettingsView: View {
     @State private var showTeamSheet: Bool = false
     @State private var showLocationSheet: Bool = false
     @State private var showDeleteConfirmation: Bool = false
+    @State private var showPaywall: Bool = false
 
     var body: some View {
         NavigationStack {
@@ -59,6 +61,9 @@ struct SettingsView: View {
             }
             .sheet(isPresented: $showLocationSheet) {
                 LocationManagementSheet(viewModel: viewModel)
+            }
+            .sheet(isPresented: $showPaywall) {
+                PaywallView()
             }
         }
     }
@@ -433,36 +438,81 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 16) {
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(viewModel.organization.plan.rawValue)
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(SVTheme.textPrimary)
-                        Text(viewModel.organization.plan.monthlyPrice)
+                        HStack(spacing: 8) {
+                            Text(subscriptionTierName)
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(SVTheme.textPrimary)
+                            if subscription.isProUser {
+                                Text("Active")
+                                    .font(.system(size: 9, weight: .bold))
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(SVTheme.successGreen)
+                                    .clipShape(Capsule())
+                            }
+                        }
+                        Text(subscriptionTierDetail)
                             .font(.caption)
                             .foregroundStyle(SVTheme.accent)
                     }
                     Spacer()
                 }
 
-                Rectangle().fill(SVTheme.divider).frame(height: 1)
+                if !subscription.isProUser {
+                    Rectangle().fill(SVTheme.divider).frame(height: 1)
 
-                HStack(spacing: 24) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("LOCATIONS")
-                            .font(.system(size: 9, weight: .semibold))
-                            .foregroundStyle(SVTheme.textTertiary)
-                            .tracking(0.5)
-                        Text("\(viewModel.locations.count)/\(viewModel.organization.plan.maxLocations)")
-                            .font(.subheadline.weight(.medium).monospacedDigit())
-                            .foregroundStyle(SVTheme.textPrimary)
+                    VStack(spacing: 10) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "waveform")
+                                .font(.caption)
+                                .foregroundStyle(SVTheme.textTertiary)
+                            Text("\(viewModel.notesThisMonth)/\(subscription.remainingFreeNotes) notes this month")
+                                .font(.caption)
+                                .foregroundStyle(SVTheme.textSecondary)
+                            Spacer()
+                        }
+
+                        Button {
+                            showPaywall = true
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "crown.fill")
+                                    .font(.caption)
+                                Text("Upgrade to Pro")
+                                    .font(.subheadline.weight(.semibold))
+                            }
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(SVTheme.accent)
+                            .clipShape(.rect(cornerRadius: 10))
+                        }
                     }
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("MANAGERS/LOC")
-                            .font(.system(size: 9, weight: .semibold))
-                            .foregroundStyle(SVTheme.textTertiary)
-                            .tracking(0.5)
-                        Text("\(viewModel.organization.plan.maxManagersPerLocation)")
-                            .font(.subheadline.weight(.medium).monospacedDigit())
-                            .foregroundStyle(SVTheme.textPrimary)
+                } else {
+                    Rectangle().fill(SVTheme.divider).frame(height: 1)
+
+                    HStack(spacing: 24) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("NOTES")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundStyle(SVTheme.textTertiary)
+                                .tracking(0.5)
+                            Text("Unlimited")
+                                .font(.subheadline.weight(.medium))
+                                .foregroundStyle(SVTheme.textPrimary)
+                        }
+                        if subscription.isTeamUser {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("LOCATIONS")
+                                    .font(.system(size: 9, weight: .semibold))
+                                    .foregroundStyle(SVTheme.textTertiary)
+                                    .tracking(0.5)
+                                Text("\(viewModel.locations.count)")
+                                    .font(.subheadline.weight(.medium).monospacedDigit())
+                                    .foregroundStyle(SVTheme.textPrimary)
+                            }
+                        }
                     }
                 }
             }
@@ -473,6 +523,22 @@ struct SettingsView: View {
                 RoundedRectangle(cornerRadius: 12)
                     .stroke(SVTheme.surfaceBorder, lineWidth: 1)
             )
+        }
+    }
+
+    private var subscriptionTierName: String {
+        switch subscription.currentTier {
+        case .free: return "Free Plan"
+        case .pro: return "Pro Plan"
+        case .team: return "Team Plan"
+        }
+    }
+
+    private var subscriptionTierDetail: String {
+        switch subscription.currentTier {
+        case .free: return "5 notes/month"
+        case .pro: return "Unlimited notes"
+        case .team: return "Unlimited notes + team features"
         }
     }
 
