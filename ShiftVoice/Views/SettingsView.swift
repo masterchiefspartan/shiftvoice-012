@@ -3,7 +3,8 @@ import SwiftUI
 struct SettingsView: View {
     @Bindable var viewModel: AppViewModel
     let authService: AuthenticationService
-    @State private var pushEnabled: Bool = true
+    private let pushService = PushNotificationService.shared
+    @State private var pushEnabled: Bool = false
     @State private var urgentOnly: Bool = false
     @State private var quietHoursEnabled: Bool = true
     @State private var quietStart: Date = Calendar.current.date(from: DateComponents(hour: 23)) ?? Date()
@@ -189,7 +190,51 @@ struct SettingsView: View {
                 .tracking(0.5)
 
             VStack(spacing: 0) {
-                settingsToggleRow(title: "Push Notifications", isOn: $pushEnabled)
+                Toggle("Push Notifications", isOn: Binding(
+                    get: { pushEnabled },
+                    set: { newValue in
+                        if newValue {
+                            Task {
+                                let granted = await pushService.requestPermission()
+                                pushEnabled = granted
+                                if !granted && pushService.authorizationStatus == .denied {
+                                    if let settingsURL = URL(string: UIApplication.openSettingsURLString) {
+                                        await UIApplication.shared.open(settingsURL)
+                                    }
+                                }
+                            }
+                        } else {
+                            pushEnabled = false
+                        }
+                    }
+                ))
+                .font(.subheadline)
+                .foregroundStyle(SVTheme.textPrimary)
+                .tint(SVTheme.accent)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+
+                if pushService.authorizationStatus == .denied {
+                    HStack(spacing: 6) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.caption2)
+                            .foregroundStyle(SVTheme.amber)
+                        Text("Notifications disabled in Settings")
+                            .font(.caption)
+                            .foregroundStyle(SVTheme.textTertiary)
+                        Spacer()
+                        Button("Open Settings") {
+                            if let url = URL(string: UIApplication.openSettingsURLString) {
+                                UIApplication.shared.open(url)
+                            }
+                        }
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(SVTheme.accent)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 10)
+                }
+
                 Rectangle().fill(SVTheme.divider).frame(height: 1).padding(.leading, 16)
                 settingsToggleRow(title: "Urgent Only", isOn: $urgentOnly)
                 Rectangle().fill(SVTheme.divider).frame(height: 1).padding(.leading, 16)
@@ -207,6 +252,9 @@ struct SettingsView: View {
                 RoundedRectangle(cornerRadius: 12)
                     .stroke(SVTheme.surfaceBorder, lineWidth: 1)
             )
+        }
+        .onAppear {
+            pushEnabled = pushService.isAuthorized
         }
     }
 

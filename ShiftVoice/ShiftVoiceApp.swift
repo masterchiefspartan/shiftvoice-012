@@ -3,9 +3,11 @@ import GoogleSignIn
 
 @main
 struct ShiftVoiceApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding: Bool = false
     @State private var authService = AuthenticationService()
     @State private var appViewModel = AppViewModel()
+    private let pushService = PushNotificationService.shared
 
     var body: some Scene {
         WindowGroup {
@@ -65,6 +67,17 @@ struct ShiftVoiceApp: App {
             }
             .onReceive(NotificationCenter.default.publisher(for: .networkReconnected)) { _ in
                 appViewModel.handleNetworkReconnect()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .pushNotificationTapped)) { notification in
+                if let noteId = notification.userInfo?["noteId"] as? String {
+                    appViewModel.handlePushNotificationTap(noteId: noteId)
+                }
+            }
+            .task {
+                pushService.setup()
+                if pushService.authorizationStatus == .authorized {
+                    pushService.checkAuthorizationStatus()
+                }
             }
         }
     }

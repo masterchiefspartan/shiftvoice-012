@@ -585,4 +585,10 @@ final class AppViewModel {
         guard authenticatedUserId != nil else { return }
         forceSync()
     }
+
+    var pendingNoteId: String?
+
+    func handlePushNotificationTap(noteId: String) {
+        pendingNoteId = noteId
+    }
 }

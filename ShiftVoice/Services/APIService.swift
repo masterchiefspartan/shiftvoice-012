@@ -266,6 +266,12 @@ final class APIService {
         _ = try await makeRequest(path: "auth/logout", method: "POST", body: [:] as [String: String])
     }
 
+    func registerDeviceToken(_ token: String) async throws -> SimpleResponse {
+        let body: [String: Any] = ["deviceToken": token, "platform": "ios"]
+        let data = try await makeRequest(path: "auth/device-token", method: "POST", body: body)
+        return try decoder.decode(SimpleResponse.self, from: data)
+    }
+
     // MARK: - Sync
 
     func pullData() async throws -> SyncPullResponse {
