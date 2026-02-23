@@ -81,7 +81,7 @@ struct SettingsView: View {
                 Text(authService.userName.isEmpty ? viewModel.currentUserName : authService.userName)
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(SVTheme.textPrimary)
-                Text(authService.userEmail.isEmpty ? "marcus@riverahg.com" : authService.userEmail)
+                Text(authService.userEmail.isEmpty ? "No email" : authService.userEmail)
                     .font(.caption)
                     .foregroundStyle(SVTheme.textTertiary)
                 Text("Owner")

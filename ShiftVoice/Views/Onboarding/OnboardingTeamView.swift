@@ -118,7 +118,7 @@ struct OnboardingTeamView: View {
                     .foregroundStyle(SVTheme.textPrimary)
                     .keyboardType(.emailAddress)
                     .textContentType(.emailAddress)
-                    .autocapitalization(.none)
+                    .textInputAutocapitalization(.never)
 
                     Button {
                         withAnimation(.easeOut(duration: 0.2)) {

@@ -794,7 +794,7 @@ struct ActionItemRow: View {
                     Label("Open", systemImage: "circle")
                 }
                 Button { onStatusChange(.inProgress) } label: {
-                    Label("In Progress", systemImage: "progress.indicator")
+                    Label("In Progress", systemImage: "circle.dotted.and.circle")
                 }
                 Button { onStatusChange(.resolved) } label: {
                     Label("Resolved", systemImage: "checkmark.circle.fill")
@@ -813,7 +813,7 @@ struct ActionItemRow: View {
     private var statusIcon: String {
         switch item.status {
         case .open: return "circle"
-        case .inProgress: return "progress.indicator"
+        case .inProgress: return "circle.dotted.and.circle"
         case .resolved: return "checkmark.circle.fill"
         }
     }

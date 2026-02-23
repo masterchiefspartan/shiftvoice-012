@@ -8,6 +8,7 @@ final class AudioRecorderService: NSObject, AVAudioRecorderDelegate {
     var audioLevels: [CGFloat] = Array(repeating: 0.05, count: 30)
     var currentAudioURL: URL?
     var errorMessage: String?
+    var didAutoStop: Bool = false
 
     private var audioRecorder: AVAudioRecorder?
     private var meteringTimer: Timer?
@@ -29,6 +30,7 @@ final class AudioRecorderService: NSObject, AVAudioRecorderDelegate {
 
     func startRecording() {
         errorMessage = nil
+        didAutoStop = false
 
         do {
             try FileManager.default.createDirectory(at: recordingDirectory, withIntermediateDirectories: true)
@@ -120,6 +122,7 @@ final class AudioRecorderService: NSObject, AVAudioRecorderDelegate {
                 guard let self, self.isRecording else { return }
                 self.recordingDuration += 1
                 if self.recordingDuration >= 180 {
+                    self.didAutoStop = true
                     self.stopRecording()
                 }
             }

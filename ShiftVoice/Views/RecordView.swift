@@ -52,6 +52,11 @@ struct RecordView: View {
                 let granted = await viewModel.requestRecordingPermissions()
                 permissionGranted = granted
             }
+            .onChange(of: viewModel.audioRecorder.didAutoStop) { _, didAutoStop in
+                if didAutoStop {
+                    stopRecording()
+                }
+            }
         }
     }
 

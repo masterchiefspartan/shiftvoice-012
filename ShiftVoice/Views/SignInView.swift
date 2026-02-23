@@ -346,6 +346,9 @@ struct SignInView: View {
     }
 
     private func clearFormOnModeSwitch() {
+        name = ""
+        password = ""
+        isPasswordVisible = false
         authService.clearFieldErrors()
         authService.passwordResetSuccess = false
     }

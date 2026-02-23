@@ -38,6 +38,7 @@ struct ShiftVoiceApp: App {
                     appViewModel.setAuthenticatedUser(userId)
                 } else {
                     appViewModel.clearAuthenticatedUser()
+                    hasCompletedOnboarding = false
                 }
             }
             .onChange(of: authService.currentUserId) { _, userId in
