@@ -41,14 +41,14 @@ struct ShiftVoiceApp: App {
             .animation(.easeOut(duration: 0.25), value: authService.isLoading)
             .animation(.easeOut(duration: 0.25), value: authService.isSignedIn)
             .animation(.easeOut(duration: 0.25), value: hasCompletedOnboarding)
-            .onChange(of: authService.isSignedIn) { _, isSignedIn in
+            .onChange(of: authService.isSignedIn) { oldValue, isSignedIn in
                 if isSignedIn, let userId = authService.currentUserId {
                     if let token = authService.backendToken {
                         appViewModel.setBackendAuth(token: token, userId: userId)
                     }
                     appViewModel.setAuthenticatedUser(userId)
                     subscriptionService.setUserId(userId)
-                } else {
+                } else if oldValue && !isSignedIn {
                     appViewModel.clearAuthenticatedUser()
                     hasCompletedOnboarding = false
                 }
@@ -59,6 +59,11 @@ struct ShiftVoiceApp: App {
                         appViewModel.setBackendAuth(token: token, userId: userId)
                     }
                     appViewModel.setAuthenticatedUser(userId)
+                }
+            }
+            .onChange(of: authService.backendToken) { _, token in
+                if authService.isSignedIn, let token, let userId = authService.currentUserId {
+                    appViewModel.setBackendAuth(token: token, userId: userId)
                 }
             }
             .onAppear {

@@ -107,6 +107,38 @@ final class AuthenticationService {
                 isLoading = false
                 return
             }
+
+            if method == .google {
+                if isGoogleConfigured, GIDSignIn.sharedInstance.hasPreviousSignIn() {
+                    GIDSignIn.sharedInstance.restorePreviousSignIn { [weak self] user, error in
+                        Task { @MainActor in
+                            guard let self else { return }
+                            if let user {
+                                self.currentUser = user
+                                let userId = user.userID ?? session.userId
+                                self.currentUserId = userId
+                                self.authMethod = .google
+                                self.isSignedIn = true
+                                self.persistGoogleUserProfile()
+                                self.authenticateGoogleWithBackend()
+                            } else if let profile = PersistenceService.shared.loadUserProfile(for: session.userId) {
+                                self.emailUserProfile = profile
+                                self.currentUserId = session.userId
+                                self.authMethod = .google
+                                self.isSignedIn = true
+                            }
+                            self.isLoading = false
+                        }
+                    }
+                    return
+                } else if let profile = PersistenceService.shared.loadUserProfile(for: session.userId) {
+                    currentUserId = session.userId
+                    authMethod = .google
+                    isSignedIn = true
+                    isLoading = false
+                    return
+                }
+            }
         }
 
         if isGoogleConfigured, GIDSignIn.sharedInstance.hasPreviousSignIn() {
@@ -115,10 +147,10 @@ final class AuthenticationService {
                     guard let self else { return }
                     if let user {
                         self.currentUser = user
-                        self.isSignedIn = true
-                        self.authMethod = .google
                         let userId = user.userID ?? UUID().uuidString
                         self.currentUserId = userId
+                        self.authMethod = .google
+                        self.isSignedIn = true
                         self.createSession(userId: userId, method: .google)
                         self.persistGoogleUserProfile()
                         self.authenticateGoogleWithBackend()
@@ -160,11 +192,11 @@ final class AuthenticationService {
                 self.currentUser = user
                 let userId = user.userID ?? UUID().uuidString
                 self.currentUserId = userId
-                self.isSignedIn = true
                 self.authMethod = .google
                 UserDefaults.standard.set(AuthMethod.google.rawValue, forKey: "sv_auth_method")
                 self.createSession(userId: userId, method: .google)
                 self.persistGoogleUserProfile()
+                self.isSignedIn = true
                 self.authenticateGoogleWithBackend()
             }
         }
