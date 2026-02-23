@@ -10,6 +10,7 @@ struct SettingsView: View {
     @State private var quietEnd: Date = Calendar.current.date(from: DateComponents(hour: 7)) ?? Date()
     @State private var showTeamSheet: Bool = false
     @State private var showLocationSheet: Bool = false
+    @State private var showDeleteConfirmation: Bool = false
 
     var body: some View {
         NavigationStack {
@@ -391,26 +392,57 @@ struct SettingsView: View {
     }
 
     private var signOutSection: some View {
-        Button {
-            authService.signOut()
-        } label: {
-            HStack {
-                Image(systemName: "rectangle.portrait.and.arrow.right")
-                    .font(.subheadline)
-                Text("Sign Out")
-                    .font(.subheadline.weight(.medium))
-                Spacer()
+        VStack(spacing: 12) {
+            Button {
+                authService.signOut()
+            } label: {
+                HStack {
+                    Image(systemName: "rectangle.portrait.and.arrow.right")
+                        .font(.subheadline)
+                    Text("Sign Out")
+                        .font(.subheadline.weight(.medium))
+                    Spacer()
+                }
+                .foregroundStyle(SVTheme.urgentRed)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
             }
-            .foregroundStyle(SVTheme.urgentRed)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 14)
+            .background(SVTheme.cardBackground)
+            .clipShape(.rect(cornerRadius: 12))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(SVTheme.surfaceBorder, lineWidth: 1)
+            )
+
+            Button {
+                showDeleteConfirmation = true
+            } label: {
+                HStack {
+                    Image(systemName: "trash")
+                        .font(.subheadline)
+                    Text("Delete Account")
+                        .font(.subheadline.weight(.medium))
+                    Spacer()
+                }
+                .foregroundStyle(SVTheme.urgentRed.opacity(0.7))
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+            }
+            .background(SVTheme.cardBackground)
+            .clipShape(.rect(cornerRadius: 12))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(SVTheme.surfaceBorder, lineWidth: 1)
+            )
+            .alert("Delete Account", isPresented: $showDeleteConfirmation) {
+                Button("Delete", role: .destructive) {
+                    authService.deleteAccount()
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This will permanently delete your account, credentials, and all associated data. This cannot be undone.")
+            }
         }
-        .background(SVTheme.cardBackground)
-        .clipShape(.rect(cornerRadius: 12))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(SVTheme.surfaceBorder, lineWidth: 1)
-        )
     }
 
     private func settingsToggleRow(title: String, isOn: Binding<Bool>) -> some View {

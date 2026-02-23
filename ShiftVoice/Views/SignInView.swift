@@ -2,7 +2,7 @@ import SwiftUI
 import GoogleSignInSwift
 
 struct SignInView: View {
-    let authService: AuthenticationService
+    @Bindable var authService: AuthenticationService
     @State private var isSignUp: Bool = false
     @State private var name: String = ""
     @State private var email: String = ""
@@ -42,6 +42,15 @@ struct SignInView: View {
                             .transition(.opacity.combined(with: .move(edge: .top)))
                     }
 
+                    if authService.passwordResetSuccess {
+                        Text("Password reset successfully. Please sign in.")
+                            .font(.footnote)
+                            .foregroundStyle(SVTheme.successGreen)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 32)
+                            .transition(.opacity.combined(with: .move(edge: .top)))
+                    }
+
                     Spacer().frame(height: 32)
 
                     toggleModeButton
@@ -62,6 +71,12 @@ struct SignInView: View {
         }
         .animation(.easeOut(duration: 0.2), value: isSignUp)
         .animation(.easeOut(duration: 0.2), value: authService.errorMessage)
+        .animation(.easeOut(duration: 0.2), value: authService.passwordResetSuccess)
+        .sheet(isPresented: $authService.showPasswordReset) {
+            PasswordResetView(authService: authService)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+        }
     }
 
     private var brandHeader: some View {
@@ -152,6 +167,21 @@ struct SignInView: View {
                 }
             }
 
+            if !isSignUp {
+                HStack {
+                    Spacer()
+                    Button {
+                        authService.showPasswordReset = true
+                        authService.errorMessage = nil
+                    } label: {
+                        Text("Forgot Password?")
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(SVTheme.accent)
+                    }
+                }
+                .padding(.top, -4)
+            }
+
             Button {
                 submitForm()
             } label: {
@@ -224,6 +254,7 @@ struct SignInView: View {
                 withAnimation {
                     isSignUp.toggle()
                     authService.errorMessage = nil
+                    authService.passwordResetSuccess = false
                 }
             } label: {
                 Text(isSignUp ? "Sign In" : "Sign Up")
@@ -257,6 +288,7 @@ struct SignInView: View {
 
     private func submitForm() {
         focusedField = nil
+        authService.passwordResetSuccess = false
         if isSignUp {
             authService.signUpWithEmail(name: name, email: email, password: password)
         } else {

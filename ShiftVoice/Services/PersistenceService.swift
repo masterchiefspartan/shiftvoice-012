@@ -30,10 +30,6 @@ final class PersistenceService {
         fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
     }
 
-    private var appDataURL: URL {
-        documentsURL.appendingPathComponent("shiftvoice_data.json")
-    }
-
     private let encoder: JSONEncoder = {
         let e = JSONEncoder()
         e.dateEncodingStrategy = .iso8601
@@ -47,19 +43,56 @@ final class PersistenceService {
         return d
     }()
 
-    func save(_ data: AppData) {
+    // MARK: - User-Scoped Directory
+
+    private func userDirectory(for userId: String) -> URL {
+        let dir = documentsURL.appendingPathComponent("users/\(userId)", isDirectory: true)
+        if !fileManager.fileExists(atPath: dir.path) {
+            try? fileManager.createDirectory(at: dir, withIntermediateDirectories: true)
+        }
+        return dir
+    }
+
+    private func appDataURL(for userId: String) -> URL {
+        userDirectory(for: userId).appendingPathComponent("app_data.json")
+    }
+
+    private func userProfileURL(for userId: String) -> URL {
+        userDirectory(for: userId).appendingPathComponent("profile.json")
+    }
+
+    private var emailMappingURL: URL {
+        documentsURL.appendingPathComponent("email_user_map.json")
+    }
+
+    // MARK: - Legacy paths (for migration)
+
+    private var legacyAppDataURL: URL {
+        documentsURL.appendingPathComponent("shiftvoice_data.json")
+    }
+
+    private var legacyProfileURL: URL {
+        documentsURL.appendingPathComponent("user_profile.json")
+    }
+
+    // MARK: - User-Scoped App Data
+
+    func save(_ data: AppData, for userId: String) {
         do {
             let jsonData = try encoder.encode(data)
-            try jsonData.write(to: appDataURL, options: .atomic)
+            try jsonData.write(to: appDataURL(for: userId), options: .atomic)
         } catch {
             print("PersistenceService save error: \(error)")
         }
     }
 
-    func load() -> AppData? {
-        guard fileManager.fileExists(atPath: appDataURL.path) else { return nil }
+    func load(for userId: String) -> AppData? {
+        let url = appDataURL(for: userId)
+        guard fileManager.fileExists(atPath: url.path) else {
+            return migrateLegacyData(to: userId)
+        }
         do {
-            let data = try Data(contentsOf: appDataURL)
+            let data = try Data(contentsOf: url)
             return try decoder.decode(AppData.self, from: data)
         } catch {
             print("PersistenceService load error: \(error)")
@@ -67,19 +100,22 @@ final class PersistenceService {
         }
     }
 
-    func saveUserProfile(_ profile: UserProfile) {
-        let url = documentsURL.appendingPathComponent("user_profile.json")
+    // MARK: - User Profile (scoped)
+
+    func saveUserProfile(_ profile: UserProfile, for userId: String) {
         do {
             let data = try encoder.encode(profile)
-            try data.write(to: url, options: .atomic)
+            try data.write(to: userProfileURL(for: userId), options: .atomic)
         } catch {
             print("PersistenceService saveUserProfile error: \(error)")
         }
     }
 
-    func loadUserProfile() -> UserProfile? {
-        let url = documentsURL.appendingPathComponent("user_profile.json")
-        guard fileManager.fileExists(atPath: url.path) else { return nil }
+    func loadUserProfile(for userId: String) -> UserProfile? {
+        let url = userProfileURL(for: userId)
+        guard fileManager.fileExists(atPath: url.path) else {
+            return migrateLegacyProfile(to: userId)
+        }
         do {
             let data = try Data(contentsOf: url)
             return try decoder.decode(UserProfile.self, from: data)
@@ -89,13 +125,94 @@ final class PersistenceService {
         }
     }
 
-    func clearAll() {
-        try? fileManager.removeItem(at: appDataURL)
-        let profileURL = documentsURL.appendingPathComponent("user_profile.json")
-        try? fileManager.removeItem(at: profileURL)
+    // MARK: - Email → UserId Mapping
+
+    func saveEmailToUserIdMapping(email: String, userId: String) {
+        var map = loadEmailMap()
+        map[email.lowercased()] = userId
+        do {
+            let data = try encoder.encode(map)
+            try data.write(to: emailMappingURL, options: .atomic)
+        } catch {
+            print("PersistenceService saveEmailMapping error: \(error)")
+        }
     }
 
-    var hasPersistedData: Bool {
-        fileManager.fileExists(atPath: appDataURL.path)
+    func loadUserIdForEmail(_ email: String) -> String? {
+        let map = loadEmailMap()
+        return map[email.lowercased()]
+    }
+
+    private func loadEmailMap() -> [String: String] {
+        guard fileManager.fileExists(atPath: emailMappingURL.path) else { return [:] }
+        do {
+            let data = try Data(contentsOf: emailMappingURL)
+            return try decoder.decode([String: String].self, from: data)
+        } catch {
+            return [:]
+        }
+    }
+
+    // MARK: - Clear User Data
+
+    func clearUserData(for userId: String) {
+        let dir = userDirectory(for: userId)
+        try? fileManager.removeItem(at: dir)
+    }
+
+    func clearAll() {
+        try? fileManager.removeItem(at: legacyAppDataURL)
+        try? fileManager.removeItem(at: legacyProfileURL)
+        let usersDir = documentsURL.appendingPathComponent("users", isDirectory: true)
+        try? fileManager.removeItem(at: usersDir)
+        try? fileManager.removeItem(at: emailMappingURL)
+    }
+
+    func hasPersistedData(for userId: String) -> Bool {
+        fileManager.fileExists(atPath: appDataURL(for: userId).path)
+    }
+
+    // MARK: - Legacy Migration
+
+    private func migrateLegacyData(to userId: String) -> AppData? {
+        guard fileManager.fileExists(atPath: legacyAppDataURL.path) else { return nil }
+        do {
+            let data = try Data(contentsOf: legacyAppDataURL)
+            let appData = try decoder.decode(AppData.self, from: data)
+            save(appData, for: userId)
+            try? fileManager.removeItem(at: legacyAppDataURL)
+            return appData
+        } catch {
+            return nil
+        }
+    }
+
+    private func migrateLegacyProfile(to userId: String) -> UserProfile? {
+        guard fileManager.fileExists(atPath: legacyProfileURL.path) else { return nil }
+        do {
+            let data = try Data(contentsOf: legacyProfileURL)
+            let profile = try decoder.decode(UserProfile.self, from: data)
+            saveUserProfile(profile, for: userId)
+            try? fileManager.removeItem(at: legacyProfileURL)
+            return profile
+        } catch {
+            return nil
+        }
+    }
+
+    // MARK: - Backward Compat (deprecated, used during migration)
+
+    func saveUserProfile(_ profile: UserProfile) {
+        saveUserProfile(profile, for: profile.id)
+    }
+
+    func loadUserProfile() -> UserProfile? {
+        guard fileManager.fileExists(atPath: legacyProfileURL.path) else { return nil }
+        do {
+            let data = try Data(contentsOf: legacyProfileURL)
+            return try decoder.decode(UserProfile.self, from: data)
+        } catch {
+            return nil
+        }
     }
 }

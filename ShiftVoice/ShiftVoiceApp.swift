@@ -33,6 +33,23 @@ struct ShiftVoiceApp: App {
             .animation(.easeOut(duration: 0.25), value: authService.isLoading)
             .animation(.easeOut(duration: 0.25), value: authService.isSignedIn)
             .animation(.easeOut(duration: 0.25), value: hasCompletedOnboarding)
+            .onChange(of: authService.isSignedIn) { _, isSignedIn in
+                if isSignedIn, let userId = authService.currentUserId {
+                    appViewModel.setAuthenticatedUser(userId)
+                } else {
+                    appViewModel.clearAuthenticatedUser()
+                }
+            }
+            .onChange(of: authService.currentUserId) { _, userId in
+                if authService.isSignedIn, let userId {
+                    appViewModel.setAuthenticatedUser(userId)
+                }
+            }
+            .onAppear {
+                if authService.isSignedIn, let userId = authService.currentUserId {
+                    appViewModel.setAuthenticatedUser(userId)
+                }
+            }
             .onOpenURL { url in
                 _ = authService.handleURL(url)
             }

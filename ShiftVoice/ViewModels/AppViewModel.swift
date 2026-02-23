@@ -23,17 +23,20 @@ final class AppViewModel {
     var audioLevels: [CGFloat] { audioRecorder.audioLevels }
 
     private let persistence = PersistenceService.shared
+    private var authenticatedUserId: String?
 
     var currentUserId: String {
-        persistence.loadUserProfile()?.id ?? MockDataService.currentUserId
+        authenticatedUserId ?? ""
     }
 
     var currentUserName: String {
-        persistence.loadUserProfile()?.name ?? MockDataService.currentUserName
+        guard let userId = authenticatedUserId else { return "" }
+        return persistence.loadUserProfile(for: userId)?.name ?? ""
     }
 
     var currentUserInitials: String {
-        persistence.loadUserProfile()?.initials ?? MockDataService.currentUserInitials
+        guard let userId = authenticatedUserId else { return "" }
+        return persistence.loadUserProfile(for: userId)?.initials ?? ""
     }
 
     var selectedLocation: Location? {
@@ -89,12 +92,28 @@ final class AppViewModel {
             .sorted { $0.createdAt > $1.createdAt }
     }
 
-    init() {
+    init() {}
+
+    func setAuthenticatedUser(_ userId: String) {
+        authenticatedUserId = userId
         loadData()
     }
 
+    func clearAuthenticatedUser() {
+        authenticatedUserId = nil
+        shiftNotes = []
+        locations = []
+        teamMembers = []
+        recurringIssues = []
+        organization = MockDataService.organization
+        selectedLocationId = ""
+        unacknowledgedCount = 0
+    }
+
     private func loadData() {
-        if let appData = persistence.load() {
+        guard let userId = authenticatedUserId else { return }
+
+        if let appData = persistence.load(for: userId) {
             organization = appData.organization
             locations = appData.locations
             teamMembers = appData.teamMembers
@@ -114,16 +133,18 @@ final class AppViewModel {
     }
 
     func persistData() {
+        guard let userId = authenticatedUserId else { return }
+
         let appData = AppData(
             organization: organization,
             locations: locations,
             teamMembers: teamMembers,
             shiftNotes: shiftNotes,
             recurringIssues: recurringIssues,
-            userProfile: persistence.loadUserProfile(),
+            userProfile: persistence.loadUserProfile(for: userId),
             selectedLocationId: selectedLocationId
         )
-        persistence.save(appData)
+        persistence.save(appData, for: userId)
     }
 
     func applyOnboardingData(businessType: BusinessType, locationName: String, timezone: String, teamInvites: [TeamInvite]) {
@@ -151,11 +172,16 @@ final class AppViewModel {
         locations = [newLocation]
         selectedLocationId = newLocation.id
 
+        let userEmail: String = {
+            guard let userId = authenticatedUserId else { return "" }
+            return persistence.loadUserProfile(for: userId)?.email ?? ""
+        }()
+
         var members: [TeamMember] = [
             TeamMember(
                 id: currentUserId,
                 name: currentUserName,
-                email: persistence.loadUserProfile()?.email ?? "",
+                email: userEmail,
                 role: .owner,
                 roleTemplateId: "role_owner",
                 locationIds: [newLocation.id]
@@ -418,7 +444,8 @@ final class AppViewModel {
     }
 
     func resetAllData() {
-        persistence.clearAll()
+        guard let userId = authenticatedUserId else { return }
+        persistence.clearUserData(for: userId)
         locations = MockDataService.locations
         teamMembers = MockDataService.teamMembers
         organization = MockDataService.organization
