@@ -29,6 +29,7 @@ struct RecordView: View {
                     summary: reviewData.summary,
                     categorizedItems: reviewData.categorizedItems,
                     actionItems: reviewData.actionItems,
+                    structuringWarning: reviewData.structuringWarning,
                     onDiscard: {
                         viewModel.discardPendingNote()
                         dismiss()

@@ -29,6 +29,7 @@ final class AppViewModel {
     var isProcessing: Bool = false
     var operationState: OperationState = .idle
     var saveError: String?
+    var structuringWarning: String?
 
     let networkMonitor = NetworkMonitor.shared
     var isOffline: Bool { !networkMonitor.isConnected }
@@ -465,6 +466,7 @@ final class AppViewModel {
         let audioURL = audioRecorder.currentAudioURL
         audioRecorder.stopRecording()
         isProcessing = true
+        structuringWarning = nil
 
         Task {
             var transcript = ""
@@ -479,23 +481,52 @@ final class AppViewModel {
             var summary: String
             var categorizedItems: [CategorizedItem]
             var actionItems: [ActionItem]
+            var usedAI = false
 
             let businessType = organizationBusinessType.rawValue.lowercased()
-            let aiResult = await noteStructuring.structureTranscript(
-                transcript,
-                businessType: businessType,
-                authToken: api.currentAuthToken,
-                userId: authenticatedUserId
-            )
 
-            if let ai = aiResult {
-                summary = ai.summary
-                categorizedItems = ai.categorizedItems
-                actionItems = ai.actionItems
-            } else {
+            let aiResult = await withTaskGroup(of: Result<StructuringResult, StructuringError>?.self) { group -> Result<StructuringResult, StructuringError>? in
+                group.addTask {
+                    await self.noteStructuring.structureTranscript(
+                        transcript,
+                        businessType: businessType,
+                        authToken: self.api.currentAuthToken,
+                        userId: self.authenticatedUserId
+                    )
+                }
+                group.addTask {
+                    try? await Task.sleep(for: .seconds(30))
+                    return nil
+                }
+                for await result in group {
+                    if let result {
+                        group.cancelAll()
+                        return result
+                    }
+                }
+                group.cancelAll()
+                return .failure(.timeout)
+            }
+
+            switch aiResult {
+            case .success(let result):
+                summary = result.summary
+                categorizedItems = result.categorizedItems
+                actionItems = result.actionItems
+                usedAI = true
+                structuringWarning = result.warning
+            case .failure(let error):
                 summary = generateSummary(from: transcript)
                 categorizedItems = generateCategories(from: transcript)
                 actionItems = generateActionItems(from: categorizedItems)
+                if !transcript.isEmpty {
+                    structuringWarning = "AI structuring unavailable — structured locally. \(error.userMessage)"
+                }
+            case .none:
+                summary = generateSummary(from: transcript)
+                categorizedItems = generateCategories(from: transcript)
+                actionItems = generateActionItems(from: categorizedItems)
+                structuringWarning = "AI structuring timed out — structured locally."
             }
 
             pendingReviewData = PendingNoteReviewData(
@@ -505,7 +536,9 @@ final class AppViewModel {
                 shiftInfo: shiftInfo,
                 summary: summary,
                 categorizedItems: categorizedItems,
-                actionItems: actionItems
+                actionItems: actionItems,
+                usedAI: usedAI,
+                structuringWarning: structuringWarning
             )
             isProcessing = false
         }
@@ -588,43 +621,59 @@ final class AppViewModel {
         return items
     }
 
-    private func splitTranscriptIntoSegments(_ transcript: String) -> [String] {
-        let separators = [" also ", " and then ", " next ", " another thing ", " additionally ", " plus ", " on top of that ", " second ", " third ", " finally ", " lastly "]
+    func splitTranscriptIntoSegments(_ transcript: String) -> [String] {
+        let sentenceDelimiters = CharacterSet(charactersIn: ".!?")
+        let rawSentences = transcript.components(separatedBy: sentenceDelimiters)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { $0.count > 5 }
+
+        let separators = [
+            " also ", " and then ", " next ", " another thing ",
+            " additionally ", " plus ", " on top of that ",
+            " second ", " third ", " finally ", " lastly ",
+            ", and ", " as well as ", " besides that ",
+            " one more thing ", " other than that ", " apart from that ",
+            " number one ", " number two ", " number three ",
+            " first ", " then "
+        ]
+
         var segments: [String] = []
 
-        let sentences = transcript.components(separatedBy: ". ")
-            .flatMap { $0.components(separatedBy: ", and ") }
-
-        for sentence in sentences {
-            let trimmed = sentence.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { continue }
-
-            var didSplit = false
-            for sep in separators {
-                if trimmed.lowercased().contains(sep) {
-                    let parts = trimmed.lowercased().range(of: sep).map { range -> [String] in
-                        let before = String(trimmed[trimmed.startIndex..<range.lowerBound])
-                        let after = String(trimmed[range.upperBound..<trimmed.endIndex])
-                        return [before, after].filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
-                    }
-                    if let parts, parts.count > 1 {
-                        segments.append(contentsOf: parts)
-                        didSplit = true
-                        break
-                    }
-                }
-            }
-            if !didSplit {
-                segments.append(trimmed)
-            }
+        for sentence in rawSentences {
+            let subSegments = recursiveSplit(sentence, separators: separators)
+            segments.append(contentsOf: subSegments)
         }
 
-        return segments.filter { $0.count > 5 }
+        return segments
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { $0.count > 5 }
     }
 
-    private func generateActionItems(from categorized: [CategorizedItem]) -> [ActionItem] {
+    private func recursiveSplit(_ text: String, separators: [String]) -> [String] {
+        let lower = text.lowercased()
+
+        for sep in separators {
+            guard let range = lower.range(of: sep) else { continue }
+            let originalRange = text.index(text.startIndex, offsetBy: lower.distance(from: lower.startIndex, to: range.lowerBound))..<text.index(text.startIndex, offsetBy: lower.distance(from: lower.startIndex, to: range.upperBound))
+
+            let before = String(text[text.startIndex..<originalRange.lowerBound])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let after = String(text[originalRange.upperBound..<text.endIndex])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+
+            var results: [String] = []
+            if before.count > 5 { results.append(before) }
+            if after.count > 5 {
+                results.append(contentsOf: recursiveSplit(after, separators: separators))
+            }
+            if !results.isEmpty { return results }
+        }
+
+        return [text]
+    }
+
+    func generateActionItems(from categorized: [CategorizedItem]) -> [ActionItem] {
         categorized.compactMap { item in
-            guard item.category != .general else { return nil }
             let taskDescription: String
             switch item.category {
             case .equipment: taskDescription = "Check and address: \(item.content.prefix(80))"
@@ -634,7 +683,11 @@ final class AppViewModel {
             case .staffNote: taskDescription = "Follow up: \(item.content.prefix(80))"
             case .guestIssue: taskDescription = "Guest concern: \(item.content.prefix(80))"
             case .eightySixed: taskDescription = "86'd - restock: \(item.content.prefix(80))"
-            default: taskDescription = "Review: \(item.content.prefix(80))"
+            case .reservation: taskDescription = "Reservation follow-up: \(item.content.prefix(80))"
+            case .incident: taskDescription = "Incident follow-up: \(item.content.prefix(80))"
+            case .general:
+                guard item.urgency != .fyi else { return nil }
+                taskDescription = "Review: \(item.content.prefix(80))"
             }
             return ActionItem(
                 task: taskDescription,
@@ -836,5 +889,9 @@ final class AppViewModel {
 
     func testGenerateSummary(from transcript: String) -> String {
         generateSummary(from: transcript)
+    }
+
+    func testSplitTranscript(_ transcript: String) -> [String] {
+        splitTranscriptIntoSegments(transcript)
     }
 }

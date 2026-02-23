@@ -8,4 +8,6 @@ struct PendingNoteReviewData {
     let summary: String
     let categorizedItems: [CategorizedItem]
     let actionItems: [ActionItem]
+    var usedAI: Bool = true
+    var structuringWarning: String? = nil
 }

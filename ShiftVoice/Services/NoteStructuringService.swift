@@ -19,6 +19,35 @@ nonisolated struct AIStructureResponse: Codable, Sendable {
     let error: String?
 }
 
+nonisolated enum StructuringError: Error, Sendable {
+    case emptyTranscript
+    case noBaseURL
+    case invalidURL
+    case serverError(String)
+    case aiUnavailable(String)
+    case decodingError
+    case timeout
+
+    var userMessage: String {
+        switch self {
+        case .emptyTranscript: return "No transcript to process."
+        case .noBaseURL, .invalidURL: return "Service configuration error."
+        case .serverError(let msg): return msg
+        case .aiUnavailable(let msg): return msg
+        case .decodingError: return "Failed to parse AI response."
+        case .timeout: return "Processing timed out. Your note was structured locally."
+        }
+    }
+}
+
+nonisolated struct StructuringResult: Sendable {
+    let summary: String
+    let categorizedItems: [CategorizedItem]
+    let actionItems: [ActionItem]
+    let usedAI: Bool
+    let warning: String?
+}
+
 final class NoteStructuringService {
     static let shared = NoteStructuringService()
 
@@ -38,9 +67,12 @@ final class NoteStructuringService {
         decoder = JSONDecoder()
     }
 
-    func structureTranscript(_ transcript: String, businessType: String, authToken: String?, userId: String?) async -> (summary: String, categorizedItems: [CategorizedItem], actionItems: [ActionItem])? {
-        guard !baseURL.isEmpty, !transcript.isEmpty else { return nil }
-        guard let url = URL(string: "\(baseURL)/api/rest/structure-transcript") else { return nil }
+    func structureTranscript(_ transcript: String, businessType: String, authToken: String?, userId: String?) async -> Result<StructuringResult, StructuringError> {
+        guard !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return .failure(.emptyTranscript)
+        }
+        guard !baseURL.isEmpty else { return .failure(.noBaseURL) }
+        guard let url = URL(string: "\(baseURL)/api/rest/structure-transcript") else { return .failure(.invalidURL) }
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -61,64 +93,103 @@ final class NoteStructuringService {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
             let (data, response) = try await session.data(for: request)
 
-            guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-                return nil
+            guard let httpResponse = response as? HTTPURLResponse else {
+                return .failure(.serverError("Invalid server response."))
             }
 
-            let aiResponse = try decoder.decode(AIStructureResponse.self, from: data)
-            guard aiResponse.success, let structured = aiResponse.structured else { return nil }
-
-            let categoryMap: [String: (NoteCategory, String?)] = [
-                "86'd Items": (.eightySixed, "cat_86"),
-                "Equipment": (.equipment, "cat_equip"),
-                "Guest Issues": (.guestIssue, "cat_guest"),
-                "Staff Notes": (.staffNote, "cat_staff"),
-                "Reservations/VIP": (.reservation, "cat_res"),
-                "Inventory": (.inventory, "cat_inv"),
-                "Maintenance": (.maintenance, "cat_maint"),
-                "Health & Safety": (.healthSafety, "cat_hs"),
-                "General": (.general, "cat_gen"),
-                "Incident Report": (.incident, "cat_incident")
-            ]
-
-            let urgencyMap: [String: UrgencyLevel] = [
-                "Immediate": .immediate,
-                "Next Shift": .nextShift,
-                "This Week": .thisWeek,
-                "FYI": .fyi
-            ]
-
-            var categorizedItems: [CategorizedItem] = []
-            var actionItems: [ActionItem] = []
-
-            for item in structured.items {
-                let (category, templateId) = categoryMap[item.category] ?? (.general, "cat_gen")
-                let urgency = urgencyMap[item.urgency] ?? .fyi
-
-                categorizedItems.append(CategorizedItem(
-                    category: category,
-                    categoryTemplateId: templateId,
-                    content: item.content,
-                    urgency: urgency
-                ))
-
-                if item.actionRequired, let task = item.actionTask, !task.isEmpty {
-                    actionItems.append(ActionItem(
-                        task: task,
-                        category: category,
-                        categoryTemplateId: templateId,
-                        urgency: urgency
-                    ))
+            guard httpResponse.statusCode == 200 else {
+                if let errorResp = try? decoder.decode(AIStructureResponse.self, from: data), let msg = errorResp.error {
+                    return .failure(.aiUnavailable(msg))
                 }
+                return .failure(.serverError("Server returned status \(httpResponse.statusCode)."))
             }
+
+            let aiResponse: AIStructureResponse
+            do {
+                aiResponse = try decoder.decode(AIStructureResponse.self, from: data)
+            } catch {
+                return .failure(.decodingError)
+            }
+
+            guard aiResponse.success, let structured = aiResponse.structured else {
+                return .failure(.aiUnavailable(aiResponse.error ?? "AI structuring returned no results."))
+            }
+
+            let (categorizedItems, actionItems) = mapAIItems(structured.items)
 
             if categorizedItems.isEmpty {
-                return nil
+                return .failure(.aiUnavailable("AI returned no structured items."))
             }
 
-            return (structured.summary, categorizedItems, actionItems)
+            let warning = confidenceWarning(transcript: transcript, itemCount: categorizedItems.count)
+
+            return .success(StructuringResult(
+                summary: structured.summary,
+                categorizedItems: categorizedItems,
+                actionItems: actionItems,
+                usedAI: true,
+                warning: warning
+            ))
+        } catch is URLError {
+            return .failure(.timeout)
         } catch {
-            return nil
+            return .failure(.serverError("Network error: \(error.localizedDescription)"))
         }
+    }
+
+    private func mapAIItems(_ items: [AIStructuredItem]) -> ([CategorizedItem], [ActionItem]) {
+        let categoryMap: [String: (NoteCategory, String?)] = [
+            "86'd Items": (.eightySixed, "cat_86"),
+            "Equipment": (.equipment, "cat_equip"),
+            "Guest Issues": (.guestIssue, "cat_guest"),
+            "Staff Notes": (.staffNote, "cat_staff"),
+            "Reservations/VIP": (.reservation, "cat_res"),
+            "Inventory": (.inventory, "cat_inv"),
+            "Maintenance": (.maintenance, "cat_maint"),
+            "Health & Safety": (.healthSafety, "cat_hs"),
+            "General": (.general, "cat_gen"),
+            "Incident Report": (.incident, "cat_incident")
+        ]
+
+        let urgencyMap: [String: UrgencyLevel] = [
+            "Immediate": .immediate,
+            "Next Shift": .nextShift,
+            "This Week": .thisWeek,
+            "FYI": .fyi
+        ]
+
+        var categorizedItems: [CategorizedItem] = []
+        var actionItems: [ActionItem] = []
+
+        for item in items {
+            let (category, templateId) = categoryMap[item.category] ?? (.general, "cat_gen")
+            let urgency = urgencyMap[item.urgency] ?? .fyi
+
+            categorizedItems.append(CategorizedItem(
+                category: category,
+                categoryTemplateId: templateId,
+                content: item.content,
+                urgency: urgency
+            ))
+
+            if item.actionRequired, let task = item.actionTask, !task.isEmpty {
+                actionItems.append(ActionItem(
+                    task: task,
+                    category: category,
+                    categoryTemplateId: templateId,
+                    urgency: urgency
+                ))
+            }
+        }
+
+        return (categorizedItems, actionItems)
+    }
+
+    private func confidenceWarning(transcript: String, itemCount: Int) -> String? {
+        let wordCount = transcript.split(separator: " ").count
+        if wordCount > 40 && itemCount <= 1 {
+            return "This transcript may contain multiple topics that were grouped together. Review and split items if needed."
+        }
+        return nil
     }
 }

@@ -72,7 +72,7 @@ struct ViewModelTests {
         #expect(actions[0].status == .open)
     }
 
-    @Test func actionItemGenerationSkipsGeneral() {
+    @Test func actionItemGenerationSkipsGeneralFYI() {
         let categories = [
             CategorizedItem(category: .general, content: "All good", urgency: .fyi)
         ]
@@ -81,6 +81,19 @@ struct ViewModelTests {
         let actions = vm.testGenerateActionItems(from: categories)
 
         #expect(actions.isEmpty)
+    }
+
+    @Test func actionItemGenerationIncludesGeneralNonFYI() {
+        let categories = [
+            CategorizedItem(category: .general, content: "Urgent thing to review", urgency: .immediate)
+        ]
+
+        let vm = AppViewModel()
+        let actions = vm.testGenerateActionItems(from: categories)
+
+        #expect(actions.count == 1)
+        #expect(actions[0].category == .general)
+        #expect(actions[0].task.contains("Review"))
     }
 
     // MARK: - Summary Generation Tests

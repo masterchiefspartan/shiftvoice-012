@@ -18,6 +18,7 @@ struct NoteReviewView: View {
     @State private var showDiscardAlert: Bool = false
     @State private var showAssignSheet: Bool = false
     @State private var assigningActionId: String?
+    @State private var structuringWarning: String?
     @Environment(\.dismiss) private var dismiss
 
     init(
@@ -29,6 +30,7 @@ struct NoteReviewView: View {
         summary: String,
         categorizedItems: [CategorizedItem],
         actionItems: [ActionItem],
+        structuringWarning: String? = nil,
         onDiscard: @escaping () -> Void,
         onPublish: @escaping (ShiftNote) -> Void
     ) {
@@ -42,12 +44,46 @@ struct NoteReviewView: View {
         _summary = State(initialValue: summary)
         _editableCategorizedItems = State(initialValue: categorizedItems.map { EditableCategorizedItem(from: $0) })
         _editableActionItems = State(initialValue: actionItems.map { EditableActionItem(from: $0) })
+        _structuringWarning = State(initialValue: structuringWarning)
+    }
+
+    private func structuringWarningBanner(_ warning: String) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.subheadline)
+                .foregroundStyle(SVTheme.amber)
+
+            Text(warning)
+                .font(.caption)
+                .foregroundStyle(SVTheme.textSecondary)
+                .lineSpacing(2)
+
+            Spacer(minLength: 0)
+
+            Button {
+                structuringWarning = nil
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(SVTheme.textTertiary)
+            }
+        }
+        .padding(12)
+        .background(SVTheme.amber.opacity(0.08))
+        .clipShape(.rect(cornerRadius: 10))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(SVTheme.amber.opacity(0.2), lineWidth: 1)
+        )
     }
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
+                    if let warning = structuringWarning {
+                        structuringWarningBanner(warning)
+                    }
                     headerInfo
                     summaryEditor
                     transcriptPreview
