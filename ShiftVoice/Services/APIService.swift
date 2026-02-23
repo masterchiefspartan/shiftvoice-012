@@ -7,6 +7,8 @@ nonisolated enum APIError: Error, Sendable, LocalizedError {
     case networkError(Error)
     case decodingError(Error)
     case noData
+    case rateLimited
+    case validationError(String)
 
     var errorDescription: String? {
         switch self {
@@ -16,6 +18,15 @@ nonisolated enum APIError: Error, Sendable, LocalizedError {
         case .networkError(let err): return err.localizedDescription
         case .decodingError: return "Unable to process server response"
         case .noData: return "No data available"
+        case .rateLimited: return "Too many requests. Please wait a moment."
+        case .validationError(let msg): return msg
+        }
+    }
+
+    var isRetryable: Bool {
+        switch self {
+        case .networkError, .serverError, .rateLimited: return true
+        default: return false
         }
     }
 }
@@ -32,10 +43,11 @@ nonisolated struct AuthResponse: Codable, Sendable {
 nonisolated struct SyncPullResponse: Codable, Sendable {
     let hasData: Bool
     let data: SyncData?
+    let isDelta: Bool?
 }
 
 nonisolated struct SyncData: Codable, Sendable {
-    let userId: String
+    let userId: String?
     let organization: OrganizationDTO?
     let locations: [LocationDTO]?
     let teamMembers: [TeamMemberDTO]?
@@ -43,6 +55,20 @@ nonisolated struct SyncData: Codable, Sendable {
     let recurringIssues: [RecurringIssueDTO]?
     let selectedLocationId: String?
     let updatedAt: String?
+}
+
+nonisolated struct ActionItemUpdateResponse: Codable, Sendable {
+    let success: Bool
+    let noteId: String?
+    let actionItemId: String?
+    let status: String?
+    let error: String?
+}
+
+nonisolated struct NoteUpdateResponse: Codable, Sendable {
+    let success: Bool
+    let noteId: String?
+    let error: String?
 }
 
 nonisolated struct OrganizationDTO: Codable, Sendable {
@@ -241,12 +267,40 @@ final class APIService {
             if httpResponse.statusCode == 401 {
                 throw APIError.unauthorized
             }
+            if httpResponse.statusCode == 429 {
+                throw APIError.rateLimited
+            }
+            if httpResponse.statusCode == 400 {
+                if let errorResponse = try? decoder.decode(SimpleResponse.self, from: data),
+                   let errorMsg = errorResponse.error {
+                    throw APIError.validationError(errorMsg)
+                }
+                throw APIError.validationError("Invalid request")
+            }
             if httpResponse.statusCode >= 500 {
                 throw APIError.serverError("Server error (\(httpResponse.statusCode))")
             }
         }
 
         return data
+    }
+
+    private func makeRequestWithRetry(path: String, method: String = "GET", body: Any? = nil, maxRetries: Int = 3) async throws -> Data {
+        var lastError: Error?
+        for attempt in 0..<maxRetries {
+            do {
+                return try await makeRequest(path: path, method: method, body: body)
+            } catch let error as APIError where error.isRetryable {
+                lastError = error
+                if attempt < maxRetries - 1 {
+                    let delay = Double(1 << attempt) * 0.5
+                    try? await Task.sleep(for: .seconds(delay))
+                }
+            } catch {
+                throw error
+            }
+        }
+        throw lastError ?? APIError.noData
     }
 
     // MARK: - Auth
@@ -281,8 +335,13 @@ final class APIService {
 
     // MARK: - Sync
 
-    func pullData() async throws -> SyncPullResponse {
-        let data = try await makeRequest(path: "sync")
+    func pullData(updatedSince: Date? = nil) async throws -> SyncPullResponse {
+        var path = "sync"
+        if let since = updatedSince {
+            let sinceStr = dateFormatter.string(from: since)
+            path += "?updatedSince=\(sinceStr)"
+        }
+        let data = try await makeRequestWithRetry(path: path)
         return try decoder.decode(SyncPullResponse.self, from: data)
     }
 
@@ -302,7 +361,7 @@ final class APIService {
             "selectedLocationId": appData.selectedLocationId as Any
         ]
 
-        let data = try await makeRequest(path: "sync", method: "POST", body: body)
+        let data = try await makeRequestWithRetry(path: "sync", method: "POST", body: body)
         return try decoder.decode(SyncPushResponse.self, from: data)
     }
 
@@ -317,6 +376,40 @@ final class APIService {
         let query = queryItems.joined(separator: "&")
         let data = try await makeRequest(path: "shift-notes?\(query)")
         return try decoder.decode(PaginatedNotesResponse.self, from: data)
+    }
+
+    // MARK: - Granular Note Operations
+
+    func updateNote(noteId: String, updates: [String: Any]) async throws -> NoteUpdateResponse {
+        let data = try await makeRequestWithRetry(path: "shift-notes/\(noteId)", method: "PATCH", body: updates)
+        return try decoder.decode(NoteUpdateResponse.self, from: data)
+    }
+
+    func updateActionItemStatus(noteId: String, actionItemId: String, status: String) async throws -> ActionItemUpdateResponse {
+        let body: [String: Any] = ["status": status]
+        let data = try await makeRequestWithRetry(path: "shift-notes/\(noteId)/action-items/\(actionItemId)", method: "PATCH", body: body)
+        return try decoder.decode(ActionItemUpdateResponse.self, from: data)
+    }
+
+    func acknowledgeNote(noteId: String, userId: String, userName: String) async throws -> SimpleResponse {
+        let body: [String: Any] = [
+            "id": UUID().uuidString,
+            "userId": userId,
+            "userName": userName,
+            "timestamp": dateFormatter.string(from: Date())
+        ]
+        let data = try await makeRequestWithRetry(path: "shift-notes/\(noteId)/acknowledge", method: "POST", body: body)
+        return try decoder.decode(SimpleResponse.self, from: data)
+    }
+
+    func updateLocation(locationId: String, updates: [String: Any]) async throws -> SimpleResponse {
+        let data = try await makeRequestWithRetry(path: "locations/\(locationId)", method: "PATCH", body: updates)
+        return try decoder.decode(SimpleResponse.self, from: data)
+    }
+
+    func updateTeamMember(memberId: String, updates: [String: Any]) async throws -> SimpleResponse {
+        let data = try await makeRequestWithRetry(path: "team/\(memberId)", method: "PATCH", body: updates)
+        return try decoder.decode(SimpleResponse.self, from: data)
     }
 
     // MARK: - Encoding Helpers

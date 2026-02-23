@@ -203,29 +203,48 @@ final class AppViewModel {
         api.setAuth(token: token, userId: userId)
     }
 
-    func syncFromBackend() {
+    func syncFromBackend(delta: Bool = false) {
         guard api.isConfigured, !isSyncing else { return }
         isSyncing = true
         syncError = nil
 
+        let sincDate: Date? = delta ? lastSyncDate : nil
+
         Task {
             do {
-                let response = try await api.pullData()
+                let response = try await api.pullData(updatedSince: sincDate)
+                let isDelta = response.isDelta ?? false
                 if response.hasData, let data = response.data {
                     if let orgDTO = data.organization {
                         organization = api.decodeOrganization(orgDTO)
                     }
                     if let locsDTO = data.locations {
-                        locations = locsDTO.map { api.decodeLocation($0) }
+                        if isDelta {
+                            mergeLocations(locsDTO.map { api.decodeLocation($0) })
+                        } else {
+                            locations = locsDTO.map { api.decodeLocation($0) }
+                        }
                     }
                     if let teamDTO = data.teamMembers {
-                        teamMembers = teamDTO.map { api.decodeTeamMember($0) }
+                        if isDelta {
+                            mergeTeamMembers(teamDTO.map { api.decodeTeamMember($0) })
+                        } else {
+                            teamMembers = teamDTO.map { api.decodeTeamMember($0) }
+                        }
                     }
                     if let notesDTO = data.shiftNotes {
-                        shiftNotes = notesDTO.map { api.decodeShiftNote($0) }
+                        if isDelta {
+                            mergeShiftNotes(notesDTO.map { api.decodeShiftNote($0) })
+                        } else {
+                            shiftNotes = notesDTO.map { api.decodeShiftNote($0) }
+                        }
                     }
                     if let issuesDTO = data.recurringIssues {
-                        recurringIssues = issuesDTO.map { api.decodeRecurringIssue($0) }
+                        if isDelta {
+                            mergeRecurringIssues(issuesDTO.map { api.decodeRecurringIssue($0) })
+                        } else {
+                            recurringIssues = issuesDTO.map { api.decodeRecurringIssue($0) }
+                        }
                     }
                     if let locId = data.selectedLocationId, !locId.isEmpty {
                         selectedLocationId = locId
@@ -285,6 +304,53 @@ final class AppViewModel {
         guard !isSyncing else { return }
         pushToBackend()
         syncFromBackend()
+    }
+
+    func deltaSyncFromBackend() {
+        syncFromBackend(delta: true)
+    }
+
+    // MARK: - Delta Merge Helpers
+
+    private func mergeLocations(_ incoming: [Location]) {
+        for loc in incoming {
+            if let idx = locations.firstIndex(where: { $0.id == loc.id }) {
+                locations[idx] = loc
+            } else {
+                locations.append(loc)
+            }
+        }
+    }
+
+    private func mergeTeamMembers(_ incoming: [TeamMember]) {
+        for member in incoming {
+            if let idx = teamMembers.firstIndex(where: { $0.id == member.id }) {
+                teamMembers[idx] = member
+            } else {
+                teamMembers.append(member)
+            }
+        }
+    }
+
+    private func mergeShiftNotes(_ incoming: [ShiftNote]) {
+        for note in incoming {
+            if let idx = shiftNotes.firstIndex(where: { $0.id == note.id }) {
+                shiftNotes[idx] = note
+            } else {
+                shiftNotes.append(note)
+            }
+        }
+        shiftNotes.sort { $0.createdAt > $1.createdAt }
+    }
+
+    private func mergeRecurringIssues(_ incoming: [RecurringIssue]) {
+        for issue in incoming {
+            if let idx = recurringIssues.firstIndex(where: { $0.id == issue.id }) {
+                recurringIssues[idx] = issue
+            } else {
+                recurringIssues.append(issue)
+            }
+        }
     }
 
     func dismissOperationState() {
@@ -367,6 +433,12 @@ final class AppViewModel {
         shiftNotes[index].acknowledgments.append(ack)
         updateUnacknowledgedCount()
         persistData()
+
+        if api.isConfigured, !isOffline {
+            Task {
+                _ = try? await api.acknowledgeNote(noteId: noteId, userId: currentUserId, userName: currentUserName)
+            }
+        }
     }
 
     func isNoteAcknowledged(_ note: ShiftNote) -> Bool {
@@ -536,6 +608,12 @@ final class AppViewModel {
               let itemIndex = shiftNotes[noteIndex].actionItems.firstIndex(where: { $0.id == actionItemId }) else { return }
         shiftNotes[noteIndex].actionItems[itemIndex].status = newStatus
         persistData()
+
+        if api.isConfigured, !isOffline {
+            Task {
+                _ = try? await api.updateActionItemStatus(noteId: noteId, actionItemId: actionItemId, status: newStatus.rawValue)
+            }
+        }
     }
 
     func resolveRecurringIssue(_ issueId: String) {
@@ -666,5 +744,19 @@ final class AppViewModel {
     func filteredPaginatedNotes(shiftDisplayFilter: ShiftDisplayInfo?) -> [ShiftNote] {
         guard let filter = shiftDisplayFilter else { return feedNotes }
         return feedNotes.filter { $0.shiftDisplayInfo.id == filter.id }
+    }
+
+    // MARK: - Test Helpers
+
+    func testGenerateCategories(from transcript: String) -> [CategorizedItem] {
+        generateCategories(from: transcript)
+    }
+
+    func testGenerateActionItems(from categorized: [CategorizedItem]) -> [ActionItem] {
+        generateActionItems(from: categorized)
+    }
+
+    func testGenerateSummary(from transcript: String) -> String {
+        generateSummary(from: transcript)
     }
 }
