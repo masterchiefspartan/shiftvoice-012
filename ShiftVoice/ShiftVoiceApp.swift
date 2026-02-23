@@ -63,9 +63,11 @@ struct LaunchLoadingView: View {
         ZStack {
             SVTheme.background.ignoresSafeArea()
             VStack(spacing: 16) {
-                Image(systemName: "waveform.circle.fill")
-                    .font(.system(size: 48))
-                    .foregroundStyle(SVTheme.accent)
+                Image(uiImage: UIImage(named: "AppIcon") ?? UIImage())
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 64, height: 64)
+                    .clipShape(.rect(cornerRadius: 14))
                 ProgressView()
                     .tint(SVTheme.textTertiary)
             }

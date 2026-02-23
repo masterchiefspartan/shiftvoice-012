@@ -93,14 +93,11 @@ struct SignInView: View {
 
     private var brandHeader: some View {
         VStack(spacing: 16) {
-            ZStack {
-                Circle()
-                    .fill(SVTheme.accent.opacity(0.08))
-                    .frame(width: 100, height: 100)
-                Image(systemName: "waveform.circle.fill")
-                    .font(.system(size: 56))
-                    .foregroundStyle(SVTheme.accent)
-            }
+            Image(uiImage: UIImage(named: "AppIcon") ?? UIImage())
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: 100, height: 100)
+                .clipShape(.rect(cornerRadius: 22))
 
             VStack(spacing: 8) {
                 Text("ShiftVoice")
