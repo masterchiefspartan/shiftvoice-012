@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import * as crypto from "crypto";
 import * as z from "zod";
+import { generateObject } from "@rork-ai/toolkit-sdk";
 
 import { appRouter } from "./trpc/app-router";
 import { createContext } from "./trpc/create-context";
@@ -563,6 +564,75 @@ app.delete("/rest/team/:memberId", async (c) => {
   const memberId = c.req.param("memberId");
   storage.deleteTeamMember(memberId);
   return c.json({ success: true });
+});
+
+// --- AI Transcript Structuring ---
+
+const structureTranscriptSchema = z.object({
+  transcript: z.string().min(1, "Transcript is required"),
+  businessType: z.string().optional().default("restaurant"),
+  availableCategories: z.array(z.string()).optional(),
+});
+
+const structuredNoteSchema = z.object({
+  summary: z.string().describe("A concise 1-2 sentence summary of the entire recording"),
+  items: z.array(
+    z.object({
+      content: z.string().describe("The specific issue or observation described, in clear actionable language"),
+      category: z.enum([
+        "86'd Items", "Equipment", "Guest Issues", "Staff Notes",
+        "Reservations/VIP", "Inventory", "Maintenance", "Health & Safety",
+        "General", "Incident Report"
+      ]).describe("The most appropriate category for this item"),
+      urgency: z.enum(["Immediate", "Next Shift", "This Week", "FYI"]).describe("How urgent this item is"),
+      actionRequired: z.boolean().describe("Whether this item needs someone to take action"),
+      actionTask: z.string().optional().describe("If actionRequired is true, a specific task description for what needs to be done"),
+    })
+  ).describe("Each distinct issue, observation, or handoff item mentioned in the transcript. Split into SEPARATE items - one per distinct topic. Do NOT group multiple topics together."),
+});
+
+app.post("/rest/structure-transcript", async (c) => {
+  const auth = authMiddleware(c);
+  if (!auth) return errorResponse(c, 401, "Unauthorized", "UNAUTHORIZED");
+
+  const body = await c.req.json();
+  const validation = validateBody(structureTranscriptSchema, body);
+  if (!validation.success) {
+    return errorResponse(c, 400, validation.error, "VALIDATION_ERROR");
+  }
+
+  const { transcript, businessType } = validation.data;
+
+  try {
+    const result = await generateObject({
+      messages: [
+        {
+          role: "user",
+          content: `You are an expert shift handoff assistant for a ${businessType} business. Your job is to take a raw voice transcript from a shift worker and structure it into separate, actionable items.
+
+CRITICAL RULES:
+1. Split the transcript into INDIVIDUAL items - one per distinct topic, issue, or observation
+2. If someone mentions 3 different things (e.g. a broken fryer, low napkin stock, and a guest complaint), create 3 SEPARATE items
+3. Each item's "content" should be a clear, specific description of that one issue - NOT the entire transcript
+4. Assign the most accurate category and urgency level to each item independently
+5. If an item needs follow-up action, set actionRequired to true and write a specific actionTask
+6. The summary should cover ALL items briefly in 1-2 sentences
+7. Never combine unrelated topics into a single item
+8. Use the worker's actual words/details, don't genericize them
+
+Here is the transcript to structure:
+
+"${transcript}"`
+        }
+      ],
+      schema: structuredNoteSchema,
+    });
+
+    return c.json({ success: true, structured: result });
+  } catch (error: any) {
+    console.error("AI structuring failed:", error?.message || error);
+    return c.json({ success: false, error: "AI structuring unavailable", code: "AI_ERROR" }, 500);
+  }
 });
 
 export default app;

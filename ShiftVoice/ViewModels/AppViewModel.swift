@@ -44,6 +44,7 @@ final class AppViewModel {
 
     let audioRecorder = AudioRecorderService()
     let transcriptionService = TranscriptionService()
+    private let noteStructuring = NoteStructuringService.shared
 
     var isRecording: Bool { audioRecorder.isRecording }
     var recordingDuration: TimeInterval { audioRecorder.recordingDuration }
@@ -474,9 +475,28 @@ final class AppViewModel {
             }
 
             let shiftInfo = selectedShift ?? currentShiftDisplayInfo
-            let summary = generateSummary(from: transcript)
-            let categorizedItems = generateCategories(from: transcript)
-            let actionItems = generateActionItems(from: categorizedItems)
+
+            var summary: String
+            var categorizedItems: [CategorizedItem]
+            var actionItems: [ActionItem]
+
+            let businessType = organizationBusinessType.rawValue.lowercased()
+            let aiResult = await noteStructuring.structureTranscript(
+                transcript,
+                businessType: businessType,
+                authToken: api.currentAuthToken,
+                userId: authenticatedUserId
+            )
+
+            if let ai = aiResult {
+                summary = ai.summary
+                categorizedItems = ai.categorizedItems
+                actionItems = ai.actionItems
+            } else {
+                summary = generateSummary(from: transcript)
+                categorizedItems = generateCategories(from: transcript)
+                actionItems = generateActionItems(from: categorizedItems)
+            }
 
             let newNote = ShiftNote(
                 authorId: currentUserId,
@@ -509,7 +529,7 @@ final class AppViewModel {
 
     private func generateCategories(from transcript: String) -> [CategorizedItem] {
         guard !transcript.isEmpty else { return [] }
-        let lower = transcript.lowercased()
+        let segments = splitTranscriptIntoSegments(transcript)
         var items: [CategorizedItem] = []
 
         let keywords: [(NoteCategory, String?, [String])] = [
@@ -522,13 +542,27 @@ final class AppViewModel {
             (.eightySixed, "cat_86", ["86", "eighty-six", "ran out", "sold out", "unavailable"])
         ]
 
-        for (category, templateId, words) in keywords {
-            if words.contains(where: { lower.contains($0) }) {
+        for segment in segments {
+            let lower = segment.lowercased()
+            var matched = false
+            for (category, templateId, words) in keywords {
+                if words.contains(where: { lower.contains($0) }) {
+                    items.append(CategorizedItem(
+                        category: category,
+                        categoryTemplateId: templateId,
+                        content: segment.trimmingCharacters(in: .whitespacesAndNewlines),
+                        urgency: category == .healthSafety || category == .eightySixed ? .immediate : .nextShift
+                    ))
+                    matched = true
+                    break
+                }
+            }
+            if !matched {
                 items.append(CategorizedItem(
-                    category: category,
-                    categoryTemplateId: templateId,
-                    content: transcript,
-                    urgency: category == .healthSafety || category == .eightySixed ? .immediate : .nextShift
+                    category: .general,
+                    categoryTemplateId: "cat_gen",
+                    content: segment.trimmingCharacters(in: .whitespacesAndNewlines),
+                    urgency: .fyi
                 ))
             }
         }
@@ -545,19 +579,53 @@ final class AppViewModel {
         return items
     }
 
+    private func splitTranscriptIntoSegments(_ transcript: String) -> [String] {
+        let separators = [" also ", " and then ", " next ", " another thing ", " additionally ", " plus ", " on top of that ", " second ", " third ", " finally ", " lastly "]
+        var segments: [String] = []
+
+        let sentences = transcript.components(separatedBy: ". ")
+            .flatMap { $0.components(separatedBy: ", and ") }
+
+        for sentence in sentences {
+            let trimmed = sentence.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+
+            var didSplit = false
+            for sep in separators {
+                if trimmed.lowercased().contains(sep) {
+                    let parts = trimmed.lowercased().range(of: sep).map { range -> [String] in
+                        let before = String(trimmed[trimmed.startIndex..<range.lowerBound])
+                        let after = String(trimmed[range.upperBound..<trimmed.endIndex])
+                        return [before, after].filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+                    }
+                    if let parts, parts.count > 1 {
+                        segments.append(contentsOf: parts)
+                        didSplit = true
+                        break
+                    }
+                }
+            }
+            if !didSplit {
+                segments.append(trimmed)
+            }
+        }
+
+        return segments.filter { $0.count > 5 }
+    }
+
     private func generateActionItems(from categorized: [CategorizedItem]) -> [ActionItem] {
         categorized.compactMap { item in
             guard item.category != .general else { return nil }
             let taskDescription: String
             switch item.category {
-            case .equipment: taskDescription = "Check and address equipment issue"
-            case .inventory: taskDescription = "Restock items mentioned in note"
-            case .maintenance: taskDescription = "Address maintenance concern"
-            case .healthSafety: taskDescription = "Review and resolve safety issue"
-            case .staffNote: taskDescription = "Follow up on staffing note"
-            case .guestIssue: taskDescription = "Follow up on guest concern"
-            case .eightySixed: taskDescription = "Update 86'd items and restock"
-            default: taskDescription = "Review and follow up"
+            case .equipment: taskDescription = "Check and address: \(item.content.prefix(80))"
+            case .inventory: taskDescription = "Restock: \(item.content.prefix(80))"
+            case .maintenance: taskDescription = "Fix: \(item.content.prefix(80))"
+            case .healthSafety: taskDescription = "Resolve safety issue: \(item.content.prefix(80))"
+            case .staffNote: taskDescription = "Follow up: \(item.content.prefix(80))"
+            case .guestIssue: taskDescription = "Guest concern: \(item.content.prefix(80))"
+            case .eightySixed: taskDescription = "86'd - restock: \(item.content.prefix(80))"
+            default: taskDescription = "Review: \(item.content.prefix(80))"
             }
             return ActionItem(
                 task: taskDescription,

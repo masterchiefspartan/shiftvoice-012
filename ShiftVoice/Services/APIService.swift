@@ -197,8 +197,11 @@ final class APIService {
     private let decoder: JSONDecoder
     private let dateFormatter: ISO8601DateFormatter
 
-    private var authToken: String?
+    private(set) var authToken: String?
     private var userId: String?
+
+    var currentAuthToken: String? { authToken }
+    var currentUserId: String? { userId }
 
     private var baseURL: String {
         let url = Config.EXPO_PUBLIC_RORK_API_BASE_URL
