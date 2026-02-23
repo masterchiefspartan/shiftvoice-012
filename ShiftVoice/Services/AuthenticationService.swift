@@ -72,11 +72,19 @@ final class AuthenticationService {
         restorePreviousSignIn()
     }
 
+    private var isGoogleConfigured: Bool = false
+
     private func configureGoogleSignIn() {
         let clientID = Config.GOOGLE_CLIENT_ID
-        guard !clientID.isEmpty else { return }
+        guard !clientID.isEmpty,
+              clientID != "GOOGLE_CLIENT_ID",
+              clientID.contains(".") else {
+            isGoogleConfigured = false
+            return
+        }
         let config = GIDConfiguration(clientID: clientID)
         GIDSignIn.sharedInstance.configuration = config
+        isGoogleConfigured = true
     }
 
     // MARK: - Session Restore
@@ -101,7 +109,7 @@ final class AuthenticationService {
             }
         }
 
-        if GIDSignIn.sharedInstance.hasPreviousSignIn() {
+        if isGoogleConfigured, GIDSignIn.sharedInstance.hasPreviousSignIn() {
             GIDSignIn.sharedInstance.restorePreviousSignIn { [weak self] user, error in
                 Task { @MainActor in
                     guard let self else { return }
@@ -126,6 +134,11 @@ final class AuthenticationService {
     // MARK: - Google Sign In
 
     func signInWithGoogle() {
+        guard isGoogleConfigured else {
+            errorMessage = "Google Sign-In is not configured. Please use email sign-in."
+            return
+        }
+
         guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
               let rootVC = windowScene.windows.first?.rootViewController else {
             errorMessage = "Unable to find root view controller"
