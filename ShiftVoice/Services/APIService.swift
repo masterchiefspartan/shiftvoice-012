@@ -156,6 +156,13 @@ nonisolated struct SyncPushResponse: Codable, Sendable {
     let error: String?
 }
 
+nonisolated struct PaginatedNotesResponse: Codable, Sendable {
+    let notes: [ShiftNoteDTO]
+    let totalCount: Int
+    let hasMore: Bool
+    let nextCursor: String?
+}
+
 final class APIService {
     static let shared = APIService()
 
@@ -297,6 +304,19 @@ final class APIService {
 
         let data = try await makeRequest(path: "sync", method: "POST", body: body)
         return try decoder.decode(SyncPushResponse.self, from: data)
+    }
+
+    // MARK: - Paginated Notes
+
+    func fetchNotes(locationId: String?, shiftFilter: String? = nil, cursor: String? = nil, limit: Int = 20) async throws -> PaginatedNotesResponse {
+        var queryItems: [String] = []
+        if let locationId { queryItems.append("locationId=\(locationId)") }
+        if let shiftFilter { queryItems.append("shiftFilter=\(shiftFilter)") }
+        if let cursor { queryItems.append("cursor=\(cursor)") }
+        queryItems.append("limit=\(limit)")
+        let query = queryItems.joined(separator: "&")
+        let data = try await makeRequest(path: "shift-notes?\(query)")
+        return try decoder.decode(PaginatedNotesResponse.self, from: data)
     }
 
     // MARK: - Encoding Helpers

@@ -35,6 +35,13 @@ final class AppViewModel {
 
     var pendingOfflineActions: [PendingAction] = []
 
+    var paginatedNotes: [ShiftNote] = []
+    var paginationCursor: String? = nil
+    var hasMoreNotes: Bool = true
+    var isLoadingPage: Bool = false
+    var totalNoteCount: Int = 0
+    private let pageSize: Int = 20
+
     let audioRecorder = AudioRecorderService()
     let transcriptionService = TranscriptionService()
 
@@ -120,7 +127,10 @@ final class AppViewModel {
     }
 
     var feedNotes: [ShiftNote] {
-        shiftNotes
+        if !paginatedNotes.isEmpty || totalNoteCount > 0 {
+            return paginatedNotes
+        }
+        return shiftNotes
             .filter { $0.locationId == selectedLocationId }
             .sorted { $0.createdAt > $1.createdAt }
     }
@@ -599,5 +609,62 @@ final class AppViewModel {
 
     func handlePushNotificationTap(noteId: String) {
         pendingNoteId = noteId
+    }
+
+    // MARK: - Pagination
+
+    func resetPagination() {
+        paginatedNotes = []
+        paginationCursor = nil
+        hasMoreNotes = true
+        totalNoteCount = 0
+    }
+
+    func loadFirstPage(shiftFilter: String? = nil) {
+        guard api.isConfigured else { return }
+        resetPagination()
+        loadNextPage(shiftFilter: shiftFilter)
+    }
+
+    func loadNextPage(shiftFilter: String? = nil) {
+        guard api.isConfigured, !isLoadingPage, hasMoreNotes else { return }
+        isLoadingPage = true
+
+        let locationId = selectedLocationId.isEmpty ? nil : selectedLocationId
+        let cursor = paginationCursor
+
+        Task {
+            do {
+                let response = try await api.fetchNotes(
+                    locationId: locationId,
+                    shiftFilter: shiftFilter,
+                    cursor: cursor,
+                    limit: pageSize
+                )
+                let decoded = response.notes.map { api.decodeShiftNote($0) }
+                if cursor == nil {
+                    paginatedNotes = decoded
+                } else {
+                    paginatedNotes.append(contentsOf: decoded)
+                }
+                totalNoteCount = response.totalCount
+                hasMoreNotes = response.hasMore
+                paginationCursor = response.nextCursor
+            } catch {
+                if cursor == nil {
+                    paginatedNotes = shiftNotes
+                        .filter { $0.locationId == selectedLocationId }
+                        .sorted { $0.createdAt > $1.createdAt }
+                    hasMoreNotes = false
+                    totalNoteCount = paginatedNotes.count
+                }
+            }
+            isLoadingPage = false
+        }
+    }
+
+    func filteredPaginatedNotes(shiftDisplayFilter: ShiftDisplayInfo?) -> [ShiftNote] {
+        guard let filter = shiftDisplayFilter else { return feedNotes }
+        return feedNotes.filter { $0.shiftDisplayInfo.id == filter.id }
     }
 }

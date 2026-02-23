@@ -44,6 +44,18 @@ struct ShiftFeedView: View {
             .sheet(isPresented: $showLocationPicker) {
                 locationPickerSheet
             }
+            .onAppear {
+                viewModel.loadFirstPage(shiftFilter: selectedShiftFilter?.id)
+            }
+            .onChange(of: viewModel.selectedLocationId) { _, _ in
+                viewModel.loadFirstPage(shiftFilter: selectedShiftFilter?.id)
+            }
+            .onChange(of: selectedShiftFilter) { _, newValue in
+                viewModel.loadFirstPage(shiftFilter: newValue?.id)
+            }
+            .refreshable {
+                viewModel.loadFirstPage(shiftFilter: selectedShiftFilter?.id)
+            }
             .safeAreaInset(edge: .top, spacing: 0) {
                 Rectangle()
                     .fill(SVTheme.divider)
@@ -122,9 +134,9 @@ struct ShiftFeedView: View {
     }
 
     private var notesList: some View {
-        let notes = viewModel.filteredNotes(shiftDisplayFilter: selectedShiftFilter)
+        let notes = viewModel.filteredPaginatedNotes(shiftDisplayFilter: selectedShiftFilter)
         return Group {
-            if notes.isEmpty {
+            if notes.isEmpty && !viewModel.isLoadingPage {
                 VStack(spacing: 12) {
                     Image(systemName: "tray")
                         .font(.system(size: 36))
@@ -148,12 +160,28 @@ struct ShiftFeedView: View {
                             )
                         }
                         .buttonStyle(.plain)
+                        .onAppear {
+                            if note.id == notes.last?.id && viewModel.hasMoreNotes {
+                                viewModel.loadNextPage(shiftFilter: selectedShiftFilter?.id)
+                            }
+                        }
 
                         if note.id != notes.last?.id {
                             Rectangle()
                                 .fill(SVTheme.divider)
                                 .frame(height: 1)
                         }
+                    }
+
+                    if viewModel.isLoadingPage {
+                        HStack(spacing: 8) {
+                            ProgressView()
+                            Text("Loading more...")
+                                .font(.caption)
+                                .foregroundStyle(SVTheme.textTertiary)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
                     }
                 }
                 .background(SVTheme.cardBackground)

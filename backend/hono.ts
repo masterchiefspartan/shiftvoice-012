@@ -150,6 +150,52 @@ app.post("/rest/sync", async (c) => {
   return c.json({ success: true, updatedAt: new Date().toISOString() });
 });
 
+// Shift Notes: List (paginated)
+app.get("/rest/shift-notes", async (c) => {
+  const auth = authMiddleware(c);
+  if (!auth) return c.json({ success: false, error: "Unauthorized" }, 401);
+  const data = storage.getUserData(auth.userId);
+  if (!data) return c.json({ notes: [], totalCount: 0, hasMore: false });
+
+  const locationId = c.req.query("locationId") || null;
+  const shiftFilter = c.req.query("shiftFilter") || null;
+  const cursor = c.req.query("cursor") || null;
+  const limit = Math.min(parseInt(c.req.query("limit") || "20", 10), 100);
+
+  let notes = [...data.shiftNotes];
+
+  if (locationId) {
+    notes = notes.filter((n: any) => n.locationId === locationId);
+  }
+  if (shiftFilter) {
+    notes = notes.filter((n: any) => {
+      if (n.shiftTemplateId) return n.shiftTemplateId === shiftFilter;
+      return n.shiftType === shiftFilter;
+    });
+  }
+
+  notes.sort((a: any, b: any) => {
+    const da = new Date(a.createdAt || 0).getTime();
+    const db = new Date(b.createdAt || 0).getTime();
+    return db - da;
+  });
+
+  const totalCount = notes.length;
+
+  if (cursor) {
+    const cursorIndex = notes.findIndex((n: any) => n.id === cursor);
+    if (cursorIndex >= 0) {
+      notes = notes.slice(cursorIndex + 1);
+    }
+  }
+
+  const page = notes.slice(0, limit);
+  const hasMore = notes.length > limit;
+  const nextCursor = page.length > 0 ? page[page.length - 1].id : null;
+
+  return c.json({ notes: page, totalCount, hasMore, nextCursor });
+});
+
 // Shift Notes: Create
 app.post("/rest/shift-notes", async (c) => {
   const auth = authMiddleware(c);
