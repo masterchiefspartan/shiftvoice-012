@@ -19,6 +19,8 @@ final class SubscriptionService {
     private let proEntitlementId = "pro"
     private let teamEntitlementId = "team"
 
+    private var isConfigured: Bool = false
+
     private init() {}
 
     func configure() {
@@ -36,20 +38,24 @@ final class SubscriptionService {
 
         guard !apiKey.isEmpty else { return }
         Purchases.configure(withAPIKey: apiKey)
+        isConfigured = true
     }
 
     private static func configValue(_ key: String) -> String? {
-        let mirror = Mirror(reflecting: Config.self as Any)
-        for child in mirror.children {
-            if child.label == key, let val = child.value as? String, !val.isEmpty {
-                return val
-            }
+        let value: String
+        switch key {
+        case "EXPO_PUBLIC_REVENUECAT_TEST_API_KEY":
+            value = Config.EXPO_PUBLIC_REVENUECAT_TEST_API_KEY
+        case "EXPO_PUBLIC_REVENUECAT_IOS_API_KEY":
+            value = Config.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY
+        default:
+            return nil
         }
-        return nil
+        return value.isEmpty ? nil : value
     }
 
     func setUserId(_ userId: String) {
-        guard !userId.isEmpty else { return }
+        guard !userId.isEmpty, isConfigured else { return }
         Task {
             do {
                 let (_, _) = try await Purchases.shared.logIn(userId)
@@ -59,6 +65,7 @@ final class SubscriptionService {
     }
 
     func refreshStatus() async {
+        guard isConfigured else { return }
         do {
             let customerInfo = try await Purchases.shared.customerInfo()
             updateTier(from: customerInfo)
@@ -66,12 +73,14 @@ final class SubscriptionService {
     }
 
     func purchase(package: Package) async throws -> Bool {
+        guard isConfigured else { return false }
         let result = try await Purchases.shared.purchase(package: package)
         updateTier(from: result.customerInfo)
         return isProUser
     }
 
     func restorePurchases() async throws {
+        guard isConfigured else { return }
         let customerInfo = try await Purchases.shared.restorePurchases()
         updateTier(from: customerInfo)
     }
