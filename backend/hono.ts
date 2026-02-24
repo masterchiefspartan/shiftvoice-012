@@ -619,6 +619,46 @@ app.delete("/rest/team/:memberId", async (c) => {
   return c.json({ success: true });
 });
 
+// --- Audio Transcription (Whisper) ---
+
+app.post("/rest/transcribe", async (c) => {
+  const userId = c.req.header("x-user-id") || c.req.header("x-forwarded-for") || "anonymous";
+  if (!userId) return errorResponse(c, 400, "User identifier required", "BAD_REQUEST");
+
+  try {
+    const formData = await c.req.formData();
+    const audioFile = formData.get("audio");
+    if (!audioFile || !(audioFile instanceof File)) {
+      return errorResponse(c, 400, "Audio file is required", "VALIDATION_ERROR");
+    }
+
+    const language = formData.get("language") as string | null;
+
+    const sttFormData = new FormData();
+    sttFormData.append("audio", audioFile);
+    if (language) {
+      sttFormData.append("language", language);
+    }
+
+    const sttResponse = await fetch("https://toolkit.rork.com/stt/transcribe/", {
+      method: "POST",
+      body: sttFormData,
+    });
+
+    if (!sttResponse.ok) {
+      const errorText = await sttResponse.text().catch(() => "Unknown error");
+      console.error("STT API error:", sttResponse.status, errorText);
+      return errorResponse(c, 502, "Transcription service unavailable", "STT_ERROR");
+    }
+
+    const result = await sttResponse.json() as { text: string; language: string };
+    return c.json({ success: true, text: result.text, language: result.language });
+  } catch (error: any) {
+    console.error("Transcription failed:", error?.message || error);
+    return errorResponse(c, 500, "Transcription failed", "STT_ERROR");
+  }
+});
+
 // --- AI Transcript Structuring ---
 
 const structureTranscriptSchema = z.object({

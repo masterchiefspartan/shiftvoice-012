@@ -47,7 +47,7 @@ final class RecordingViewModel {
         Task {
             var transcript = ""
             if let audioURL {
-                if let result = await transcriptionService.transcribeAudioFile(at: audioURL) {
+                if let result = await transcriptionService.transcribeAudioFile(at: audioURL, authToken: authToken, userId: userId) {
                     transcript = result
                 }
             }
