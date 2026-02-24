@@ -115,6 +115,16 @@ Organization
 - Must handle multi-topic recordings (3+ distinct issues)
 - Must correctly split items that share a single recording
 
+**⚠️ DEVIL'S ADVOCATE — AI Structuring Reliability:**
+This is the single highest-risk feature in the product. If a 30-second recording about 3 distinct issues doesn't reliably split into 3 items, the entire value proposition collapses. Users won't trust a tool that merges "broken fryer" and "86'd the salmon" into one item.
+
+**Recommended additions:**
+- Define a **structuring accuracy target**: e.g., >85% correct item splits on multi-topic recordings (measured via human evaluation on 500+ test recordings)
+- Add a **split confidence score** per item — if the AI is <70% confident it split correctly, flag for user review with a "Did we get this right?" prompt
+- Build a **structuring test suite**: 100+ real-world recordings across industries, run on every AI prompt change to catch regressions
+- Define **failure modes explicitly**: What happens when the AI merges 2 items into 1? When it hallucinates an item that wasn't said? When it drops an item entirely? Each needs a different recovery UX
+- Consider a **"tap to split" gesture** on the review screen as a first-class interaction, not just an edit — this is how you collect training signal for improvement
+
 #### 1.2 Note Review & Editing
 **Status:** Implemented
 
@@ -180,12 +190,26 @@ Organization
 - Handoff history searchable by date, shift, location
 - Works offline — generate locally, sync when connected
 
+**⚠️ DEVIL'S ADVOCATE — Overlapping Shift Windows:**
+The ±30 min buffer assumes clean shift boundaries. In practice, shifts bleed into each other — a mid-shift lead running 45 minutes late overlaps with closing. Define rules for:
+- **Overlapping shifts:** If two shift windows overlap, which handoff "owns" a note? Suggested: note belongs to the shift during which it was created, not the window
+- **Extended shifts:** If a shift runs 2+ hours past its scheduled end, prompt the user: "Still on your shift? Your handoff window is open."
+- **Skipped shifts:** If no notes are recorded during a shift window, generate a "No activity" handoff rather than silence — silence is ambiguous
+
+**⚠️ DEVIL'S ADVOCATE — Offline Handoff Generation:**
+"Works offline" conflicts with "AI-generated executive summary" — the summary requires an OpenAI API call. Clarify the offline experience:
+- **Offline fallback:** Generate a structured handoff (Open Items, Resolved, New Issues) from local data WITHOUT the AI summary. Show a placeholder: "AI summary will generate when you're back online."
+- **Sync behavior:** When connectivity returns, backfill the AI summary and push an updated notification to the incoming shift lead
+- **Risk:** If the incoming shift lead reviews the handoff before the AI summary arrives, they miss context. Consider whether the structured sections alone are sufficient (they probably are)
+
 **Acceptance Criteria:**
 - Handoff includes all notes from the shift window (±30 min buffer)
 - Open action items carry forward automatically
 - Incoming shift lead sees handoff on app open
 - Handoff generation takes <5 seconds
 - 0 data loss: every note from the shift appears in the handoff
+- Offline-generated handoffs include all structured sections; AI summary backfills on reconnect
+- Overlapping shift windows resolve note ownership by creation timestamp
 
 #### 2.2 @Mentions, Escalation & Real-Time Feed
 **Priority:** Critical — creates daily engagement loop
@@ -287,6 +311,12 @@ Organization
 - Sync conflict resolution: newest-wins with user notification
 - 99.9% API uptime target
 
+**⚠️ DEVIL'S ADVOCATE — Sync Conflict Resolution:**
+"Newest-wins" is acceptable for notes (single author, append-only), but dangerous for action items where multiple people update the same item concurrently while offline:
+- **Scenario:** Shift Lead A marks "Fix ice machine" as "Resolved" at 2:03 PM offline. Shift Lead B marks the same item "In Progress" at 2:05 PM offline. Both sync at 2:10 PM. Newest-wins makes it "In Progress" — silently dropping the resolution.
+- **Recommended:** Use **per-field merge** for action items. Status, assignee, and notes are separate fields — merge independently by timestamp. Only flag a conflict when the same field was changed by two users.
+- **At minimum:** Surface a "conflict detected" banner on the action item so the user knows their change may have been overwritten, with an option to view the change history
+
 ### Security
 - Auth tokens stored in Keychain (not UserDefaults)
 - API communication over HTTPS only
@@ -306,8 +336,8 @@ Organization
 | Feature | Free | Starter ($39/loc/mo) | Professional ($79/loc/mo) | Enterprise (Custom) |
 |---------|------|---------------------|--------------------------|-------------------|
 | Locations | 1 | 5 | 20 | Unlimited |
-| Team members/loc | 3 | 6 | 10 | Unlimited |
-| Voice notes/month | 30 | Unlimited | Unlimited | Unlimited |
+| Team members/loc | 5 | 10 | Unlimited | Unlimited |
+| Voice notes/month | 50 | Unlimited | Unlimited | Unlimited |
 | AI structuring | Basic | Full | Full | Full |
 | Shift handoff reports | — | ✓ | ✓ | ✓ |
 | @Mentions & escalation | — | ✓ | ✓ | ✓ |
@@ -318,6 +348,12 @@ Organization
 | Location benchmarking | — | — | — | ✓ |
 | API access | — | — | — | ✓ |
 | Priority support | — | — | ✓ | ✓ |
+
+**⚠️ DEVIL'S ADVOCATE — Pricing Gap:**
+The jump from Free to Starter ($39/loc/mo) is steep for the primary persona — a single-location restaurant or bar. A shift lead with 5 staff hits the team member cap on day one and is forced to pay $39/mo just for 2 more people. Consider:
+- **Raise the Free tier to 5 members and 50 notes/month** — enough for a small team to get fully hooked before hitting limits (reflected above)
+- **Gate the upgrade on features, not team size.** Let Free users invite their whole team but lock handoff reports and @mentions. The team adoption IS the lock-in — don't throttle it
+- **Alternatively, add a Solo tier ($19/loc/mo):** 1 location, 10 members, unlimited notes, no handoffs/analytics. Bridges the gap for single operators who need more than Free but less than Starter
 
 ---
 
@@ -382,6 +418,11 @@ iOS App ←→ Hono API ←→ Storage (KV/R2)
 | Revenue per location | Monthly recurring revenue per active location | >$50 |
 | Expansion rate | Avg locations added per org after month 3 | >1.5 |
 | Churn (monthly) | % of paying locations that cancel | <5% |
+| Time to first structured note | Time from signup to first voice note fully structured | <3 minutes |
+| Activation rate | % of signups who record 3+ notes in first 7 days | >30% |
+
+**⚠️ DEVIL'S ADVOCATE — Missing Activation Metrics:**
+The metrics above track engaged users but nothing about the signup-to-value gap. If a user downloads the app, creates an org, and never records a note — you've lost them forever. "Time to first structured note" is arguably the most important metric in the product. If onboarding doesn't get a user to record, see the AI structure it, and feel the "magic moment" within 3 minutes, conversion will suffer. Consider a guided first-run experience that walks the user through recording a sample note.
 
 ---
 
@@ -392,4 +433,13 @@ iOS App ←→ Hono API ←→ Storage (KV/R2)
 3. **Hardware integrations:** Some facilities use two-way radios. Can we integrate as a "channel"?
 4. **Apple Watch companion:** Quick record from wrist. When does ROI justify the effort?
 5. **Android:** How much market share are we leaving on the table? When to build?
+   **⚠️ DEVIL'S ADVOCATE:** This shouldn't stay an open question much longer. In hospitality, 40-60% of frontline workers use Android (skews higher for hourly/non-management staff). If a shift lead is on iOS but half their team is on Android, adoption stalls — the network effect dies. Recommend setting a hard decision point: if >30% of waitlist/signup-intent users request Android by Month 3, begin React Native or KMP evaluation immediately. Delaying past Month 6 risks capping your TAM by half.
 6. **Compliance certifications:** HIPAA for healthcare facilities, SOC 2 for enterprise. Timeline?
+7. **Enterprise API scope:** The Enterprise tier promises "API access" but the PRD doesn't spec what the API exposes. At minimum, define the initial surface area:
+   - GET /notes — paginated notes by location, date range, category
+   - GET /action-items — filtered by status, assignee, urgency
+   - GET /handoffs — shift handoff reports by date/location
+   - GET /analytics — trend data, recurring issues, resolution times
+   - Webhooks for real-time: note.created, action_item.updated, handoff.generated
+   - Auth: API keys scoped per organization with rate limiting
+   - Without this scoped early, "API access" becomes a blank check that enterprise prospects will try to fill with custom requests

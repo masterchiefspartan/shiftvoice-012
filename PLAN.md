@@ -47,15 +47,18 @@ Transform ShiftVoice from a voice-first shift notes tool into the **operating sy
 
 **Deliverables:**
 1. Add `updatedAt: Date` field to ShiftNote, ActionItem, TeamMember models
-2. Timestamp-based conflict resolution in merge helpers (newest wins)
-3. Persistent offline action queue that retries on reconnect (currently in-memory only)
-4. Delta sync — only push changed records, not the entire data set
-5. Optimistic UI updates with rollback on sync failure
-6. Sync conflict UI — show "Conflict resolved: kept your version" toast
+2. Timestamp-based conflict resolution in merge helpers (newest wins for notes)
+3. **Per-field merge for action items** — Status, assignee, and notes merge independently by timestamp; only flag conflict when the same field was changed by two users (from PRD devil's advocate on sync conflicts)
+4. Persistent offline action queue that retries on reconnect (currently in-memory only)
+5. Delta sync — only push changed records, not the entire data set
+6. Optimistic UI updates with rollback on sync failure
+7. Sync conflict UI — "Conflict detected" banner on action items with option to view change history
 
 **Tests:**
 - Rapid edit debouncing verification
 - Conflict resolution: newer local vs older server
+- Per-field merge correctness for action items (two users editing different fields)
+- Per-field merge conflict detection (two users editing same field)
 - Offline queue persistence across app restarts
 - Merge correctness with concurrent edits from multiple users
 - Delta sync payload verification
@@ -87,7 +90,7 @@ Transform ShiftVoice from a voice-first shift notes tool into the **operating sy
 
 ---
 
-### Phase 6: Performance & Polish
+### Phase 6: Performance, Polish & Activation
 **Priority:** 🟡 Medium | **Effort:** Medium | **Target:** 1 week
 
 **Problems:**
@@ -95,6 +98,7 @@ Transform ShiftVoice from a voice-first shift notes tool into the **operating sy
 - `allActionItems` scans every note on every render
 - All 3 tabs always in memory (opacity/hitTesting instead of lazy)
 - `notesThisMonth` iterates all notes on every record button tap
+- No guided first-run experience — users who don't record a note in their first session are lost forever (PRD activation metric: <3 min to first structured note)
 
 **Deliverables:**
 1. Cache computed properties, invalidate on data change
@@ -103,12 +107,14 @@ Transform ShiftVoice from a voice-first shift notes tool into the **operating sy
 4. Incremental `unacknowledgedCount` updates
 5. Pagination for feed (load 20 notes at a time, infinite scroll)
 6. Search performance optimization with debounced input
+7. **Guided first-run experience** — Walk new users through recording a sample note, seeing the AI structure it, and feeling the "magic moment" within 3 minutes of signup (target: >30% activation rate at 3+ notes in first 7 days)
 
 **Tests:**
 - Feed performance with 100+ notes
 - Tab switching memory profile
 - Computed property caching correctness
 - Pagination boundary conditions
+- First-run flow completion tracking
 
 ---
 
@@ -127,27 +133,44 @@ Transform ShiftVoice from a voice-first shift notes tool into the **operating sy
 5. **Handoff history** — Searchable archive of all past handoffs per location
 6. **Handoff acknowledgment** — Incoming lead marks handoff as "reviewed" with optional voice reply
 7. **Backend: Handoff model & API** — New `ShiftHandoff` entity, generation endpoint, storage
+8. **Offline handoff generation** — Generate structured handoff (Open Items, Resolved, New Issues) from local data without AI summary; show placeholder "AI summary will generate when you're back online"; backfill AI summary on reconnect and push updated notification
+9. **Overlapping shift handling** — Note ownership resolved by creation timestamp (not shift window); prompt user if shift runs 2+ hours past end; generate "No activity" handoff for skipped shifts (silence is ambiguous)
 
 **Data Model:**
 ```
 ShiftHandoff {
   id, locationId, shiftType, createdBy,
   generatedAt, acknowledgedBy, acknowledgedAt,
-  summary (AI-generated),
+  summary (AI-generated, nullable for offline),
   openActionItems: [ActionItem],
   resolvedThisShift: [ActionItem],
   newIssues: [CategorizedItem],
   noteIds: [String],
-  status: .pending | .acknowledged | .expired
+  status: .pending | .acknowledged | .expired,
+  isOfflineGenerated: Bool
 }
 ```
+
+**Acceptance Criteria:**
+- Handoff includes all notes from the shift window (±30 min buffer)
+- Open action items carry forward automatically
+- Incoming shift lead sees handoff on app open
+- Handoff generation takes <5 seconds
+- 0 data loss: every note from the shift appears in the handoff
+- Offline-generated handoffs include all structured sections; AI summary backfills on reconnect
+- Overlapping shift windows resolve note ownership by creation timestamp
+- "No activity" handoff generated for shifts with zero notes
 
 **Tests:**
 - Handoff generation from shift notes
 - Correct filtering of notes by shift window
 - Acknowledgment flow
 - Push notification trigger
-- Empty shift handoff (no notes)
+- Empty shift handoff (no notes → "No activity" report)
+- Offline handoff generation (structured sections without AI summary)
+- AI summary backfill on reconnect
+- Overlapping shift window note ownership resolution
+- Extended shift prompt logic (2+ hours past end)
 
 ---
 
@@ -170,6 +193,12 @@ ShiftHandoff {
 - @mention resolution and notification routing
 - Escalation rule engine (configurable per org)
 - Read receipt tracking
+
+**Acceptance Criteria:**
+- @mention resolves to correct user and delivers push within 30 seconds
+- Escalation fires within 60 seconds of note publish
+- Users can configure: All notes / Mentions only / Escalations only / Off
+- Read receipt shows who viewed and when
 
 **Tests:**
 - @Mention parsing and notification delivery
@@ -247,18 +276,48 @@ ShiftHandoff {
 4. **Custom category creation** — Let orgs add their own categories beyond the default set
 5. **AI prompt personalization** — Include org-specific context in structuring prompts
 6. **Correction feedback loop** — When users edit AI output on review screen, feed corrections back to improve future structuring
+7. **Split confidence scoring** — Per-item confidence score; if AI is <70% confident it split correctly, flag for user review with "Did we get this right?" prompt (from PRD devil's advocate)
+8. **"Tap to split" gesture** — First-class interaction on review screen for splitting incorrectly grouped items; captures training signal for structuring improvement
 
 **Backend:**
 - Per-org vocabulary store
 - Correction tracking and aggregation
 - Dynamic prompt construction with org context
 - Category customization API
+- Structuring test suite: 100+ real-world recordings across industries, run on every AI prompt change to catch regressions
 
 **Tests:**
 - Vocabulary learning from corrections
 - Custom category CRUD
 - Prompt personalization output quality
 - Correction feedback persistence
+- Split confidence scoring accuracy
+- Structuring regression suite (100+ recordings)
+
+---
+
+### Phase 12: Enterprise API & Integrations
+**Priority:** 🟡 Medium | **Effort:** High | **Target:** 2-3 weeks
+
+**Why:** Enterprise tier promises "API access" — this scopes and delivers it. Without a defined surface area, enterprise prospects fill the gap with custom requests.
+
+**Deliverables:**
+1. **Public REST API** with scoped endpoints:
+   - `GET /notes` — paginated notes by location, date range, category
+   - `GET /action-items` — filtered by status, assignee, urgency
+   - `GET /handoffs` — shift handoff reports by date/location
+   - `GET /analytics` — trend data, recurring issues, resolution times
+2. **Webhooks** for real-time events:
+   - `note.created`, `action_item.updated`, `handoff.generated`
+3. **API key management** — Keys scoped per organization with rate limiting
+4. **API documentation** — OpenAPI spec, interactive docs
+5. **Integration examples** — Slack webhook, email digest, PMS system template
+
+**Tests:**
+- API endpoint response correctness and pagination
+- Rate limiting enforcement
+- Webhook delivery and retry logic
+- API key scoping (org A can't access org B data)
 
 ---
 
@@ -271,27 +330,33 @@ ShiftHandoff {
 | 3 | Error Handling | ✅ Done | High | Low-Med | — |
 | 4 | Data Sync Integrity | 🔲 Next | High | High | Week 1-2 |
 | 5 | Recording Reliability | 🔲 | Medium | Medium | Week 3 |
-| 6 | Performance & Polish | 🔲 | Medium | Medium | Week 4 |
+| 6 | Performance, Polish & Activation | 🔲 | Medium | Medium | Week 4 |
 | 7 | Shift Handoff Reports | 🔲 | Critical | High | Week 5-7 |
 | 8 | @Mentions & Escalation | 🔲 | Critical | High | Week 7-9 |
 | 9 | Trend Analytics | 🔲 | High | High | Week 9-11 |
 | 10 | Photo Attachments | 🔲 | High | Medium | Week 11-12 |
 | 11 | AI Learning | 🔲 | Medium | High | Week 13-16 |
+| 12 | Enterprise API | 🔲 | Medium | High | Week 17-19 |
 
-**Total estimated timeline: ~16 weeks to full platform**
+**Total estimated timeline: ~19 weeks to full platform**
 
 ---
 
 ## Success Metrics
 
-| Metric | Current | Target (Post Phase 11) |
+| Metric | Current | Target (Post Phase 12) |
 |--------|---------|----------------------|
+| Time to first structured note | Unknown | <3 minutes |
+| Activation rate (3+ notes in 7 days) | Unknown | >30% |
 | Notes per user per shift | ~2 | 5+ |
 | Action items resolved within shift | Unknown | >70% |
 | Handoff adoption rate | N/A | >80% of shifts |
 | Recurring issues caught proactively | 0 | 10+ per month per location |
 | User retention (30-day) | Unknown | >85% |
 | Expansion (locations per org) | 1 | 3+ |
+| DAU/MAU | Unknown | >40% |
+| NPS | Unknown | >50 |
+| Churn (monthly, paying locations) | Unknown | <5% |
 
 ---
 
@@ -299,8 +364,27 @@ ShiftHandoff {
 
 | Risk | Mitigation |
 |------|-----------|
-| AI structuring quality plateaus | Phase 11 correction feedback loop; allow manual override |
+| AI structuring quality plateaus | Phase 11 correction feedback loop + structuring test suite; split confidence scoring catches bad splits early |
+| AI structuring reliability (core risk) | Define failure modes explicitly (merged items, hallucinated items, dropped items) — each gets a different recovery UX; build 100+ recording regression suite |
+| Sync conflicts on action items | Phase 4 per-field merge strategy; conflict detection banner with change history |
 | Real-time feed scalability | Start with polling (30s), migrate to WebSocket when needed |
 | Photo storage costs | Aggressive compression, tiered storage by plan |
 | Offline-first complexity | Phase 4 lays the foundation; each subsequent phase builds on it |
+| Offline handoff generation | Structured sections generated locally; AI summary backfills on reconnect (Phase 7) |
 | Team adoption friction | Handoff reports (Phase 7) create natural pull; @mentions (Phase 8) create daily engagement |
+| Free-to-paid conversion gap | Raised Free tier to 5 members / 50 notes; gate on features not team size |
+| Activation drop-off | Phase 6 guided first-run experience; track time-to-first-structured-note |
+| Android market share loss | Decision point: if >30% of waitlist requests Android by Month 3, begin cross-platform evaluation |
+| Enterprise API scope creep | Phase 12 defines explicit surface area upfront; prevents blank-check custom requests |
+
+---
+
+## Open Decisions (from PRD)
+
+1. **Real-time vs polling:** Start with 30s polling, measure demand for WebSocket
+2. **Multi-language support:** Spanish transcription is high demand for hospitality — timing TBD
+3. **Hardware integrations:** Two-way radio integration as a "channel" — feasibility TBD
+4. **Apple Watch companion:** Quick record from wrist — ROI evaluation after Phase 9
+5. **Android:** Hard decision point at Month 3 based on waitlist demand (>30% threshold)
+6. **Compliance certifications:** HIPAA / SOC 2 timeline depends on enterprise pipeline
+7. **Solo pricing tier ($19/loc/mo):** Evaluate after Free tier expansion data comes in
