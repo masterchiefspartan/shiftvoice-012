@@ -4,7 +4,8 @@ import GoogleSignInSwift
 struct SignInView: View {
     @Bindable var authService: AuthenticationService
     @State private var isSignUp: Bool = false
-    @State private var name: String = ""
+    @State private var firstName: String = ""
+    @State private var lastName: String = ""
     @State private var email: String = ""
     @State private var password: String = ""
     @State private var isPasswordVisible: Bool = false
@@ -115,22 +116,46 @@ struct SignInView: View {
         VStack(spacing: 14) {
             if isSignUp {
                 VStack(alignment: .leading, spacing: 4) {
-                    fieldContainer(hasError: authService.nameError != nil) {
+                    fieldContainer(hasError: authService.firstNameError != nil) {
                         HStack(spacing: 12) {
                             Image(systemName: "person")
                                 .font(.system(size: 16))
                                 .foregroundStyle(SVTheme.textTertiary)
                                 .frame(width: 20)
-                            TextField("Full Name", text: $name)
-                                .textContentType(.name)
+                            TextField("First Name", text: $firstName)
+                                .textContentType(.givenName)
+                                .textInputAutocapitalization(.words)
                                 .autocorrectionDisabled()
-                                .focused($focusedField, equals: .name)
+                                .focused($focusedField, equals: .firstName)
                                 .submitLabel(.next)
-                                .onSubmit { focusedField = .email }
-                                .onChange(of: name) { _, _ in authService.nameError = nil }
+                                .onSubmit { focusedField = .lastName }
+                                .onChange(of: firstName) { _, _ in authService.firstNameError = nil }
                         }
                     }
-                    if let error = authService.nameError {
+                    if let error = authService.firstNameError {
+                        fieldErrorLabel(error)
+                    }
+                }
+                .transition(.opacity.combined(with: .move(edge: .top)))
+
+                VStack(alignment: .leading, spacing: 4) {
+                    fieldContainer(hasError: authService.lastNameError != nil) {
+                        HStack(spacing: 12) {
+                            Image(systemName: "person")
+                                .font(.system(size: 16))
+                                .foregroundStyle(SVTheme.textTertiary)
+                                .frame(width: 20)
+                            TextField("Last Name", text: $lastName)
+                                .textContentType(.familyName)
+                                .textInputAutocapitalization(.words)
+                                .autocorrectionDisabled()
+                                .focused($focusedField, equals: .lastName)
+                                .submitLabel(.next)
+                                .onSubmit { focusedField = .email }
+                                .onChange(of: lastName) { _, _ in authService.lastNameError = nil }
+                        }
+                    }
+                    if let error = authService.lastNameError {
                         fieldErrorLabel(error)
                     }
                 }
@@ -336,14 +361,15 @@ struct SignInView: View {
         focusedField = nil
         authService.passwordResetSuccess = false
         if isSignUp {
-            authService.signUpWithEmail(name: name, email: email, password: password)
+            authService.signUpWithEmail(firstName: firstName, lastName: lastName, email: email, password: password)
         } else {
             authService.signInWithEmail(email: email, password: password)
         }
     }
 
     private func clearFormOnModeSwitch() {
-        name = ""
+        firstName = ""
+        lastName = ""
         password = ""
         isPasswordVisible = false
         authService.clearFieldErrors()
@@ -352,7 +378,8 @@ struct SignInView: View {
 }
 
 nonisolated enum SignInField: Hashable, Sendable {
-    case name
+    case firstName
+    case lastName
     case email
     case password
 }

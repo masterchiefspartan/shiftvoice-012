@@ -28,7 +28,8 @@ final class AuthenticationService {
     var showPasswordReset: Bool = false
     var passwordResetSuccess: Bool = false
 
-    var nameError: String?
+    var firstNameError: String?
+    var lastNameError: String?
     var emailError: String?
     var passwordError: String?
     var confirmPasswordError: String?
@@ -218,23 +219,39 @@ final class AuthenticationService {
     // MARK: - Email/Password Sign Up
 
     func clearFieldErrors() {
-        nameError = nil
+        firstNameError = nil
+        lastNameError = nil
         emailError = nil
         passwordError = nil
         confirmPasswordError = nil
         errorMessage = nil
     }
 
-    func validateSignUpFields(name: String, email: String, password: String) -> Bool {
+    private func capitalizeName(_ input: String) -> String {
+        let trimmed = input.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return trimmed }
+        return trimmed.prefix(1).uppercased() + trimmed.dropFirst()
+    }
+
+    func validateSignUpFields(firstName: String, lastName: String, email: String, password: String) -> Bool {
         clearFieldErrors()
         var valid = true
 
-        let trimmedName = name.trimmingCharacters(in: .whitespaces)
-        if trimmedName.isEmpty {
-            nameError = "Name is required"
+        let trimmedFirst = firstName.trimmingCharacters(in: .whitespaces)
+        if trimmedFirst.isEmpty {
+            firstNameError = "First name is required"
             valid = false
-        } else if trimmedName.count < 2 {
-            nameError = "Name must be at least 2 characters"
+        } else if trimmedFirst.count < 2 {
+            firstNameError = "Must be at least 2 characters"
+            valid = false
+        }
+
+        let trimmedLast = lastName.trimmingCharacters(in: .whitespaces)
+        if trimmedLast.isEmpty {
+            lastNameError = "Last name is required"
+            valid = false
+        } else if trimmedLast.count < 2 {
+            lastNameError = "Must be at least 2 characters"
             valid = false
         }
 
@@ -317,54 +334,73 @@ final class AuthenticationService {
         return valid
     }
 
-    func signUpWithEmail(name: String, email: String, password: String) {
-        guard validateSignUpFields(name: name, email: email, password: password) else { return }
+    func signUpWithEmail(firstName: String, lastName: String, email: String, password: String) {
+        guard validateSignUpFields(firstName: firstName, lastName: lastName, email: email, password: password) else { return }
         isSubmitting = true
 
         let trimmedEmail = email.lowercased().trimmingCharacters(in: .whitespaces)
-        let trimmedName = name.trimmingCharacters(in: .whitespaces)
+        let capitalizedFirst = capitalizeName(firstName)
+        let capitalizedLast = capitalizeName(lastName)
+        let fullName = "\(capitalizedFirst) \(capitalizedLast)"
+        let initials = "\(capitalizedFirst.prefix(1))\(capitalizedLast.prefix(1))".uppercased()
 
-        if KeychainService.loadPassword(for: trimmedEmail) != nil {
-            emailError = "An account with this email already exists"
-            errorMessage = "Please sign in instead."
-            isSubmitting = false
-            return
-        }
-
-        guard KeychainService.savePassword(password, for: trimmedEmail) else {
-            errorMessage = "Unable to create account. Please try again."
-            isSubmitting = false
-            return
-        }
-
-        let userId = UUID().uuidString
-        let initials: String = {
-            let parts = name.split(separator: " ")
-            if parts.count >= 2 {
-                return "\(parts[0].prefix(1))\(parts[1].prefix(1))".uppercased()
+        if APIService.shared.isConfigured {
+            Task {
+                await registerWithBackendFirst(name: fullName, email: trimmedEmail, password: password, initials: initials)
             }
-            return String(name.prefix(2)).uppercased()
-        }()
+        } else {
+            completeLocalSignUp(name: fullName, email: trimmedEmail, password: password, initials: initials)
+        }
+    }
+
+    private func completeLocalSignUp(name: String, email: String, password: String, initials: String, userId: String? = nil) {
+        let resolvedUserId = userId ?? UUID().uuidString
+
+        _ = KeychainService.savePassword(password, for: email)
 
         let profile = UserProfile(
-            id: userId,
-            name: trimmedName,
-            email: trimmedEmail,
+            id: resolvedUserId,
+            name: name,
+            email: email,
             initials: initials,
             profileImageURL: nil
         )
 
-        PersistenceService.shared.saveUserProfile(profile, for: userId)
-        PersistenceService.shared.saveEmailToUserIdMapping(email: trimmedEmail, userId: userId)
+        PersistenceService.shared.saveUserProfile(profile, for: resolvedUserId)
+        PersistenceService.shared.saveEmailToUserIdMapping(email: email, userId: resolvedUserId)
         emailUserProfile = profile
-        currentUserId = userId
+        currentUserId = resolvedUserId
         isSignedIn = true
         authMethod = .email
         isSubmitting = false
         UserDefaults.standard.set(AuthMethod.email.rawValue, forKey: "sv_auth_method")
-        createSession(userId: userId, method: .email)
+        createSession(userId: resolvedUserId, method: .email)
+    }
 
-        registerWithBackend(name: trimmedName, email: trimmedEmail, password: password, userId: userId)
+    private func registerWithBackendFirst(name: String, email: String, password: String, initials: String) async {
+        do {
+            let response = try await APIService.shared.register(name: name, email: email, password: password)
+            if response.success, let token = response.token {
+                let userId = response.userId ?? UUID().uuidString
+                backendToken = token
+                UserDefaults.standard.set(token, forKey: "sv_backend_token")
+                APIService.shared.setAuth(token: token, userId: userId)
+                completeLocalSignUp(name: name, email: email, password: password, initials: initials, userId: userId)
+            } else if let serverError = response.error {
+                if serverError.lowercased().contains("already exists") {
+                    emailError = "An account with this email already exists"
+                    errorMessage = "Please sign in instead."
+                } else {
+                    errorMessage = serverError
+                }
+                isSubmitting = false
+            } else {
+                errorMessage = "Unable to create account. Please try again."
+                isSubmitting = false
+            }
+        } catch {
+            completeLocalSignUp(name: name, email: email, password: password, initials: initials)
+        }
     }
 
     // MARK: - Email/Password Sign In
@@ -546,15 +582,7 @@ final class AuthenticationService {
 
     // MARK: - Backend Auth
 
-    private func registerWithBackend(name: String, email: String, password: String, userId: String) {
-        guard APIService.shared.isConfigured else { return }
-        backendAuthRetryCount = 0
-        Task {
-            await performBackendAuth({
-                try await APIService.shared.register(name: name, email: email, password: password)
-            }, userId: userId)
-        }
-    }
+
 
     private func loginWithBackend(email: String, password: String, userId: String) {
         guard APIService.shared.isConfigured else { return }

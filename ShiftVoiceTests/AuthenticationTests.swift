@@ -20,67 +20,82 @@ struct AuthenticationTests {
 
     // MARK: - Field Validation Tests
 
-    @Test func signUpValidationRejectsEmptyName() {
+    @Test func signUpValidationRejectsEmptyFirstName() {
         let auth = AuthenticationService()
-        let valid = auth.validateSignUpFields(name: "", email: "test@test.com", password: "password1")
+        let valid = auth.validateSignUpFields(firstName: "", lastName: "Doe", email: "test@test.com", password: "password1")
         #expect(valid == false)
-        #expect(auth.nameError != nil)
+        #expect(auth.firstNameError != nil)
     }
 
-    @Test func signUpValidationRejectsShortName() {
+    @Test func signUpValidationRejectsShortFirstName() {
         let auth = AuthenticationService()
-        let valid = auth.validateSignUpFields(name: "A", email: "test@test.com", password: "password1")
+        let valid = auth.validateSignUpFields(firstName: "A", lastName: "Doe", email: "test@test.com", password: "password1")
         #expect(valid == false)
-        #expect(auth.nameError != nil)
+        #expect(auth.firstNameError != nil)
+    }
+
+    @Test func signUpValidationRejectsEmptyLastName() {
+        let auth = AuthenticationService()
+        let valid = auth.validateSignUpFields(firstName: "John", lastName: "", email: "test@test.com", password: "password1")
+        #expect(valid == false)
+        #expect(auth.lastNameError != nil)
+    }
+
+    @Test func signUpValidationRejectsShortLastName() {
+        let auth = AuthenticationService()
+        let valid = auth.validateSignUpFields(firstName: "John", lastName: "D", email: "test@test.com", password: "password1")
+        #expect(valid == false)
+        #expect(auth.lastNameError != nil)
     }
 
     @Test func signUpValidationRejectsEmptyEmail() {
         let auth = AuthenticationService()
-        let valid = auth.validateSignUpFields(name: "John Doe", email: "", password: "password1")
+        let valid = auth.validateSignUpFields(firstName: "John", lastName: "Doe", email: "", password: "password1")
         #expect(valid == false)
         #expect(auth.emailError != nil)
     }
 
     @Test func signUpValidationRejectsInvalidEmail() {
         let auth = AuthenticationService()
-        let valid = auth.validateSignUpFields(name: "John Doe", email: "not-an-email", password: "password1")
+        let valid = auth.validateSignUpFields(firstName: "John", lastName: "Doe", email: "not-an-email", password: "password1")
         #expect(valid == false)
         #expect(auth.emailError != nil)
     }
 
     @Test func signUpValidationRejectsEmptyPassword() {
         let auth = AuthenticationService()
-        let valid = auth.validateSignUpFields(name: "John Doe", email: "test@test.com", password: "")
+        let valid = auth.validateSignUpFields(firstName: "John", lastName: "Doe", email: "test@test.com", password: "")
         #expect(valid == false)
         #expect(auth.passwordError != nil)
     }
 
     @Test func signUpValidationRejectsShortPassword() {
         let auth = AuthenticationService()
-        let valid = auth.validateSignUpFields(name: "John Doe", email: "test@test.com", password: "short1")
+        let valid = auth.validateSignUpFields(firstName: "John", lastName: "Doe", email: "test@test.com", password: "short1")
         #expect(valid == false)
         #expect(auth.passwordError != nil)
     }
 
     @Test func signUpValidationRejectsPasswordWithoutNumbers() {
         let auth = AuthenticationService()
-        let valid = auth.validateSignUpFields(name: "John Doe", email: "test@test.com", password: "passwordonly")
+        let valid = auth.validateSignUpFields(firstName: "John", lastName: "Doe", email: "test@test.com", password: "passwordonly")
         #expect(valid == false)
         #expect(auth.passwordError != nil)
     }
 
     @Test func signUpValidationRejectsPasswordWithoutLetters() {
         let auth = AuthenticationService()
-        let valid = auth.validateSignUpFields(name: "John Doe", email: "test@test.com", password: "12345678")
+        let valid = auth.validateSignUpFields(firstName: "John", lastName: "Doe", email: "test@test.com", password: "12345678")
         #expect(valid == false)
         #expect(auth.passwordError != nil)
     }
 
     @Test func signUpValidationAcceptsValidInput() {
         let auth = AuthenticationService()
-        let valid = auth.validateSignUpFields(name: "John Doe", email: "john@test.com", password: "password1")
+        let valid = auth.validateSignUpFields(firstName: "John", lastName: "Doe", email: "john@test.com", password: "password1")
         #expect(valid == true)
-        #expect(auth.nameError == nil)
+        #expect(auth.firstNameError == nil)
+        #expect(auth.lastNameError == nil)
         #expect(auth.emailError == nil)
         #expect(auth.passwordError == nil)
     }
@@ -151,13 +166,15 @@ struct AuthenticationTests {
 
     @Test func clearFieldErrorsResetsAllErrors() {
         let auth = AuthenticationService()
-        _ = auth.validateSignUpFields(name: "", email: "", password: "")
-        #expect(auth.nameError != nil)
+        _ = auth.validateSignUpFields(firstName: "", lastName: "", email: "", password: "")
+        #expect(auth.firstNameError != nil)
+        #expect(auth.lastNameError != nil)
         #expect(auth.emailError != nil)
         #expect(auth.passwordError != nil)
 
         auth.clearFieldErrors()
-        #expect(auth.nameError == nil)
+        #expect(auth.firstNameError == nil)
+        #expect(auth.lastNameError == nil)
         #expect(auth.emailError == nil)
         #expect(auth.passwordError == nil)
         #expect(auth.confirmPasswordError == nil)
@@ -304,9 +321,10 @@ struct AuthenticationTests {
 
     @Test func signUpCapturesMultipleErrors() {
         let auth = AuthenticationService()
-        let valid = auth.validateSignUpFields(name: "", email: "bad", password: "short")
+        let valid = auth.validateSignUpFields(firstName: "", lastName: "", email: "bad", password: "short")
         #expect(valid == false)
-        #expect(auth.nameError != nil)
+        #expect(auth.firstNameError != nil)
+        #expect(auth.lastNameError != nil)
         #expect(auth.emailError != nil)
         #expect(auth.passwordError != nil)
     }
@@ -321,7 +339,7 @@ struct AuthenticationTests {
 
     @Test func signUpNameWithWhitespace() {
         let auth = AuthenticationService()
-        let valid = auth.validateSignUpFields(name: "  John Doe  ", email: "test@test.com", password: "password1")
+        let valid = auth.validateSignUpFields(firstName: "  John  ", lastName: "  Doe  ", email: "test@test.com", password: "password1")
         #expect(valid == true)
     }
 
