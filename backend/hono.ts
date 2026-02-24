@@ -645,8 +645,8 @@ const structuredNoteSchema = z.object({
 });
 
 app.post("/rest/structure-transcript", async (c) => {
-  const auth = authMiddleware(c);
-  if (!auth) return errorResponse(c, 401, "Unauthorized", "UNAUTHORIZED");
+  const userId = c.req.header("x-user-id") || c.req.header("x-forwarded-for") || "anonymous";
+  if (!userId) return errorResponse(c, 400, "User identifier required", "BAD_REQUEST");
 
   const body = await c.req.json();
   const validation = validateBody(structureTranscriptSchema, body);

@@ -73,9 +73,7 @@ enum TranscriptProcessor {
             case .eightySixed: taskDescription = "86'd - restock: \(item.content.prefix(80))"
             case .reservation: taskDescription = "Reservation follow-up: \(item.content.prefix(80))"
             case .incident: taskDescription = "Incident follow-up: \(item.content.prefix(80))"
-            case .general:
-                guard item.urgency != .fyi else { return nil }
-                taskDescription = "Review: \(item.content.prefix(80))"
+            case .general: taskDescription = "Review: \(item.content.prefix(80))"
             }
             return ActionItem(
                 task: taskDescription,
