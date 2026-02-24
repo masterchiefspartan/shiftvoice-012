@@ -152,7 +152,10 @@ final class AppViewModel {
     func setAuthenticatedUser(_ userId: String) {
         authenticatedUserId = userId
         loadData()
-        syncFromBackend()
+        Task {
+            try? await Task.sleep(for: .seconds(1))
+            syncFromBackend()
+        }
     }
 
     func clearAuthenticatedUser() {

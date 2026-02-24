@@ -112,27 +112,27 @@ struct ContentView: View {
     }
 
     private var customTabBar: some View {
-        HStack(spacing: 0) {
-            tabButton(tab: .inbox, icon: "tray.fill", inactiveIcon: "tray", label: "Inbox", badge: viewModel.unacknowledgedCount)
+        VStack(spacing: 0) {
+            Rectangle().fill(SVTheme.divider).frame(height: 1 / UIScreen.main.scale)
+            HStack(spacing: 0) {
+                tabButton(tab: .inbox, icon: "tray.fill", inactiveIcon: "tray", label: "Inbox", badge: viewModel.unacknowledgedCount)
 
-            tabButton(tab: .actions, icon: "bolt.fill", inactiveIcon: "bolt", label: "Actions", badge: 0)
+                tabButton(tab: .actions, icon: "bolt.fill", inactiveIcon: "bolt", label: "Actions", badge: 0)
 
-            recordButton
+                recordButton
 
-            Spacer().frame(maxWidth: .infinity)
+                Spacer().frame(maxWidth: .infinity)
 
-            tabButton(tab: .profile, icon: "person.fill", inactiveIcon: "person", label: "Profile", badge: 0)
+                tabButton(tab: .profile, icon: "person.fill", inactiveIcon: "person", label: "Profile", badge: 0)
+            }
+            .padding(.horizontal, 8)
+            .padding(.top, 8)
         }
-        .padding(.horizontal, 8)
-        .padding(.top, 8)
-        .padding(.bottom, 2)
         .background(
             SVTheme.surface
                 .shadow(color: .black.opacity(0.04), radius: 12, y: -4)
+                .ignoresSafeArea(.container, edges: .bottom)
         )
-        .overlay(alignment: .top) {
-            Rectangle().fill(SVTheme.divider).frame(height: 1 / UIScreen.main.scale)
-        }
     }
 
     private func tabButton(tab: AppTab, icon: String, inactiveIcon: String, label: String, badge: Int) -> some View {

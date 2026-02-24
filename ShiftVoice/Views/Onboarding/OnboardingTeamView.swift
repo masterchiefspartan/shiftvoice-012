@@ -5,6 +5,7 @@ struct OnboardingTeamView: View {
     let onComplete: () -> Void
     @State private var appeared: Bool = false
     @State private var showReadyState: Bool = false
+    @FocusState private var isAnyFieldFocused: Bool
 
     var body: some View {
         ScrollView {
@@ -14,13 +15,22 @@ struct OnboardingTeamView: View {
                 } else {
                     inviteContent
                 }
+            }
+            .onTapGesture {
+                isAnyFieldFocused = false
 
                 Spacer(minLength: 40)
             }
             .padding(.horizontal, 24)
             .padding(.top, 24)
         }
+        .scrollDismissesKeyboard(.interactively)
         .onAppear { appeared = true }
+        .onChange(of: showReadyState) { _, newValue in
+            if newValue {
+                isAnyFieldFocused = false
+            }
+        }
     }
 
     private var inviteContent: some View {
@@ -119,6 +129,7 @@ struct OnboardingTeamView: View {
                     .keyboardType(.emailAddress)
                     .textContentType(.emailAddress)
                     .textInputAutocapitalization(.never)
+                    .focused($isAnyFieldFocused)
 
                     Button {
                         withAnimation(.easeOut(duration: 0.2)) {

@@ -263,43 +263,61 @@ app.post("/rest/auth/logout", async (c) => {
 // --- Sync Endpoints (backward compatible + delta) ---
 
 app.get("/rest/sync", async (c) => {
-  const auth = authMiddleware(c);
-  if (!auth) return errorResponse(c, 401, "Unauthorized", "UNAUTHORIZED");
+  try {
+    const auth = authMiddleware(c);
+    if (!auth) return errorResponse(c, 401, "Unauthorized", "UNAUTHORIZED");
 
-  const updatedSince = c.req.query("updatedSince") || null;
-  const data = storage.getUserData(auth.userId);
+    const updatedSince = c.req.query("updatedSince") || null;
+    const data = storage.getUserData(auth.userId);
 
-  if (!data) {
-    return c.json({ hasData: false, data: null });
+    if (!data) {
+      return c.json({ hasData: false, data: null });
+    }
+
+    if (updatedSince) {
+      const since = new Date(updatedSince).getTime();
+      const filteredData = {
+        ...data,
+        locations: (data.locations || []).filter((l) => {
+          try { return new Date(l.updatedAt).getTime() > since; } catch { return true; }
+        }),
+        teamMembers: (data.teamMembers || []).filter((m) => {
+          try { return new Date(m.updatedAt).getTime() > since; } catch { return true; }
+        }),
+        shiftNotes: (data.shiftNotes || []).filter((n) => {
+          try { return new Date(n.updatedAt).getTime() > since; } catch { return true; }
+        }),
+        recurringIssues: (data.recurringIssues || []).filter((i) => {
+          try { return new Date(i.updatedAt).getTime() > since; } catch { return true; }
+        }),
+      };
+      return c.json({ hasData: true, data: filteredData, isDelta: true });
+    }
+
+    return c.json({ hasData: true, data });
+  } catch (error: any) {
+    console.error("Sync pull error:", error?.message || error);
+    return errorResponse(c, 500, "Sync failed", "SYNC_ERROR");
   }
-
-  if (updatedSince) {
-    const since = new Date(updatedSince).getTime();
-    const filteredData = {
-      ...data,
-      locations: data.locations.filter((l) => new Date(l.updatedAt).getTime() > since),
-      teamMembers: data.teamMembers.filter((m) => new Date(m.updatedAt).getTime() > since),
-      shiftNotes: data.shiftNotes.filter((n) => new Date(n.updatedAt).getTime() > since),
-      recurringIssues: data.recurringIssues.filter((i) => new Date(i.updatedAt).getTime() > since),
-    };
-    return c.json({ hasData: true, data: filteredData, isDelta: true });
-  }
-
-  return c.json({ hasData: true, data });
 });
 
 app.post("/rest/sync", async (c) => {
-  const auth = authMiddleware(c);
-  if (!auth) return errorResponse(c, 401, "Unauthorized", "UNAUTHORIZED");
+  try {
+    const auth = authMiddleware(c);
+    if (!auth) return errorResponse(c, 401, "Unauthorized", "UNAUTHORIZED");
 
-  const body = await c.req.json();
-  const validation = validateBody(syncPushSchema, body);
-  if (!validation.success) {
-    return errorResponse(c, 400, validation.error, "VALIDATION_ERROR");
+    const body = await c.req.json();
+    const validation = validateBody(syncPushSchema, body);
+    if (!validation.success) {
+      return errorResponse(c, 400, validation.error, "VALIDATION_ERROR");
+    }
+
+    storage.setUserData(auth.userId, validation.data);
+    return c.json({ success: true, updatedAt: new Date().toISOString() });
+  } catch (error: any) {
+    console.error("Sync push error:", error?.message || error);
+    return errorResponse(c, 500, "Sync failed", "SYNC_ERROR");
   }
-
-  storage.setUserData(auth.userId, validation.data);
-  return c.json({ success: true, updatedAt: new Date().toISOString() });
 });
 
 // --- Shift Notes: Paginated List ---
