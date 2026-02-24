@@ -13,20 +13,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
 
     private nonisolated func configureFirebase() {
         guard FirebaseConfig.isConfigured else { return }
-
-        let options = FirebaseOptions(
-            googleAppID: FirebaseConfig.appID,
-            gcmSenderID: FirebaseConfig.gcmSenderID
-        )
-        options.apiKey = FirebaseConfig.apiKey
-        options.projectID = FirebaseConfig.projectID
-
-        let clientID = Config.GOOGLE_CLIENT_ID
-        if !clientID.isEmpty, clientID != "GOOGLE_CLIENT_ID" {
-            options.clientID = clientID
-        }
-
-        FirebaseApp.configure(options: options)
+        FirebaseApp.configure()
     }
 
     nonisolated func application(
