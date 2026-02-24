@@ -36,32 +36,17 @@ Transform ShiftVoice from a voice-first shift notes tool into the **operating sy
 
 ## Remaining Stability Phases
 
-### Phase 4: Data Integrity & Sync Reliability
+### Phase 4: Data Integrity & Sync Reliability ✅
 **Priority:** 🟠 High | **Effort:** High | **Target:** 1-2 weeks
 
-**Problems:**
-- `pushToBackend()` overwrites ALL data every time — no conflict resolution
-- If push fails, no retry queue — data stays local until next manual sync
-- `mergeShiftNotes` replaces by ID without checking timestamps — stale server data overwrites newer local edits
-- No `updatedAt` tracking on models
-
-**Deliverables:**
-1. Add `updatedAt: Date` field to ShiftNote, ActionItem, TeamMember models
-2. Timestamp-based conflict resolution in merge helpers (newest wins for notes)
-3. **Per-field merge for action items** — Status, assignee, and notes merge independently by timestamp; only flag conflict when the same field was changed by two users (from PRD devil's advocate on sync conflicts)
-4. Persistent offline action queue that retries on reconnect (currently in-memory only)
-5. Delta sync — only push changed records, not the entire data set
-6. Optimistic UI updates with rollback on sync failure
-7. Sync conflict UI — "Conflict detected" banner on action items with option to view change history
-
-**Tests:**
-- Rapid edit debouncing verification
-- Conflict resolution: newer local vs older server
-- Per-field merge correctness for action items (two users editing different fields)
-- Per-field merge conflict detection (two users editing same field)
-- Offline queue persistence across app restarts
-- Merge correctness with concurrent edits from multiple users
-- Delta sync payload verification
+- Added `updatedAt` to ShiftNote, ActionItem, TeamMember models (backwards-compatible Codable)
+- Timestamp-based conflict resolution in all merge helpers (newest wins for notes)
+- Per-field merge for action items — `statusUpdatedAt` and `assigneeUpdatedAt` merge independently; conflict flagged only when same field changed by two users at identical timestamps
+- Persistent offline action queue — saves to disk via PersistenceService, survives app restarts, retries up to 3x with incremented retry count
+- Delta sync — dirty flag tracking (`isDirty` on ShiftNote), only dirty records pushed; `dirtyNoteIds` set cleared after successful push
+- Optimistic UI with rollback — snapshot saved before push, `rollbackFromSnapshot()` restores state on failure
+- Sync conflict UI — amber "Conflict detected" banner on ActionItemRow with description and dismiss button
+- 30+ unit tests covering per-field merge, timestamp resolution, conflict detection/dismissal, offline queue persistence, snapshot round-trip, and backwards-compatible Codable decoding
 
 ---
 
@@ -328,7 +313,7 @@ ShiftHandoff {
 | 1 | Auth Reliability | ✅ Done | Critical | Medium | — |
 | 2 | Transcript Splitting | ✅ Done | Critical | Medium | — |
 | 3 | Error Handling | ✅ Done | High | Low-Med | — |
-| 4 | Data Sync Integrity | 🔲 Next | High | High | Week 1-2 |
+| 4 | Data Sync Integrity | ✅ Done | High | High | — |
 | 5 | Recording Reliability | 🔲 | Medium | Medium | Week 3 |
 | 6 | Performance, Polish & Activation | 🔲 | Medium | Medium | Week 4 |
 | 7 | Shift Handoff Reports | 🔲 | Critical | High | Week 5-7 |

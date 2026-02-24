@@ -40,6 +40,7 @@ final class AppViewModel {
     var isOffline: Bool { !networkMonitor.isConnected }
 
     var pendingOfflineActions: [PendingAction] = []
+    private var dirtyNoteIds: Set<String> = []
 
     var pendingOfflineCount: Int {
         pendingOfflineActions.count
@@ -187,6 +188,11 @@ final class AppViewModel {
             selectedLocationId = locations.first?.id ?? ""
             persistData()
         }
+
+        let savedQueue = persistence.loadPendingActions(for: userId)
+        if !savedQueue.isEmpty {
+            pendingOfflineActions = savedQueue
+        }
         updateUnacknowledgedCount()
     }
 
@@ -262,7 +268,7 @@ final class AppViewModel {
                         if isDelta {
                             mergeShiftNotes(notesDTO.map { api.decodeShiftNote($0) })
                         } else {
-                            shiftNotes = notesDTO.map { api.decodeShiftNote($0) }
+                            mergeShiftNotesFullReplace(notesDTO.map { api.decodeShiftNote($0) })
                         }
                     }
                     if let issuesDTO = data.recurringIssues {
@@ -278,19 +284,7 @@ final class AppViewModel {
                         selectedLocationId = locations.first?.id ?? ""
                     }
                     updateUnacknowledgedCount()
-
-                    if let userId = authenticatedUserId {
-                        let appData = AppData(
-                            organization: organization,
-                            locations: locations,
-                            teamMembers: teamMembers,
-                            shiftNotes: shiftNotes,
-                            recurringIssues: recurringIssues,
-                            userProfile: persistence.loadUserProfile(for: userId),
-                            selectedLocationId: selectedLocationId
-                        )
-                        persistence.save(appData, for: userId)
-                    }
+                    persistDataLocal()
                 }
                 lastSyncDate = Date()
                 syncError = nil
@@ -305,7 +299,12 @@ final class AppViewModel {
     private var pushDebounceTask: Task<Void, Never>?
 
     private func pushToBackend() {
-        guard api.isConfigured, !isOffline else { return }
+        guard api.isConfigured, !isOffline else {
+            if isOffline, let userId = authenticatedUserId {
+                persistence.savePendingActions(pendingOfflineActions, for: userId)
+            }
+            return
+        }
         guard let userId = authenticatedUserId else { return }
 
         pushDebounceTask?.cancel()
@@ -313,25 +312,74 @@ final class AppViewModel {
             try? await Task.sleep(for: .milliseconds(500))
             guard !Task.isCancelled else { return }
 
-            let appData = AppData(
+            let snapshot = self.buildCurrentAppData(userId: userId)
+            self.persistence.saveSnapshot(snapshot, for: userId)
+
+            let dirtyNotes = self.shiftNotes.filter { $0.isDirty }
+            let pushNotes = dirtyNotes.isEmpty ? self.shiftNotes : dirtyNotes
+
+            let pushData = AppData(
                 organization: self.organization,
                 locations: self.locations,
                 teamMembers: self.teamMembers,
-                shiftNotes: self.shiftNotes,
+                shiftNotes: pushNotes,
                 recurringIssues: self.recurringIssues,
                 userProfile: self.persistence.loadUserProfile(for: userId),
                 selectedLocationId: self.selectedLocationId
             )
 
             do {
-                _ = try await self.api.pushData(appData: appData)
+                _ = try await self.api.pushData(appData: pushData)
                 self.lastSyncDate = Date()
                 self.syncError = nil
+                self.clearDirtyFlags()
+                self.persistence.clearSnapshot(for: userId)
             } catch {
                 self.syncError = error.localizedDescription
                 self.showToast("Failed to save to server", isError: true)
             }
         }
+    }
+
+    private func buildCurrentAppData(userId: String) -> AppData {
+        AppData(
+            organization: organization,
+            locations: locations,
+            teamMembers: teamMembers,
+            shiftNotes: shiftNotes,
+            recurringIssues: recurringIssues,
+            userProfile: persistence.loadUserProfile(for: userId),
+            selectedLocationId: selectedLocationId
+        )
+    }
+
+    private func markNoteDirty(_ noteId: String) {
+        dirtyNoteIds.insert(noteId)
+        if let idx = shiftNotes.firstIndex(where: { $0.id == noteId }) {
+            shiftNotes[idx].isDirty = true
+            shiftNotes[idx].updatedAt = Date()
+        }
+    }
+
+    private func clearDirtyFlags() {
+        dirtyNoteIds.removeAll()
+        for i in shiftNotes.indices {
+            shiftNotes[i].isDirty = false
+        }
+    }
+
+    func rollbackFromSnapshot() {
+        guard let userId = authenticatedUserId,
+              let snapshot = persistence.loadSnapshot(for: userId) else { return }
+        organization = snapshot.organization
+        locations = snapshot.locations
+        teamMembers = snapshot.teamMembers
+        shiftNotes = snapshot.shiftNotes
+        recurringIssues = snapshot.recurringIssues
+        selectedLocationId = snapshot.selectedLocationId ?? locations.first?.id ?? ""
+        updateUnacknowledgedCount()
+        persistence.clearSnapshot(for: userId)
+        showToast("Changes rolled back due to sync failure", isError: true)
     }
 
     func forceSync() {
@@ -344,7 +392,60 @@ final class AppViewModel {
         syncFromBackend(delta: true)
     }
 
-    // MARK: - Delta Merge Helpers
+    // MARK: - Persistent Offline Queue
+
+    func enqueuePendingAction(_ action: PendingAction) {
+        pendingOfflineActions.append(action)
+        if let userId = authenticatedUserId {
+            persistence.savePendingActions(pendingOfflineActions, for: userId)
+        }
+    }
+
+    func drainPendingQueue() {
+        guard api.isConfigured, !isOffline, !pendingOfflineActions.isEmpty else { return }
+        let actions = pendingOfflineActions
+        pendingOfflineActions.removeAll()
+        if let userId = authenticatedUserId {
+            persistence.clearPendingActions(for: userId)
+        }
+
+        Task {
+            for action in actions {
+                do {
+                    switch action.type {
+                    case .syncNotes:
+                        pushToBackend()
+                    case .updateActionItemStatus:
+                        let parts = action.payload.components(separatedBy: "|")
+                        if parts.count == 3 {
+                            _ = try await api.updateActionItemStatus(noteId: parts[0], actionItemId: parts[1], status: parts[2])
+                        }
+                    case .updateActionItemAssignee:
+                        let parts = action.payload.components(separatedBy: "|")
+                        if parts.count >= 2 {
+                            let assignee = parts.count > 2 ? parts[2] : ""
+                            _ = try await api.updateNote(noteId: parts[0], updates: ["actionItemId": parts[1], "assignee": assignee])
+                        }
+                    case .acknowledgeNote:
+                        let parts = action.payload.components(separatedBy: "|")
+                        if parts.count == 3 {
+                            _ = try await api.acknowledgeNote(noteId: parts[0], userId: parts[1], userName: parts[2])
+                        }
+                    case .deleteNote:
+                        _ = try await api.updateNote(noteId: action.payload, updates: ["deleted": true])
+                    case .sendInvite, .updateProfile:
+                        break
+                    }
+                } catch {
+                    if action.retryCount < 3 {
+                        enqueuePendingAction(action.withIncrementedRetry())
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Timestamp-Based Merge Helpers
 
     private func mergeLocations(_ incoming: [Location]) {
         for loc in incoming {
@@ -359,22 +460,114 @@ final class AppViewModel {
     private func mergeTeamMembers(_ incoming: [TeamMember]) {
         for member in incoming {
             if let idx = teamMembers.firstIndex(where: { $0.id == member.id }) {
-                teamMembers[idx] = member
+                let local = teamMembers[idx]
+                if member.updatedAt >= local.updatedAt {
+                    teamMembers[idx] = member
+                }
             } else {
                 teamMembers.append(member)
             }
         }
     }
 
+    private func mergeShiftNotesFullReplace(_ incoming: [ShiftNote]) {
+        let localDirty = shiftNotes.filter { $0.isDirty }
+        var merged = incoming
+        for dirtyNote in localDirty {
+            if let idx = merged.firstIndex(where: { $0.id == dirtyNote.id }) {
+                let serverNote = merged[idx]
+                merged[idx] = mergeNoteWithConflictDetection(local: dirtyNote, server: serverNote)
+            } else {
+                merged.append(dirtyNote)
+            }
+        }
+        shiftNotes = merged.sorted { $0.createdAt > $1.createdAt }
+    }
+
     private func mergeShiftNotes(_ incoming: [ShiftNote]) {
         for note in incoming {
             if let idx = shiftNotes.firstIndex(where: { $0.id == note.id }) {
-                shiftNotes[idx] = note
+                let local = shiftNotes[idx]
+                if local.isDirty {
+                    shiftNotes[idx] = mergeNoteWithConflictDetection(local: local, server: note)
+                } else if note.updatedAt >= local.updatedAt {
+                    shiftNotes[idx] = note
+                }
             } else {
                 shiftNotes.append(note)
             }
         }
         shiftNotes.sort { $0.createdAt > $1.createdAt }
+    }
+
+    func mergeNoteWithConflictDetection(local: ShiftNote, server: ShiftNote) -> ShiftNote {
+        var result = local.updatedAt >= server.updatedAt ? local : server
+
+        var mergedActionItems: [ActionItem] = []
+        let localActions = Dictionary(uniqueKeysWithValues: local.actionItems.map { ($0.id, $0) })
+        let serverActions = Dictionary(uniqueKeysWithValues: server.actionItems.map { ($0.id, $0) })
+
+        let allIds = Set(localActions.keys).union(serverActions.keys)
+
+        for id in allIds {
+            if let localItem = localActions[id], let serverItem = serverActions[id] {
+                let merged = mergeActionItemPerField(local: localItem, server: serverItem)
+                mergedActionItems.append(merged)
+            } else if let localItem = localActions[id] {
+                mergedActionItems.append(localItem)
+            } else if let serverItem = serverActions[id] {
+                mergedActionItems.append(serverItem)
+            }
+        }
+
+        result.actionItems = mergedActionItems
+
+        let mergedAcks = mergeAcknowledgments(local: local.acknowledgments, server: server.acknowledgments)
+        result.acknowledgments = mergedAcks
+
+        return result
+    }
+
+    func mergeActionItemPerField(local: ActionItem, server: ActionItem) -> ActionItem {
+        var merged = local
+        var conflictParts: [String] = []
+
+        if local.status != server.status {
+            if server.statusUpdatedAt > local.statusUpdatedAt {
+                merged.status = server.status
+                merged.statusUpdatedAt = server.statusUpdatedAt
+            } else if local.statusUpdatedAt == server.statusUpdatedAt && local.status != server.status {
+                conflictParts.append("Status changed to '\(server.status.rawValue)' by another user")
+            }
+        }
+
+        if local.assignee != server.assignee {
+            if server.assigneeUpdatedAt > local.assigneeUpdatedAt {
+                merged.assignee = server.assignee
+                merged.assigneeUpdatedAt = server.assigneeUpdatedAt
+            } else if local.assigneeUpdatedAt == server.assigneeUpdatedAt && local.assignee != server.assignee {
+                let serverAssignee = server.assignee ?? "Unassigned"
+                conflictParts.append("Assignee changed to '\(serverAssignee)' by another user")
+            }
+        }
+
+        merged.updatedAt = max(local.updatedAt, server.updatedAt)
+
+        if !conflictParts.isEmpty {
+            merged.hasConflict = true
+            merged.conflictDescription = conflictParts.joined(separator: "; ")
+        }
+
+        return merged
+    }
+
+    private func mergeAcknowledgments(local: [Acknowledgment], server: [Acknowledgment]) -> [Acknowledgment] {
+        var merged = local
+        let localIds = Set(local.map(\.id))
+        for ack in server where !localIds.contains(ack.id) {
+            merged.append(ack)
+        }
+        return merged.sorted { $0.timestamp < $1.timestamp }
     }
 
     private func mergeRecurringIssues(_ incoming: [RecurringIssue]) {
@@ -384,6 +577,20 @@ final class AppViewModel {
             } else {
                 recurringIssues.append(issue)
             }
+        }
+    }
+
+    func dismissConflict(noteId: String, actionItemId: String) {
+        guard let noteIdx = shiftNotes.firstIndex(where: { $0.id == noteId }),
+              let itemIdx = shiftNotes[noteIdx].actionItems.firstIndex(where: { $0.id == actionItemId }) else { return }
+        shiftNotes[noteIdx].actionItems[itemIdx].hasConflict = false
+        shiftNotes[noteIdx].actionItems[itemIdx].conflictDescription = nil
+        persistDataLocal()
+    }
+
+    var conflictedActionItems: [(item: ActionItem, noteId: String)] {
+        shiftNotes.flatMap { note in
+            note.actionItems.filter { $0.hasConflict }.map { (item: $0, noteId: note.id) }
         }
     }
 
@@ -473,6 +680,7 @@ final class AppViewModel {
             userName: currentUserName
         )
         shiftNotes[index].acknowledgments.append(ack)
+        markNoteDirty(noteId)
         updateUnacknowledgedCount()
         persistData()
 
@@ -480,6 +688,8 @@ final class AppViewModel {
             Task {
                 _ = try? await api.acknowledgeNote(noteId: noteId, userId: currentUserId, userName: currentUserName)
             }
+        } else {
+            enqueuePendingAction(PendingAction(type: .acknowledgeNote, payload: "\(noteId)|\(currentUserId)|\(currentUserName)"))
         }
     }
 
@@ -610,14 +820,17 @@ final class AppViewModel {
     }
 
     func publishReviewedNote(_ note: ShiftNote) {
-        shiftNotes.insert(note, at: 0)
+        var mutableNote = note
+        mutableNote.updatedAt = Date()
+        mutableNote.isDirty = true
+        shiftNotes.insert(mutableNote, at: 0)
+        dirtyNoteIds.insert(mutableNote.id)
         updateUnacknowledgedCount()
         publishError = nil
         pendingPublishNote = nil
 
         if isOffline {
-            let action = PendingAction(type: .syncNotes, payload: note.id)
-            pendingOfflineActions.append(action)
+            enqueuePendingAction(PendingAction(type: .syncNotes, payload: note.id))
             persistDataLocal()
             showToast("Saved offline — will sync when connected", isError: false)
         } else {
@@ -633,7 +846,11 @@ final class AppViewModel {
     func updateActionItemAssignee(noteId: String, actionItemId: String, assignee: String?) {
         guard let noteIndex = shiftNotes.firstIndex(where: { $0.id == noteId }),
               let itemIndex = shiftNotes[noteIndex].actionItems.firstIndex(where: { $0.id == actionItemId }) else { return }
+        let now = Date()
         shiftNotes[noteIndex].actionItems[itemIndex].assignee = assignee
+        shiftNotes[noteIndex].actionItems[itemIndex].assigneeUpdatedAt = now
+        shiftNotes[noteIndex].actionItems[itemIndex].updatedAt = now
+        markNoteDirty(noteId)
         persistData()
     }
 
@@ -811,13 +1028,19 @@ final class AppViewModel {
     func updateActionItemStatus(noteId: String, actionItemId: String, newStatus: ActionItemStatus) {
         guard let noteIndex = shiftNotes.firstIndex(where: { $0.id == noteId }),
               let itemIndex = shiftNotes[noteIndex].actionItems.firstIndex(where: { $0.id == actionItemId }) else { return }
+        let now = Date()
         shiftNotes[noteIndex].actionItems[itemIndex].status = newStatus
+        shiftNotes[noteIndex].actionItems[itemIndex].statusUpdatedAt = now
+        shiftNotes[noteIndex].actionItems[itemIndex].updatedAt = now
+        markNoteDirty(noteId)
         persistData()
 
         if api.isConfigured, !isOffline {
             Task {
                 _ = try? await api.updateActionItemStatus(noteId: noteId, actionItemId: actionItemId, status: newStatus.rawValue)
             }
+        } else {
+            enqueuePendingAction(PendingAction(type: .updateActionItemStatus, payload: "\(noteId)|\(actionItemId)|\(newStatus.rawValue)"))
         }
     }
 
@@ -835,8 +1058,13 @@ final class AppViewModel {
 
     func deleteNote(_ noteId: String) {
         shiftNotes.removeAll { $0.id == noteId }
+        dirtyNoteIds.remove(noteId)
         updateUnacknowledgedCount()
         persistData()
+
+        if isOffline {
+            enqueuePendingAction(PendingAction(type: .deleteNote, payload: noteId))
+        }
     }
 
     func addLocation(_ location: Location) {
@@ -887,7 +1115,7 @@ final class AppViewModel {
         guard authenticatedUserId != nil else { return }
         if !pendingOfflineActions.isEmpty {
             showToast("Back online — syncing \(pendingOfflineActions.count) pending changes", isError: false)
-            pendingOfflineActions.removeAll()
+            drainPendingQueue()
         }
         forceSync()
     }

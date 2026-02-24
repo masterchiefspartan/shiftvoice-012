@@ -120,8 +120,9 @@ nonisolated struct TeamMember: Identifiable, Codable, Sendable {
     let locationIds: [String]
     let inviteStatus: InviteStatus
     let avatarInitials: String
+    var updatedAt: Date
 
-    init(id: String = UUID().uuidString, name: String, email: String, role: ManagerRole, roleTemplateId: String? = nil, locationIds: [String] = [], inviteStatus: InviteStatus = .accepted, avatarInitials: String? = nil) {
+    init(id: String = UUID().uuidString, name: String, email: String, role: ManagerRole, roleTemplateId: String? = nil, locationIds: [String] = [], inviteStatus: InviteStatus = .accepted, avatarInitials: String? = nil, updatedAt: Date = Date()) {
         self.id = id
         self.name = name
         self.email = email
@@ -129,6 +130,7 @@ nonisolated struct TeamMember: Identifiable, Codable, Sendable {
         self.roleTemplateId = roleTemplateId
         self.locationIds = locationIds
         self.inviteStatus = inviteStatus
+        self.updatedAt = updatedAt
         if let initials = avatarInitials {
             self.avatarInitials = initials
         } else {

@@ -104,8 +104,13 @@ nonisolated struct ActionItem: Identifiable, Codable, Sendable {
     let urgency: UrgencyLevel
     var status: ActionItemStatus
     var assignee: String?
+    var updatedAt: Date
+    var statusUpdatedAt: Date
+    var assigneeUpdatedAt: Date
+    var hasConflict: Bool
+    var conflictDescription: String?
 
-    init(id: String = UUID().uuidString, task: String, category: NoteCategory, categoryTemplateId: String? = nil, urgency: UrgencyLevel, status: ActionItemStatus = .open, assignee: String? = nil) {
+    init(id: String = UUID().uuidString, task: String, category: NoteCategory, categoryTemplateId: String? = nil, urgency: UrgencyLevel, status: ActionItemStatus = .open, assignee: String? = nil, updatedAt: Date = Date(), statusUpdatedAt: Date? = nil, assigneeUpdatedAt: Date? = nil, hasConflict: Bool = false, conflictDescription: String? = nil) {
         self.id = id
         self.task = task
         self.category = category
@@ -113,6 +118,11 @@ nonisolated struct ActionItem: Identifiable, Codable, Sendable {
         self.urgency = urgency
         self.status = status
         self.assignee = assignee
+        self.updatedAt = updatedAt
+        self.statusUpdatedAt = statusUpdatedAt ?? updatedAt
+        self.assigneeUpdatedAt = assigneeUpdatedAt ?? updatedAt
+        self.hasConflict = hasConflict
+        self.conflictDescription = conflictDescription
     }
 
     var displayInfo: CategoryDisplayInfo {
@@ -174,7 +184,9 @@ nonisolated struct ShiftNote: Identifiable, Codable, Sendable {
     var acknowledgments: [Acknowledgment]
     var voiceReplies: [VoiceReply]
     let createdAt: Date
+    var updatedAt: Date
     var isSynced: Bool
+    var isDirty: Bool
 
     init(
         id: String = UUID().uuidString,
@@ -194,7 +206,9 @@ nonisolated struct ShiftNote: Identifiable, Codable, Sendable {
         acknowledgments: [Acknowledgment] = [],
         voiceReplies: [VoiceReply] = [],
         createdAt: Date = Date(),
-        isSynced: Bool = true
+        updatedAt: Date? = nil,
+        isSynced: Bool = true,
+        isDirty: Bool = false
     ) {
         self.id = id
         self.authorId = authorId
@@ -213,7 +227,9 @@ nonisolated struct ShiftNote: Identifiable, Codable, Sendable {
         self.acknowledgments = acknowledgments
         self.voiceReplies = voiceReplies
         self.createdAt = createdAt
+        self.updatedAt = updatedAt ?? createdAt
         self.isSynced = isSynced
+        self.isDirty = isDirty
     }
 
     var highestUrgency: UrgencyLevel {

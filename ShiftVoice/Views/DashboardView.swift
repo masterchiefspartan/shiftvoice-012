@@ -362,7 +362,12 @@ struct DashboardView: View {
                                         newStatus: newStatus
                                     )
                                 }
-                            }
+                            },
+                            onDismissConflict: entry.item.hasConflict ? {
+                                withAnimation(.easeOut(duration: 0.2)) {
+                                    viewModel.dismissConflict(noteId: entry.noteId, actionItemId: entry.item.id)
+                                }
+                            } : nil
                         )
 
                         if index < filteredActions.count - 1 {
@@ -740,8 +745,36 @@ struct ActionItemRow: View {
     let locationName: String
     let noteId: String
     let onStatusChange: (ActionItemStatus) -> Void
+    var onDismissConflict: (() -> Void)? = nil
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if item.hasConflict, let desc = item.conflictDescription {
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.caption2)
+                        .foregroundStyle(SVTheme.amber)
+                    Text(desc)
+                        .font(.caption2)
+                        .foregroundStyle(SVTheme.textSecondary)
+                        .lineLimit(2)
+                    Spacer(minLength: 4)
+                    if let dismiss = onDismissConflict {
+                        Button {
+                            dismiss()
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundStyle(SVTheme.textTertiary)
+                                .frame(width: 20, height: 20)
+                        }
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(SVTheme.amber.opacity(0.08))
+            }
+
         HStack(alignment: .top, spacing: 12) {
             Button {
                 let next: ActionItemStatus = switch item.status {
@@ -812,6 +845,7 @@ struct ActionItemRow: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
+        }
     }
 
     private var statusIcon: String {

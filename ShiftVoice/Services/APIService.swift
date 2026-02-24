@@ -99,6 +99,7 @@ nonisolated struct TeamMemberDTO: Codable, Sendable {
     let locationIds: [String]?
     let inviteStatus: String?
     let avatarInitials: String?
+    let updatedAt: String?
 }
 
 nonisolated struct AcknowledgmentDTO: Codable, Sendable {
@@ -125,6 +126,9 @@ nonisolated struct ActionItemDTO: Codable, Sendable {
     let urgency: String?
     let status: String?
     let assignee: String?
+    let updatedAt: String?
+    let statusUpdatedAt: String?
+    let assigneeUpdatedAt: String?
 }
 
 nonisolated struct VoiceReplyDTO: Codable, Sendable {
@@ -154,6 +158,7 @@ nonisolated struct ShiftNoteDTO: Codable, Sendable {
     let acknowledgments: [AcknowledgmentDTO]?
     let voiceReplies: [VoiceReplyDTO]?
     let createdAt: String?
+    let updatedAt: String?
     let isSynced: Bool?
 }
 
@@ -448,7 +453,8 @@ final class APIService {
             "role": member.role.rawValue,
             "locationIds": member.locationIds,
             "inviteStatus": member.inviteStatus.rawValue,
-            "avatarInitials": member.avatarInitials
+            "avatarInitials": member.avatarInitials,
+            "updatedAt": dateFormatter.string(from: member.updatedAt)
         ]
         if let templateId = member.roleTemplateId {
             dict["roleTemplateId"] = templateId
@@ -469,6 +475,7 @@ final class APIService {
             "summary": note.summary,
             "photoUrls": note.photoUrls,
             "createdAt": dateFormatter.string(from: note.createdAt),
+            "updatedAt": dateFormatter.string(from: note.updatedAt),
             "isSynced": note.isSynced,
             "categorizedItems": note.categorizedItems.map { encodeCategorizedItem($0) },
             "actionItems": note.actionItems.map { encodeActionItem($0) },
@@ -498,7 +505,10 @@ final class APIService {
             "task": item.task,
             "category": item.category.rawValue,
             "urgency": item.urgency.rawValue,
-            "status": item.status.rawValue
+            "status": item.status.rawValue,
+            "updatedAt": dateFormatter.string(from: item.updatedAt),
+            "statusUpdatedAt": dateFormatter.string(from: item.statusUpdatedAt),
+            "assigneeUpdatedAt": dateFormatter.string(from: item.assigneeUpdatedAt)
         ]
         if let templateId = item.categoryTemplateId { dict["categoryTemplateId"] = templateId }
         if let assignee = item.assignee { dict["assignee"] = assignee }
@@ -569,7 +579,11 @@ final class APIService {
     }
 
     func decodeTeamMember(_ dto: TeamMemberDTO) -> TeamMember {
-        TeamMember(
+        let updatedAt: Date = {
+            if let str = dto.updatedAt { return dateFormatter.date(from: str) ?? Date() }
+            return Date()
+        }()
+        return TeamMember(
             id: dto.id,
             name: dto.name,
             email: dto.email,
@@ -577,7 +591,8 @@ final class APIService {
             roleTemplateId: dto.roleTemplateId,
             locationIds: dto.locationIds ?? [],
             inviteStatus: InviteStatus(rawValue: dto.inviteStatus ?? "Accepted") ?? .accepted,
-            avatarInitials: dto.avatarInitials
+            avatarInitials: dto.avatarInitials,
+            updatedAt: updatedAt
         )
     }
 
@@ -585,6 +600,10 @@ final class APIService {
         let createdAt: Date = {
             if let str = dto.createdAt { return dateFormatter.date(from: str) ?? Date() }
             return Date()
+        }()
+        let updatedAt: Date = {
+            if let str = dto.updatedAt { return dateFormatter.date(from: str) ?? createdAt }
+            return createdAt
         }()
         return ShiftNote(
             id: dto.id,
@@ -604,6 +623,7 @@ final class APIService {
             acknowledgments: (dto.acknowledgments ?? []).map { decodeAcknowledgment($0) },
             voiceReplies: (dto.voiceReplies ?? []).map { decodeVoiceReply($0) },
             createdAt: createdAt,
+            updatedAt: updatedAt,
             isSynced: dto.isSynced ?? true
         )
     }
@@ -620,14 +640,29 @@ final class APIService {
     }
 
     private func decodeActionItem(_ dto: ActionItemDTO) -> ActionItem {
-        ActionItem(
+        let updatedAt: Date = {
+            if let str = dto.updatedAt { return dateFormatter.date(from: str) ?? Date() }
+            return Date()
+        }()
+        let statusUpdatedAt: Date = {
+            if let str = dto.statusUpdatedAt { return dateFormatter.date(from: str) ?? updatedAt }
+            return updatedAt
+        }()
+        let assigneeUpdatedAt: Date = {
+            if let str = dto.assigneeUpdatedAt { return dateFormatter.date(from: str) ?? updatedAt }
+            return updatedAt
+        }()
+        return ActionItem(
             id: dto.id,
             task: dto.task ?? "",
             category: NoteCategory(rawValue: dto.category ?? "General") ?? .general,
             categoryTemplateId: dto.categoryTemplateId,
             urgency: UrgencyLevel(rawValue: dto.urgency ?? "FYI") ?? .fyi,
             status: ActionItemStatus(rawValue: dto.status ?? "Open") ?? .open,
-            assignee: dto.assignee
+            assignee: dto.assignee,
+            updatedAt: updatedAt,
+            statusUpdatedAt: statusUpdatedAt,
+            assigneeUpdatedAt: assigneeUpdatedAt
         )
     }
 
