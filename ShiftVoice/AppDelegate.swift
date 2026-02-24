@@ -12,7 +12,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     }
 
     private nonisolated func configureFirebase() {
-        guard FirebaseConfig.isConfigured else { return }
+        guard FirebaseConfig.isConfigured, FirebaseApp.app() == nil else { return }
         FirebaseApp.configure()
     }
 

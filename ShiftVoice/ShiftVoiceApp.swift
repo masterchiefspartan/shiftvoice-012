@@ -7,12 +7,17 @@ import FirebaseCore
 struct ShiftVoiceApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding: Bool = false
-    @State private var authService = AuthenticationService()
-    @State private var appViewModel = AppViewModel()
+    @State private var authService: AuthenticationService
+    @State private var appViewModel: AppViewModel
     private let pushService = PushNotificationService.shared
     private let subscriptionService = SubscriptionService.shared
 
     init() {
+        if FirebaseConfig.isConfigured, FirebaseApp.app() == nil {
+            FirebaseApp.configure()
+        }
+        _authService = State(wrappedValue: AuthenticationService())
+        _appViewModel = State(wrappedValue: AppViewModel())
         subscriptionService.configure()
     }
 
