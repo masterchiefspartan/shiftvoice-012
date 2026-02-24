@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		XX298127CFBB2CF3FA631BXX /* RevenueCat in Frameworks */ = {isa = PBXBuildFile; productRef = XXDCC169DE7B2F3C1C8B10XX /* RevenueCat */; };
 		XX528D1E429C819EC4858EXX /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = XX8A164A1710FD6D9E33FEXX /* FirebaseAuth */; };
+		XXA1B2C3D4E5F60718293AXX /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = XXF1E2D3C4B5A60798A1B2XX /* FirebaseFirestore */; };
 		XX6B55EF5BDBB06FA78746XX /* GoogleSignInSwift in Frameworks */ = {isa = PBXBuildFile; productRef = XX1523791DAAC03A11009CXX /* GoogleSignInSwift */; };
 		XXC2732D520C02064817F5XX /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = XXB48B343CDA2FFA072770XX /* GoogleSignIn */; };
 		XXDB1E089E7A6A563E00DBXX /* RevenueCatUI in Frameworks */ = {isa = PBXBuildFile; productRef = XXEAC818FB99284308FEDEXX /* RevenueCatUI */; };
@@ -65,6 +66,7 @@
 				XX298127CFBB2CF3FA631BXX /* RevenueCat in Frameworks */,
 				XXDB1E089E7A6A563E00DBXX /* RevenueCatUI in Frameworks */,
 				XX528D1E429C819EC4858EXX /* FirebaseAuth in Frameworks */,
+				XXA1B2C3D4E5F60718293AXX /* FirebaseFirestore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -130,6 +132,7 @@
 				XXDCC169DE7B2F3C1C8B10XX /* RevenueCat */,
 				XXEAC818FB99284308FEDEXX /* RevenueCatUI */,
 				XX8A164A1710FD6D9E33FEXX /* FirebaseAuth */,
+				XXF1E2D3C4B5A60798A1B2XX /* FirebaseFirestore */,
 			);
 			productName = ShiftVoice;
 			productReference = 105FC57A2E9EAD3100EA8BCF /* ShiftVoice.app */;
@@ -666,6 +669,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = XX4AC81916604C4344ADC0XX /* XCRemoteSwiftPackageReference "purchases-ios-spm" */;
 			productName = RevenueCatUI;
+		};
+		XXF1E2D3C4B5A60798A1B2XX /* FirebaseFirestore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = XX9B71512012E8DD248870XX /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseFirestore;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

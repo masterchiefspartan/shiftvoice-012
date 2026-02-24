@@ -47,7 +47,7 @@ struct ShiftVoiceApp: App {
                     if let token = authService.backendToken {
                         appViewModel.setBackendAuth(token: token, userId: userId)
                     }
-                    appViewModel.setAuthenticatedUser(userId)
+                    appViewModel.setAuthenticatedUser(userId, name: authService.userName, email: authService.userEmail)
                     subscriptionService.setUserId(userId)
                 } else if oldValue && !isSignedIn {
                     appViewModel.clearAuthenticatedUser()
@@ -59,7 +59,7 @@ struct ShiftVoiceApp: App {
                     if let token = authService.backendToken {
                         appViewModel.setBackendAuth(token: token, userId: userId)
                     }
-                    appViewModel.setAuthenticatedUser(userId)
+                    appViewModel.setAuthenticatedUser(userId, name: authService.userName, email: authService.userEmail)
                 }
             }
             .onChange(of: authService.backendToken) { _, token in
@@ -72,7 +72,7 @@ struct ShiftVoiceApp: App {
                     if let token = authService.backendToken {
                         appViewModel.setBackendAuth(token: token, userId: userId)
                     }
-                    appViewModel.setAuthenticatedUser(userId)
+                    appViewModel.setAuthenticatedUser(userId, name: authService.userName, email: authService.userEmail)
                 }
             }
             .onOpenURL { url in

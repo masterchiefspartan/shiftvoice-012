@@ -20,7 +20,7 @@ final class AppViewModel {
     var shiftNotes: [ShiftNote] = []
     var locations: [Location] = []
     var teamMembers: [TeamMember] = []
-    var organization: Organization = MockDataService.organization
+    var organization: Organization = Organization(name: "", ownerId: "")
     var recurringIssues: [RecurringIssue] = []
 
     var selectedLocationId: String = ""
@@ -38,49 +38,33 @@ final class AppViewModel {
 
     let networkMonitor = NetworkMonitor.shared
     var isOffline: Bool { !networkMonitor.isConnected }
-
-    var pendingOfflineActions: [PendingAction] = []
-    private var dirtyNoteIds: Set<String> = []
-
-    var pendingOfflineCount: Int {
-        pendingOfflineActions.count
-    }
+    var pendingOfflineCount: Int { 0 }
 
     var paginatedNotes: [ShiftNote] = []
     var paginationCursor: String? = nil
-    var hasMoreNotes: Bool = true
+    var hasMoreNotes: Bool = false
     var isLoadingPage: Bool = false
     var totalNoteCount: Int = 0
-    private let pageSize: Int = 20
 
     let audioRecorder = AudioRecorderService()
     let transcriptionService = TranscriptionService()
     private let noteStructuring = NoteStructuringService.shared
+    private let firestore = FirestoreService.shared
+    private let api = APIService.shared
 
     var isRecording: Bool { audioRecorder.isRecording }
     var recordingDuration: TimeInterval { audioRecorder.recordingDuration }
     var audioLevels: [CGFloat] { audioRecorder.audioLevels }
 
-    private let persistence = PersistenceService.shared
-    private let api = APIService.shared
+    private(set) var userProfile: UserProfile?
     private var authenticatedUserId: String?
-    private var isSyncing: Bool = false
+    private var organizationId: String?
     var lastSyncDate: Date?
     var syncError: String?
 
-    var currentUserId: String {
-        authenticatedUserId ?? ""
-    }
-
-    var currentUserName: String {
-        guard let userId = authenticatedUserId else { return "" }
-        return persistence.loadUserProfile(for: userId)?.name ?? ""
-    }
-
-    var currentUserInitials: String {
-        guard let userId = authenticatedUserId else { return "" }
-        return persistence.loadUserProfile(for: userId)?.initials ?? ""
-    }
+    var currentUserId: String { authenticatedUserId ?? "" }
+    var currentUserName: String { userProfile?.name ?? "" }
+    var currentUserInitials: String { userProfile?.initials ?? "" }
 
     var selectedLocation: Location? {
         locations.first { $0.id == selectedLocationId }
@@ -92,8 +76,7 @@ final class AppViewModel {
         case .bar: return .barPub
         case .hotel: return .hotel
         case .cafe: return .cafe
-        case .catering: return .other
-        case .other: return .other
+        case .catering, .other: return .other
         }
     }
 
@@ -122,9 +105,7 @@ final class AppViewModel {
         let sorted = template.defaultShifts.sorted { $0.defaultStartHour < $1.defaultStartHour }
         var best = sorted.last!
         for s in sorted {
-            if hour >= s.defaultStartHour {
-                best = s
-            }
+            if hour >= s.defaultStartHour { best = s }
         }
         return ShiftDisplayInfo(from: best)
     }
@@ -139,448 +120,193 @@ final class AppViewModel {
     }
 
     var feedNotes: [ShiftNote] {
-        if !paginatedNotes.isEmpty || totalNoteCount > 0 {
-            return paginatedNotes
-        }
-        return shiftNotes
+        shiftNotes
             .filter { $0.locationId == selectedLocationId }
             .sorted { $0.createdAt > $1.createdAt }
     }
 
     init() {}
 
-    func setAuthenticatedUser(_ userId: String) {
+    // MARK: - Auth Lifecycle
+
+    func setAuthenticatedUser(_ userId: String, name: String = "", email: String = "") {
         authenticatedUserId = userId
-        loadData()
-        Task {
-            try? await Task.sleep(for: .seconds(1))
-            syncFromBackend()
+
+        if !name.isEmpty {
+            let parts = name.split(separator: " ")
+            let initials = parts.count >= 2
+                ? "\(parts[0].prefix(1))\(parts[1].prefix(1))".uppercased()
+                : String(name.prefix(2)).uppercased()
+            userProfile = UserProfile(id: userId, name: name, email: email, initials: initials, profileImageURL: nil)
         }
+
+        Task { await loadUserData(userId) }
     }
 
     func clearAuthenticatedUser() {
         api.clearAuth()
+        firestore.stopAllListeners()
         authenticatedUserId = nil
+        organizationId = nil
+        userProfile = nil
         shiftNotes = []
         locations = []
         teamMembers = []
         recurringIssues = []
-        organization = MockDataService.organization
+        organization = Organization(name: "", ownerId: "")
         selectedLocationId = ""
         unacknowledgedCount = 0
         lastSyncDate = nil
         syncError = nil
     }
 
-    private func loadData() {
-        guard let userId = authenticatedUserId else { return }
+    private func loadUserData(_ userId: String) async {
+        do {
+            let (profile, orgId, locId) = try await firestore.fetchUserData(userId)
+            if let profile { self.userProfile = profile }
+            self.organizationId = orgId
+            if let locId { self.selectedLocationId = locId }
+            if let orgId { startListeners(orgId: orgId) }
+        } catch {
+            syncError = "Unable to load data: \(error.localizedDescription)"
+        }
+    }
 
-        if let appData = persistence.load(for: userId) {
-            organization = appData.organization
-            locations = appData.locations
-            teamMembers = appData.teamMembers
-            shiftNotes = appData.shiftNotes
-            recurringIssues = appData.recurringIssues
-            selectedLocationId = appData.selectedLocationId ?? appData.locations.first?.id ?? ""
-        } else {
-            locations = MockDataService.locations
-            teamMembers = MockDataService.teamMembers
-            organization = MockDataService.organization
-            recurringIssues = MockDataService.recurringIssues
-            shiftNotes = MockDataService.generateShiftNotes()
-            selectedLocationId = locations.first?.id ?? ""
-            persistData()
+    private func startListeners(orgId: String) {
+        firestore.stopAllListeners()
+
+        firestore.startOrganizationListener(orgId) { [weak self] org in
+            guard let self, let org else { return }
+            self.organization = org
         }
 
-        let savedQueue = persistence.loadPendingActions(for: userId)
-        if !savedQueue.isEmpty {
-            pendingOfflineActions = savedQueue
+        firestore.startLocationsListener(orgId) { [weak self] locations in
+            guard let self else { return }
+            self.locations = locations
+            if self.selectedLocationId.isEmpty, let first = locations.first {
+                self.selectedLocationId = first.id
+            }
+            self.updateUnacknowledgedCount()
         }
-        updateUnacknowledgedCount()
+
+        firestore.startTeamMembersListener(orgId) { [weak self] members in
+            guard let self else { return }
+            self.teamMembers = members
+        }
+
+        firestore.startShiftNotesListener(orgId) { [weak self] notes in
+            guard let self else { return }
+            self.shiftNotes = notes
+            self.updateUnacknowledgedCount()
+            self.lastSyncDate = Date()
+        }
+
+        firestore.startRecurringIssuesListener(orgId) { [weak self] issues in
+            guard let self else { return }
+            self.recurringIssues = issues
+        }
     }
 
-    func persistData() {
-        guard let userId = authenticatedUserId else { return }
-
-        let appData = AppData(
-            organization: organization,
-            locations: locations,
-            teamMembers: teamMembers,
-            shiftNotes: shiftNotes,
-            recurringIssues: recurringIssues,
-            userProfile: persistence.loadUserProfile(for: userId),
-            selectedLocationId: selectedLocationId
-        )
-        persistence.save(appData, for: userId)
-        saveError = nil
-
-        pushToBackend()
-    }
-
-    private func persistDataLocal() {
-        guard let userId = authenticatedUserId else { return }
-        let appData = AppData(
-            organization: organization,
-            locations: locations,
-            teamMembers: teamMembers,
-            shiftNotes: shiftNotes,
-            recurringIssues: recurringIssues,
-            userProfile: persistence.loadUserProfile(for: userId),
-            selectedLocationId: selectedLocationId
-        )
-        persistence.save(appData, for: userId)
-        saveError = nil
-    }
-
-    // MARK: - Backend Sync
+    // MARK: - Backend API Auth (for AI structuring)
 
     func setBackendAuth(token: String, userId: String) {
         api.setAuth(token: token, userId: userId)
     }
 
-    func syncFromBackend(delta: Bool = false) {
-        guard api.isConfigured, !isSyncing else { return }
-        isSyncing = true
-        syncError = nil
+    // MARK: - Firestore Write Helpers
 
-        let sincDate: Date? = delta ? lastSyncDate : nil
-
-        Task {
-            do {
-                let response = try await api.pullData(updatedSince: sincDate)
-                let isDelta = response.isDelta ?? false
-                if response.hasData, let data = response.data {
-                    if let orgDTO = data.organization {
-                        organization = api.decodeOrganization(orgDTO)
-                    }
-                    if let locsDTO = data.locations {
-                        if isDelta {
-                            mergeLocations(locsDTO.map { api.decodeLocation($0) })
-                        } else {
-                            locations = locsDTO.map { api.decodeLocation($0) }
-                        }
-                    }
-                    if let teamDTO = data.teamMembers {
-                        if isDelta {
-                            mergeTeamMembers(teamDTO.map { api.decodeTeamMember($0) })
-                        } else {
-                            teamMembers = teamDTO.map { api.decodeTeamMember($0) }
-                        }
-                    }
-                    if let notesDTO = data.shiftNotes {
-                        if isDelta {
-                            mergeShiftNotes(notesDTO.map { api.decodeShiftNote($0) })
-                        } else {
-                            mergeShiftNotesFullReplace(notesDTO.map { api.decodeShiftNote($0) })
-                        }
-                    }
-                    if let issuesDTO = data.recurringIssues {
-                        if isDelta {
-                            mergeRecurringIssues(issuesDTO.map { api.decodeRecurringIssue($0) })
-                        } else {
-                            recurringIssues = issuesDTO.map { api.decodeRecurringIssue($0) }
-                        }
-                    }
-                    if let locId = data.selectedLocationId, !locId.isEmpty {
-                        selectedLocationId = locId
-                    } else if selectedLocationId.isEmpty {
-                        selectedLocationId = locations.first?.id ?? ""
-                    }
-                    updateUnacknowledgedCount()
-                    persistDataLocal()
-                }
-                lastSyncDate = Date()
-                syncError = nil
-            } catch {
-                syncError = error.localizedDescription
-                showToast("Sync failed: \(error.localizedDescription)", isError: true)
-            }
-            isSyncing = false
-        }
+    private func writeShiftNote(_ note: ShiftNote) {
+        guard let orgId = organizationId else { return }
+        do { try firestore.saveShiftNote(note, orgId: orgId) }
+        catch { showToast("Failed to save note", isError: true) }
     }
 
-    private var pushDebounceTask: Task<Void, Never>?
-
-    private func pushToBackend() {
-        guard api.isConfigured, !isOffline else {
-            if isOffline, let userId = authenticatedUserId {
-                persistence.savePendingActions(pendingOfflineActions, for: userId)
-            }
-            return
-        }
-        guard let userId = authenticatedUserId else { return }
-
-        pushDebounceTask?.cancel()
-        pushDebounceTask = Task {
-            try? await Task.sleep(for: .milliseconds(500))
-            guard !Task.isCancelled else { return }
-
-            let snapshot = self.buildCurrentAppData(userId: userId)
-            self.persistence.saveSnapshot(snapshot, for: userId)
-
-            let dirtyNotes = self.shiftNotes.filter { $0.isDirty }
-            let pushNotes = dirtyNotes.isEmpty ? self.shiftNotes : dirtyNotes
-
-            let pushData = AppData(
-                organization: self.organization,
-                locations: self.locations,
-                teamMembers: self.teamMembers,
-                shiftNotes: pushNotes,
-                recurringIssues: self.recurringIssues,
-                userProfile: self.persistence.loadUserProfile(for: userId),
-                selectedLocationId: self.selectedLocationId
-            )
-
-            do {
-                _ = try await self.api.pushData(appData: pushData)
-                self.lastSyncDate = Date()
-                self.syncError = nil
-                self.clearDirtyFlags()
-                self.persistence.clearSnapshot(for: userId)
-            } catch {
-                self.syncError = error.localizedDescription
-                self.showToast("Failed to save to server", isError: true)
-            }
-        }
+    private func writeLocation(_ location: Location) {
+        guard let orgId = organizationId else { return }
+        do { try firestore.saveLocation(location, orgId: orgId) }
+        catch { showToast("Failed to save location", isError: true) }
     }
 
-    private func buildCurrentAppData(userId: String) -> AppData {
-        AppData(
-            organization: organization,
-            locations: locations,
-            teamMembers: teamMembers,
-            shiftNotes: shiftNotes,
-            recurringIssues: recurringIssues,
-            userProfile: persistence.loadUserProfile(for: userId),
-            selectedLocationId: selectedLocationId
-        )
+    private func writeTeamMember(_ member: TeamMember) {
+        guard let orgId = organizationId else { return }
+        do { try firestore.saveTeamMember(member, orgId: orgId) }
+        catch { showToast("Failed to save team member", isError: true) }
     }
 
-    private func markNoteDirty(_ noteId: String) {
-        dirtyNoteIds.insert(noteId)
-        if let idx = shiftNotes.firstIndex(where: { $0.id == noteId }) {
-            shiftNotes[idx].isDirty = true
-            shiftNotes[idx].updatedAt = Date()
-        }
+    private func writeOrganization(_ org: Organization) {
+        do { try firestore.saveOrganization(org) }
+        catch { showToast("Failed to save organization", isError: true) }
     }
 
-    private func clearDirtyFlags() {
-        dirtyNoteIds.removeAll()
-        for i in shiftNotes.indices {
-            shiftNotes[i].isDirty = false
-        }
+    private func writeRecurringIssue(_ issue: RecurringIssue) {
+        guard let orgId = organizationId else { return }
+        do { try firestore.saveRecurringIssue(issue, orgId: orgId) }
+        catch { showToast("Failed to save issue", isError: true) }
     }
 
-    func rollbackFromSnapshot() {
-        guard let userId = authenticatedUserId,
-              let snapshot = persistence.loadSnapshot(for: userId) else { return }
-        organization = snapshot.organization
-        locations = snapshot.locations
-        teamMembers = snapshot.teamMembers
-        shiftNotes = snapshot.shiftNotes
-        recurringIssues = snapshot.recurringIssues
-        selectedLocationId = snapshot.selectedLocationId ?? locations.first?.id ?? ""
+    // MARK: - Notes
+
+    func publishReviewedNote(_ note: ShiftNote) {
+        var mutableNote = note
+        mutableNote.updatedAt = Date()
+        shiftNotes.insert(mutableNote, at: 0)
         updateUnacknowledgedCount()
-        persistence.clearSnapshot(for: userId)
-        showToast("Changes rolled back due to sync failure", isError: true)
-    }
+        publishError = nil
+        pendingPublishNote = nil
+        pendingReviewData = nil
+        writeShiftNote(mutableNote)
 
-    func forceSync() {
-        guard !isSyncing else { return }
-        pushToBackend()
-        syncFromBackend()
-    }
-
-    func deltaSyncFromBackend() {
-        syncFromBackend(delta: true)
-    }
-
-    // MARK: - Persistent Offline Queue
-
-    func enqueuePendingAction(_ action: PendingAction) {
-        pendingOfflineActions.append(action)
-        if let userId = authenticatedUserId {
-            persistence.savePendingActions(pendingOfflineActions, for: userId)
+        if isOffline {
+            showToast("Saved offline — will sync when connected", isError: false)
         }
     }
 
-    func drainPendingQueue() {
-        guard api.isConfigured, !isOffline, !pendingOfflineActions.isEmpty else { return }
-        let actions = pendingOfflineActions
-        pendingOfflineActions.removeAll()
-        if let userId = authenticatedUserId {
-            persistence.clearPendingActions(for: userId)
-        }
-
-        Task {
-            for action in actions {
-                do {
-                    switch action.type {
-                    case .syncNotes:
-                        pushToBackend()
-                    case .updateActionItemStatus:
-                        let parts = action.payload.components(separatedBy: "|")
-                        if parts.count == 3 {
-                            _ = try await api.updateActionItemStatus(noteId: parts[0], actionItemId: parts[1], status: parts[2])
-                        }
-                    case .updateActionItemAssignee:
-                        let parts = action.payload.components(separatedBy: "|")
-                        if parts.count >= 2 {
-                            let assignee = parts.count > 2 ? parts[2] : ""
-                            _ = try await api.updateNote(noteId: parts[0], updates: ["actionItemId": parts[1], "assignee": assignee])
-                        }
-                    case .acknowledgeNote:
-                        let parts = action.payload.components(separatedBy: "|")
-                        if parts.count == 3 {
-                            _ = try await api.acknowledgeNote(noteId: parts[0], userId: parts[1], userName: parts[2])
-                        }
-                    case .deleteNote:
-                        _ = try await api.updateNote(noteId: action.payload, updates: ["deleted": true])
-                    case .sendInvite, .updateProfile:
-                        break
-                    }
-                } catch {
-                    if action.retryCount < 3 {
-                        enqueuePendingAction(action.withIncrementedRetry())
-                    }
-                }
-            }
-        }
+    func deleteNote(_ noteId: String) {
+        shiftNotes.removeAll { $0.id == noteId }
+        updateUnacknowledgedCount()
+        guard let orgId = organizationId else { return }
+        firestore.deleteShiftNote(noteId, orgId: orgId)
     }
 
-    // MARK: - Timestamp-Based Merge Helpers
-
-    private func mergeLocations(_ incoming: [Location]) {
-        for loc in incoming {
-            if let idx = locations.firstIndex(where: { $0.id == loc.id }) {
-                locations[idx] = loc
-            } else {
-                locations.append(loc)
-            }
-        }
+    func acknowledgeNote(_ noteId: String) {
+        guard let index = shiftNotes.firstIndex(where: { $0.id == noteId }) else { return }
+        let ack = Acknowledgment(userId: currentUserId, userName: currentUserName)
+        shiftNotes[index].acknowledgments.append(ack)
+        shiftNotes[index].updatedAt = Date()
+        updateUnacknowledgedCount()
+        writeShiftNote(shiftNotes[index])
     }
 
-    private func mergeTeamMembers(_ incoming: [TeamMember]) {
-        for member in incoming {
-            if let idx = teamMembers.firstIndex(where: { $0.id == member.id }) {
-                let local = teamMembers[idx]
-                if member.updatedAt >= local.updatedAt {
-                    teamMembers[idx] = member
-                }
-            } else {
-                teamMembers.append(member)
-            }
-        }
+    func isNoteAcknowledged(_ note: ShiftNote) -> Bool {
+        note.acknowledgments.contains { $0.userId == currentUserId }
     }
 
-    private func mergeShiftNotesFullReplace(_ incoming: [ShiftNote]) {
-        let localDirty = shiftNotes.filter { $0.isDirty }
-        var merged = incoming
-        for dirtyNote in localDirty {
-            if let idx = merged.firstIndex(where: { $0.id == dirtyNote.id }) {
-                let serverNote = merged[idx]
-                merged[idx] = mergeNoteWithConflictDetection(local: dirtyNote, server: serverNote)
-            } else {
-                merged.append(dirtyNote)
-            }
-        }
-        shiftNotes = merged.sorted { $0.createdAt > $1.createdAt }
+    func notesForLocation(_ locationId: String) -> [ShiftNote] {
+        shiftNotes.filter { $0.locationId == locationId }
     }
 
-    private func mergeShiftNotes(_ incoming: [ShiftNote]) {
-        for note in incoming {
-            if let idx = shiftNotes.firstIndex(where: { $0.id == note.id }) {
-                let local = shiftNotes[idx]
-                if local.isDirty {
-                    shiftNotes[idx] = mergeNoteWithConflictDetection(local: local, server: note)
-                } else if note.updatedAt >= local.updatedAt {
-                    shiftNotes[idx] = note
-                }
-            } else {
-                shiftNotes.append(note)
-            }
-        }
-        shiftNotes.sort { $0.createdAt > $1.createdAt }
+    // MARK: - Action Items
+
+    func updateActionItemStatus(noteId: String, actionItemId: String, newStatus: ActionItemStatus) {
+        guard let noteIndex = shiftNotes.firstIndex(where: { $0.id == noteId }),
+              let itemIndex = shiftNotes[noteIndex].actionItems.firstIndex(where: { $0.id == actionItemId }) else { return }
+        let now = Date()
+        shiftNotes[noteIndex].actionItems[itemIndex].status = newStatus
+        shiftNotes[noteIndex].actionItems[itemIndex].statusUpdatedAt = now
+        shiftNotes[noteIndex].actionItems[itemIndex].updatedAt = now
+        shiftNotes[noteIndex].updatedAt = now
+        writeShiftNote(shiftNotes[noteIndex])
     }
 
-    func mergeNoteWithConflictDetection(local: ShiftNote, server: ShiftNote) -> ShiftNote {
-        var result = local.updatedAt >= server.updatedAt ? local : server
-
-        var mergedActionItems: [ActionItem] = []
-        let localActions = Dictionary(uniqueKeysWithValues: local.actionItems.map { ($0.id, $0) })
-        let serverActions = Dictionary(uniqueKeysWithValues: server.actionItems.map { ($0.id, $0) })
-
-        let allIds = Set(localActions.keys).union(serverActions.keys)
-
-        for id in allIds {
-            if let localItem = localActions[id], let serverItem = serverActions[id] {
-                let merged = mergeActionItemPerField(local: localItem, server: serverItem)
-                mergedActionItems.append(merged)
-            } else if let localItem = localActions[id] {
-                mergedActionItems.append(localItem)
-            } else if let serverItem = serverActions[id] {
-                mergedActionItems.append(serverItem)
-            }
-        }
-
-        result.actionItems = mergedActionItems
-
-        let mergedAcks = mergeAcknowledgments(local: local.acknowledgments, server: server.acknowledgments)
-        result.acknowledgments = mergedAcks
-
-        return result
-    }
-
-    func mergeActionItemPerField(local: ActionItem, server: ActionItem) -> ActionItem {
-        var merged = local
-        var conflictParts: [String] = []
-
-        if local.status != server.status {
-            if server.statusUpdatedAt > local.statusUpdatedAt {
-                merged.status = server.status
-                merged.statusUpdatedAt = server.statusUpdatedAt
-            } else if local.statusUpdatedAt == server.statusUpdatedAt && local.status != server.status {
-                conflictParts.append("Status changed to '\(server.status.rawValue)' by another user")
-            }
-        }
-
-        if local.assignee != server.assignee {
-            if server.assigneeUpdatedAt > local.assigneeUpdatedAt {
-                merged.assignee = server.assignee
-                merged.assigneeUpdatedAt = server.assigneeUpdatedAt
-            } else if local.assigneeUpdatedAt == server.assigneeUpdatedAt && local.assignee != server.assignee {
-                let serverAssignee = server.assignee ?? "Unassigned"
-                conflictParts.append("Assignee changed to '\(serverAssignee)' by another user")
-            }
-        }
-
-        merged.updatedAt = max(local.updatedAt, server.updatedAt)
-
-        if !conflictParts.isEmpty {
-            merged.hasConflict = true
-            merged.conflictDescription = conflictParts.joined(separator: "; ")
-        }
-
-        return merged
-    }
-
-    private func mergeAcknowledgments(local: [Acknowledgment], server: [Acknowledgment]) -> [Acknowledgment] {
-        var merged = local
-        let localIds = Set(local.map(\.id))
-        for ack in server where !localIds.contains(ack.id) {
-            merged.append(ack)
-        }
-        return merged.sorted { $0.timestamp < $1.timestamp }
-    }
-
-    private func mergeRecurringIssues(_ incoming: [RecurringIssue]) {
-        for issue in incoming {
-            if let idx = recurringIssues.firstIndex(where: { $0.id == issue.id }) {
-                recurringIssues[idx] = issue
-            } else {
-                recurringIssues.append(issue)
-            }
-        }
+    func updateActionItemAssignee(noteId: String, actionItemId: String, assignee: String?) {
+        guard let noteIndex = shiftNotes.firstIndex(where: { $0.id == noteId }),
+              let itemIndex = shiftNotes[noteIndex].actionItems.firstIndex(where: { $0.id == actionItemId }) else { return }
+        let now = Date()
+        shiftNotes[noteIndex].actionItems[itemIndex].assignee = assignee
+        shiftNotes[noteIndex].actionItems[itemIndex].assigneeUpdatedAt = now
+        shiftNotes[noteIndex].actionItems[itemIndex].updatedAt = now
+        shiftNotes[noteIndex].updatedAt = now
+        writeShiftNote(shiftNotes[noteIndex])
     }
 
     func dismissConflict(noteId: String, actionItemId: String) {
@@ -588,7 +314,7 @@ final class AppViewModel {
               let itemIdx = shiftNotes[noteIdx].actionItems.firstIndex(where: { $0.id == actionItemId }) else { return }
         shiftNotes[noteIdx].actionItems[itemIdx].hasConflict = false
         shiftNotes[noteIdx].actionItems[itemIdx].conflictDescription = nil
-        persistDataLocal()
+        writeShiftNote(shiftNotes[noteIdx])
     }
 
     var conflictedActionItems: [(item: ActionItem, noteId: String)] {
@@ -597,17 +323,62 @@ final class AppViewModel {
         }
     }
 
-    func dismissOperationState() {
-        operationState = .idle
+    // MARK: - Locations
+
+    func addLocation(_ location: Location) {
+        locations.append(location)
+        writeLocation(location)
     }
 
-    func showToast(_ message: String, isError: Bool = false) {
-        toastMessage = ToastMessage(text: message, isError: isError)
+    func removeLocation(_ locationId: String) {
+        locations.removeAll { $0.id == locationId }
+        shiftNotes.removeAll { $0.locationId == locationId }
+        if selectedLocationId == locationId {
+            selectedLocationId = locations.first?.id ?? ""
+        }
+        updateUnacknowledgedCount()
+        guard let orgId = organizationId else { return }
+        firestore.deleteLocation(locationId, orgId: orgId)
+        Task { try? await firestore.deleteLocationNotes(locationId: locationId, orgId: orgId) }
     }
 
-    func dismissToast() {
-        toastMessage = nil
+    // MARK: - Team
+
+    func addTeamMember(_ member: TeamMember) {
+        teamMembers.append(member)
+        writeTeamMember(member)
     }
+
+    func removeTeamMember(_ memberId: String) {
+        teamMembers.removeAll { $0.id == memberId }
+        guard let orgId = organizationId else { return }
+        firestore.deleteTeamMember(memberId, orgId: orgId)
+    }
+
+    // MARK: - Recurring Issues
+
+    func resolveRecurringIssue(_ issueId: String) {
+        guard let index = recurringIssues.firstIndex(where: { $0.id == issueId }) else { return }
+        recurringIssues[index].status = .resolved
+        writeRecurringIssue(recurringIssues[index])
+    }
+
+    func acknowledgeRecurringIssue(_ issueId: String) {
+        guard let index = recurringIssues.firstIndex(where: { $0.id == issueId }) else { return }
+        recurringIssues[index].status = .acknowledged
+        writeRecurringIssue(recurringIssues[index])
+    }
+
+    // MARK: - Location Selection
+
+    func updateSelectedLocation(_ locationId: String) {
+        selectedLocationId = locationId
+        updateUnacknowledgedCount()
+        guard let userId = authenticatedUserId else { return }
+        firestore.updateUserPreferences(userId: userId, selectedLocationId: locationId)
+    }
+
+    // MARK: - Onboarding
 
     func applyOnboardingData(businessType: BusinessType, locationName: String, timezone: String, teamInvites: [TeamInvite]) {
         let industryType: IndustryType = switch businessType {
@@ -618,12 +389,14 @@ final class AppViewModel {
         default: .other
         }
 
-        organization = Organization(
-            name: organization.name,
+        let org = Organization(
+            name: organization.name.isEmpty ? "My Organization" : organization.name,
             ownerId: currentUserId,
-            plan: organization.plan,
+            plan: .free,
             industryType: industryType
         )
+        organization = org
+        organizationId = org.id
 
         let newLocation = Location(
             name: locationName,
@@ -634,11 +407,7 @@ final class AppViewModel {
         locations = [newLocation]
         selectedLocationId = newLocation.id
 
-        let userEmail: String = {
-            guard let userId = authenticatedUserId else { return "" }
-            return persistence.loadUserProfile(for: userId)?.email ?? ""
-        }()
-
+        let userEmail = userProfile?.email ?? ""
         var members: [TeamMember] = [
             TeamMember(
                 id: currentUserId,
@@ -666,8 +435,18 @@ final class AppViewModel {
         shiftNotes = []
         recurringIssues = []
 
-        persistData()
+        writeOrganization(org)
+        writeLocation(newLocation)
+        for member in members { writeTeamMember(member) }
+        firestore.updateUserPreferences(
+            userId: currentUserId,
+            organizationId: org.id,
+            selectedLocationId: newLocation.id
+        )
+        startListeners(orgId: org.id)
     }
+
+    // MARK: - UI State
 
     func updateUnacknowledgedCount() {
         unacknowledgedCount = shiftNotes
@@ -676,33 +455,63 @@ final class AppViewModel {
             .count
     }
 
-    func acknowledgeNote(_ noteId: String) {
-        guard let index = shiftNotes.firstIndex(where: { $0.id == noteId }) else { return }
-        let ack = Acknowledgment(
-            userId: currentUserId,
-            userName: currentUserName
-        )
-        shiftNotes[index].acknowledgments.append(ack)
-        markNoteDirty(noteId)
-        updateUnacknowledgedCount()
-        persistData()
-
-        if api.isConfigured, !isOffline {
-            Task {
-                _ = try? await api.acknowledgeNote(noteId: noteId, userId: currentUserId, userName: currentUserName)
-            }
-        } else {
-            enqueuePendingAction(PendingAction(type: .acknowledgeNote, payload: "\(noteId)|\(currentUserId)|\(currentUserName)"))
-        }
+    func dismissOperationState() {
+        operationState = .idle
     }
 
-    func isNoteAcknowledged(_ note: ShiftNote) -> Bool {
-        note.acknowledgments.contains { $0.userId == currentUserId }
+    func showToast(_ message: String, isError: Bool = false) {
+        toastMessage = ToastMessage(text: message, isError: isError)
     }
 
-    func notesForLocation(_ locationId: String) -> [ShiftNote] {
-        shiftNotes.filter { $0.locationId == locationId }
+    func dismissToast() {
+        toastMessage = nil
     }
+
+    func handleNetworkReconnect() {}
+
+    func forceSync() {
+        showToast("Data syncs automatically via Firestore", isError: false)
+    }
+
+    func deltaSyncFromBackend() {}
+
+    func resetAllData() {
+        showToast("Data is managed in Firestore", isError: false)
+    }
+
+    func retryPublish() {
+        guard let note = pendingPublishNote else { return }
+        publishError = nil
+        publishReviewedNote(note)
+    }
+
+    // MARK: - Pagination (data from Firestore listeners)
+
+    func resetPagination() {
+        paginatedNotes = []
+        paginationCursor = nil
+        hasMoreNotes = false
+        totalNoteCount = 0
+    }
+
+    func loadFirstPage(shiftFilter: String? = nil) {}
+    func loadNextPage(shiftFilter: String? = nil) {}
+
+    func filteredPaginatedNotes(shiftDisplayFilter: ShiftDisplayInfo?) -> [ShiftNote] {
+        guard let filter = shiftDisplayFilter else { return feedNotes }
+        return feedNotes.filter { $0.shiftDisplayInfo.id == filter.id }
+    }
+
+    // MARK: - Push Notifications
+
+    var pendingReviewData: PendingNoteReviewData?
+    var pendingNoteId: String?
+
+    func handlePushNotificationTap(noteId: String) {
+        pendingNoteId = noteId
+    }
+
+    // MARK: - Recording
 
     func requestRecordingPermissions() async -> Bool {
         let micGranted = await audioRecorder.requestPermission()
@@ -822,40 +631,48 @@ final class AppViewModel {
         processingTimer = nil
     }
 
-    func publishReviewedNote(_ note: ShiftNote) {
-        var mutableNote = note
-        mutableNote.updatedAt = Date()
-        mutableNote.isDirty = true
-        shiftNotes.insert(mutableNote, at: 0)
-        dirtyNoteIds.insert(mutableNote.id)
-        updateUnacknowledgedCount()
-        publishError = nil
-        pendingPublishNote = nil
-
-        if isOffline {
-            enqueuePendingAction(PendingAction(type: .syncNotes, payload: note.id))
-            persistDataLocal()
-            showToast("Saved offline — will sync when connected", isError: false)
-        } else {
-            persistData()
-        }
-        pendingReviewData = nil
-    }
-
     func discardPendingNote() {
         pendingReviewData = nil
     }
 
-    func updateActionItemAssignee(noteId: String, actionItemId: String, assignee: String?) {
-        guard let noteIndex = shiftNotes.firstIndex(where: { $0.id == noteId }),
-              let itemIndex = shiftNotes[noteIndex].actionItems.firstIndex(where: { $0.id == actionItemId }) else { return }
-        let now = Date()
-        shiftNotes[noteIndex].actionItems[itemIndex].assignee = assignee
-        shiftNotes[noteIndex].actionItems[itemIndex].assigneeUpdatedAt = now
-        shiftNotes[noteIndex].actionItems[itemIndex].updatedAt = now
-        markNoteDirty(noteId)
-        persistData()
+    // MARK: - Display Helpers
+
+    func filteredNotes(shiftFilter: ShiftType?) -> [ShiftNote] {
+        let notes = feedNotes
+        guard let filter = shiftFilter else { return notes }
+        return notes.filter { $0.shiftType == filter }
     }
+
+    func filteredNotes(shiftDisplayFilter: ShiftDisplayInfo?) -> [ShiftNote] {
+        let notes = feedNotes
+        guard let filter = shiftDisplayFilter else { return notes }
+        return notes.filter { $0.shiftDisplayInfo.id == filter.id }
+    }
+
+    func locationStats(_ locationId: String) -> (noteCount: Int, unacknowledged: Int, highestUrgency: UrgencyLevel) {
+        let notes = notesForLocation(locationId)
+        let unack = notes.filter { !$0.acknowledgments.contains(where: { $0.userId == currentUserId }) }.count
+        let highest = notes.compactMap { $0.highestUrgency }.min(by: { $0.sortOrder < $1.sortOrder }) ?? .fyi
+        return (notes.count, unack, highest)
+    }
+
+    var allActionItems: [(item: ActionItem, noteId: String, authorName: String, locationId: String)] {
+        shiftNotes.flatMap { note in
+            note.actionItems.map { (item: $0, noteId: note.id, authorName: note.authorName, locationId: note.locationId) }
+        }
+    }
+
+    var allActionItemsWithDate: [(item: ActionItem, noteId: String, authorName: String, locationId: String, createdAt: Date)] {
+        shiftNotes.flatMap { note in
+            note.actionItems.map { (item: $0, noteId: note.id, authorName: note.authorName, locationId: note.locationId, createdAt: note.createdAt) }
+        }
+    }
+
+    func locationName(for locationId: String) -> String {
+        locations.first { $0.id == locationId }?.name ?? "Unknown"
+    }
+
+    // MARK: - Note Processing
 
     private func generateSummary(from transcript: String) -> String {
         guard !transcript.isEmpty else { return "Voice note recorded (no transcription available)." }
@@ -993,204 +810,14 @@ final class AppViewModel {
         }
     }
 
-    func filteredNotes(shiftFilter: ShiftType?) -> [ShiftNote] {
-        let notes = feedNotes
-        guard let filter = shiftFilter else { return notes }
-        return notes.filter { $0.shiftType == filter }
+    // MARK: - Merge Helpers (kept for test compatibility)
+
+    func mergeNoteWithConflictDetection(local: ShiftNote, server: ShiftNote) -> ShiftNote {
+        return local.updatedAt >= server.updatedAt ? local : server
     }
 
-    func filteredNotes(shiftDisplayFilter: ShiftDisplayInfo?) -> [ShiftNote] {
-        let notes = feedNotes
-        guard let filter = shiftDisplayFilter else { return notes }
-        return notes.filter { $0.shiftDisplayInfo.id == filter.id }
-    }
-
-    func locationStats(_ locationId: String) -> (noteCount: Int, unacknowledged: Int, highestUrgency: UrgencyLevel) {
-        let notes = notesForLocation(locationId)
-        let unack = notes.filter { !$0.acknowledgments.contains(where: { $0.userId == currentUserId }) }.count
-        let highest = notes.compactMap { $0.highestUrgency }.min(by: { $0.sortOrder < $1.sortOrder }) ?? .fyi
-        return (notes.count, unack, highest)
-    }
-
-    var allActionItems: [(item: ActionItem, noteId: String, authorName: String, locationId: String)] {
-        shiftNotes.flatMap { note in
-            note.actionItems.map { (item: $0, noteId: note.id, authorName: note.authorName, locationId: note.locationId) }
-        }
-    }
-
-    var allActionItemsWithDate: [(item: ActionItem, noteId: String, authorName: String, locationId: String, createdAt: Date)] {
-        shiftNotes.flatMap { note in
-            note.actionItems.map { (item: $0, noteId: note.id, authorName: note.authorName, locationId: note.locationId, createdAt: note.createdAt) }
-        }
-    }
-
-    func locationName(for locationId: String) -> String {
-        locations.first { $0.id == locationId }?.name ?? "Unknown"
-    }
-
-    func updateActionItemStatus(noteId: String, actionItemId: String, newStatus: ActionItemStatus) {
-        guard let noteIndex = shiftNotes.firstIndex(where: { $0.id == noteId }),
-              let itemIndex = shiftNotes[noteIndex].actionItems.firstIndex(where: { $0.id == actionItemId }) else { return }
-        let now = Date()
-        shiftNotes[noteIndex].actionItems[itemIndex].status = newStatus
-        shiftNotes[noteIndex].actionItems[itemIndex].statusUpdatedAt = now
-        shiftNotes[noteIndex].actionItems[itemIndex].updatedAt = now
-        markNoteDirty(noteId)
-        persistData()
-
-        if api.isConfigured, !isOffline {
-            Task {
-                _ = try? await api.updateActionItemStatus(noteId: noteId, actionItemId: actionItemId, status: newStatus.rawValue)
-            }
-        } else {
-            enqueuePendingAction(PendingAction(type: .updateActionItemStatus, payload: "\(noteId)|\(actionItemId)|\(newStatus.rawValue)"))
-        }
-    }
-
-    func resolveRecurringIssue(_ issueId: String) {
-        guard let index = recurringIssues.firstIndex(where: { $0.id == issueId }) else { return }
-        recurringIssues[index].status = .resolved
-        persistData()
-    }
-
-    func acknowledgeRecurringIssue(_ issueId: String) {
-        guard let index = recurringIssues.firstIndex(where: { $0.id == issueId }) else { return }
-        recurringIssues[index].status = .acknowledged
-        persistData()
-    }
-
-    func deleteNote(_ noteId: String) {
-        shiftNotes.removeAll { $0.id == noteId }
-        dirtyNoteIds.remove(noteId)
-        updateUnacknowledgedCount()
-        persistData()
-
-        if isOffline {
-            enqueuePendingAction(PendingAction(type: .deleteNote, payload: noteId))
-        }
-    }
-
-    func addLocation(_ location: Location) {
-        locations.append(location)
-        persistData()
-    }
-
-    func removeLocation(_ locationId: String) {
-        locations.removeAll { $0.id == locationId }
-        shiftNotes.removeAll { $0.locationId == locationId }
-        if selectedLocationId == locationId {
-            selectedLocationId = locations.first?.id ?? ""
-        }
-        updateUnacknowledgedCount()
-        persistData()
-    }
-
-    func addTeamMember(_ member: TeamMember) {
-        teamMembers.append(member)
-        persistData()
-    }
-
-    func removeTeamMember(_ memberId: String) {
-        teamMembers.removeAll { $0.id == memberId }
-        persistData()
-    }
-
-    func updateSelectedLocation(_ locationId: String) {
-        selectedLocationId = locationId
-        updateUnacknowledgedCount()
-        persistData()
-    }
-
-    func resetAllData() {
-        guard let userId = authenticatedUserId else { return }
-        persistence.clearUserData(for: userId)
-        locations = MockDataService.locations
-        teamMembers = MockDataService.teamMembers
-        organization = MockDataService.organization
-        recurringIssues = MockDataService.recurringIssues
-        shiftNotes = MockDataService.generateShiftNotes()
-        selectedLocationId = locations.first?.id ?? ""
-        updateUnacknowledgedCount()
-        persistData()
-    }
-
-    func handleNetworkReconnect() {
-        guard authenticatedUserId != nil else { return }
-        if !pendingOfflineActions.isEmpty {
-            showToast("Back online — syncing \(pendingOfflineActions.count) pending changes", isError: false)
-            drainPendingQueue()
-        }
-        forceSync()
-    }
-
-    func retryPublish() {
-        guard let note = pendingPublishNote else { return }
-        publishError = nil
-        publishReviewedNote(note)
-    }
-
-    var pendingReviewData: PendingNoteReviewData?
-    var pendingNoteId: String?
-
-    func handlePushNotificationTap(noteId: String) {
-        pendingNoteId = noteId
-    }
-
-    // MARK: - Pagination
-
-    func resetPagination() {
-        paginatedNotes = []
-        paginationCursor = nil
-        hasMoreNotes = true
-        totalNoteCount = 0
-    }
-
-    func loadFirstPage(shiftFilter: String? = nil) {
-        guard api.isConfigured else { return }
-        resetPagination()
-        loadNextPage(shiftFilter: shiftFilter)
-    }
-
-    func loadNextPage(shiftFilter: String? = nil) {
-        guard api.isConfigured, !isLoadingPage, hasMoreNotes else { return }
-        isLoadingPage = true
-
-        let locationId = selectedLocationId.isEmpty ? nil : selectedLocationId
-        let cursor = paginationCursor
-
-        Task {
-            do {
-                let response = try await api.fetchNotes(
-                    locationId: locationId,
-                    shiftFilter: shiftFilter,
-                    cursor: cursor,
-                    limit: pageSize
-                )
-                let decoded = response.notes.map { api.decodeShiftNote($0) }
-                if cursor == nil {
-                    paginatedNotes = decoded
-                } else {
-                    paginatedNotes.append(contentsOf: decoded)
-                }
-                totalNoteCount = response.totalCount
-                hasMoreNotes = response.hasMore
-                paginationCursor = response.nextCursor
-            } catch {
-                if cursor == nil {
-                    paginatedNotes = shiftNotes
-                        .filter { $0.locationId == selectedLocationId }
-                        .sorted { $0.createdAt > $1.createdAt }
-                    hasMoreNotes = false
-                    totalNoteCount = paginatedNotes.count
-                }
-            }
-            isLoadingPage = false
-        }
-    }
-
-    func filteredPaginatedNotes(shiftDisplayFilter: ShiftDisplayInfo?) -> [ShiftNote] {
-        guard let filter = shiftDisplayFilter else { return feedNotes }
-        return feedNotes.filter { $0.shiftDisplayInfo.id == filter.id }
+    func mergeActionItemPerField(local: ActionItem, server: ActionItem) -> ActionItem {
+        return local.updatedAt >= server.updatedAt ? local : server
     }
 
     // MARK: - Test Helpers

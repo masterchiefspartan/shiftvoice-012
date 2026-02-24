@@ -359,7 +359,7 @@ final class AuthenticationService {
             self.authMethod = nil
             UserDefaults.standard.removeObject(forKey: "sv_auth_method")
             UserDefaults.standard.removeObject(forKey: "sv_backend_token")
-            PersistenceService.shared.clearUserData(for: userId)
+            FirestoreService.shared.deleteUserData(userId)
         }
     }
 
@@ -471,7 +471,7 @@ final class AuthenticationService {
             initials: initials,
             profileImageURL: user.photoURL?.absoluteString
         )
-        PersistenceService.shared.saveUserProfile(profile, for: user.uid)
+        FirestoreService.shared.saveUserProfile(profile)
     }
 
     private func handleFirebaseAuthError(_ error: NSError) {
