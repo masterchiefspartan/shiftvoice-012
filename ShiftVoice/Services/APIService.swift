@@ -331,6 +331,12 @@ final class APIService {
         return try decoder.decode(AuthResponse.self, from: data)
     }
 
+    func firebaseAuth(idToken: String, uid: String, name: String, email: String) async throws -> AuthResponse {
+        let body: [String: Any] = ["idToken": idToken, "uid": uid, "name": name, "email": email]
+        let data = try await makeRequest(path: "auth/firebase", method: "POST", body: body)
+        return try decoder.decode(AuthResponse.self, from: data)
+    }
+
     func logout() async throws {
         _ = try await makeRequest(path: "auth/logout", method: "POST", body: [:] as [String: String])
     }

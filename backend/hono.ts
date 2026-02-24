@@ -253,6 +253,41 @@ app.post("/rest/auth/google", async (c) => {
   return c.json({ success: true, userId: account.userId, token, name: account.name, email: account.email });
 });
 
+const firebaseAuthSchema = z.object({
+  idToken: z.string().min(1),
+  uid: z.string().min(1),
+  name: z.string().min(1),
+  email: z.string().email(),
+});
+
+app.post("/rest/auth/firebase", async (c) => {
+  const body = await c.req.json();
+  const validation = validateBody(firebaseAuthSchema, body);
+  if (!validation.success) {
+    return errorResponse(c, 400, validation.error, "VALIDATION_ERROR");
+  }
+  const { uid, name, email } = validation.data;
+
+  let account = storage.getAccountByEmail(email);
+  const token = generateToken();
+
+  if (!account) {
+    storage.createAccount({
+      userId: uid,
+      email: email.toLowerCase(),
+      name,
+      passwordHash: "",
+      authMethod: "firebase",
+      createdAt: new Date().toISOString(),
+    });
+    storage.createSession(token, uid);
+    return c.json({ success: true, userId: uid, token, name, email: email.toLowerCase() });
+  }
+
+  storage.createSession(token, account.userId);
+  return c.json({ success: true, userId: account.userId, token, name: account.name, email: account.email });
+});
+
 app.post("/rest/auth/logout", async (c) => {
   const auth = authMiddleware(c);
   if (!auth) return errorResponse(c, 401, "Unauthorized", "UNAUTHORIZED");

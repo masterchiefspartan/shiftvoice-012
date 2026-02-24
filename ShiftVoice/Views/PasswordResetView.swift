@@ -4,9 +4,6 @@ struct PasswordResetView: View {
     @Bindable var authService: AuthenticationService
     @Environment(\.dismiss) private var dismiss
     @State private var email: String = ""
-    @State private var newPassword: String = ""
-    @State private var confirmPassword: String = ""
-    @State private var isNewPasswordVisible: Bool = false
     @FocusState private var focusedField: ResetField?
 
     var body: some View {
@@ -14,7 +11,7 @@ struct PasswordResetView: View {
             ScrollView {
                 VStack(spacing: 24) {
                     VStack(spacing: 12) {
-                        Image(systemName: "lock.rotation")
+                        Image(systemName: "envelope.badge")
                             .font(.system(size: 44))
                             .foregroundStyle(SVTheme.accent)
 
@@ -22,7 +19,7 @@ struct PasswordResetView: View {
                             .font(.title2.weight(.bold))
                             .foregroundStyle(SVTheme.textPrimary)
 
-                        Text("Enter your email and choose a new password.")
+                        Text("We'll send a password reset link to your email address.")
                             .font(.subheadline)
                             .foregroundStyle(SVTheme.textSecondary)
                             .multilineTextAlignment(.center)
@@ -43,66 +40,12 @@ struct PasswordResetView: View {
                                         .textInputAutocapitalization(.never)
                                         .autocorrectionDisabled()
                                         .focused($focusedField, equals: .email)
-                                        .submitLabel(.next)
-                                        .onSubmit { focusedField = .newPassword }
+                                        .submitLabel(.go)
+                                        .onSubmit { sendReset() }
                                         .onChange(of: email) { _, _ in authService.emailError = nil }
                                 }
                             }
                             if let error = authService.emailError {
-                                fieldErrorLabel(error)
-                            }
-                        }
-
-                        VStack(alignment: .leading, spacing: 4) {
-                            fieldContainer(hasError: authService.passwordError != nil) {
-                                HStack(spacing: 12) {
-                                    Image(systemName: "lock")
-                                        .font(.system(size: 16))
-                                        .foregroundStyle(SVTheme.textTertiary)
-                                        .frame(width: 20)
-                                    Group {
-                                        if isNewPasswordVisible {
-                                            TextField("New Password", text: $newPassword)
-                                        } else {
-                                            SecureField("New Password", text: $newPassword)
-                                        }
-                                    }
-                                    .textContentType(.newPassword)
-                                    .focused($focusedField, equals: .newPassword)
-                                    .submitLabel(.next)
-                                    .onSubmit { focusedField = .confirmPassword }
-
-                                    Button {
-                                        isNewPasswordVisible.toggle()
-                                    } label: {
-                                        Image(systemName: isNewPasswordVisible ? "eye.slash" : "eye")
-                                            .font(.system(size: 15))
-                                            .foregroundStyle(SVTheme.textTertiary)
-                                    }
-                                }
-                            }
-                            if let error = authService.passwordError {
-                                fieldErrorLabel(error)
-                            }
-                        }
-                        .onChange(of: newPassword) { _, _ in authService.passwordError = nil }
-
-                        VStack(alignment: .leading, spacing: 4) {
-                            fieldContainer(hasError: authService.confirmPasswordError != nil) {
-                                HStack(spacing: 12) {
-                                    Image(systemName: "lock.fill")
-                                        .font(.system(size: 16))
-                                        .foregroundStyle(SVTheme.textTertiary)
-                                        .frame(width: 20)
-                                    SecureField("Confirm Password", text: $confirmPassword)
-                                        .textContentType(.newPassword)
-                                        .focused($focusedField, equals: .confirmPassword)
-                                        .submitLabel(.go)
-                                        .onSubmit { resetPassword() }
-                                        .onChange(of: confirmPassword) { _, _ in authService.confirmPasswordError = nil }
-                                }
-                            }
-                            if let error = authService.confirmPasswordError {
                                 fieldErrorLabel(error)
                             }
                         }
@@ -116,7 +59,7 @@ struct PasswordResetView: View {
                     }
 
                     Button {
-                        resetPassword()
+                        sendReset()
                     } label: {
                         HStack(spacing: 8) {
                             if authService.isSubmitting {
@@ -124,7 +67,7 @@ struct PasswordResetView: View {
                                     .tint(.white)
                                     .scaleEffect(0.8)
                             }
-                            Text("Reset Password")
+                            Text("Send Reset Link")
                                 .font(.system(size: 16, weight: .semibold))
                         }
                         .foregroundStyle(.white)
@@ -135,7 +78,7 @@ struct PasswordResetView: View {
                     }
                     .disabled(authService.isSubmitting)
 
-                    Text("Must be at least 8 characters\nwith a letter and a number.")
+                    Text("Check your inbox for a link to reset your password.\nIf you don't see it, check your spam folder.")
                         .font(.caption)
                         .foregroundStyle(SVTheme.textTertiary)
                         .multilineTextAlignment(.center)
@@ -179,14 +122,12 @@ struct PasswordResetView: View {
         .transition(.opacity.combined(with: .move(edge: .top)))
     }
 
-    private func resetPassword() {
+    private func sendReset() {
         focusedField = nil
-        authService.resetPassword(email: email, newPassword: newPassword, confirmPassword: confirmPassword)
+        authService.sendPasswordReset(email: email)
     }
 }
 
 nonisolated enum ResetField: Hashable, Sendable {
     case email
-    case newPassword
-    case confirmPassword
 }

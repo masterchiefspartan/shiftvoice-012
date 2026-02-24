@@ -1,4 +1,5 @@
 import Foundation
+import FirebaseAuth
 import GoogleSignIn
 import Security
 
@@ -7,20 +8,8 @@ nonisolated enum AuthMethod: String, Codable, Sendable {
     case email
 }
 
-nonisolated struct AuthSession: Codable, Sendable {
-    let userId: String
-    let token: String
-    let authMethod: AuthMethod
-    let createdAt: Date
-    let expiresAt: Date
-
-    var isExpired: Bool { expiresAt < Date() }
-    var needsRefresh: Bool { expiresAt.timeIntervalSinceNow < 7 * 24 * 60 * 60 }
-}
-
 @Observable
 final class AuthenticationService {
-    var currentUser: GIDGoogleUser?
     var isSignedIn: Bool = false
     var isLoading: Bool = true
     var isSubmitting: Bool = false
@@ -35,22 +24,19 @@ final class AuthenticationService {
     var confirmPasswordError: String?
 
     private var authMethod: AuthMethod?
-    private var emailUserProfile: UserProfile?
     private(set) var currentUserId: String?
     private(set) var backendToken: String?
 
+    private var authStateHandle: AuthStateDidChangeListenerHandle?
+
     var userName: String {
-        if authMethod == .email {
-            return emailUserProfile?.name ?? ""
-        }
-        return currentUser?.profile?.name ?? ""
+        guard let user = Auth.auth().currentUser else { return "" }
+        return user.displayName ?? ""
     }
 
     var userEmail: String {
-        if authMethod == .email {
-            return emailUserProfile?.email ?? ""
-        }
-        return currentUser?.profile?.email ?? ""
+        guard let user = Auth.auth().currentUser else { return "" }
+        return user.email ?? ""
     }
 
     var userInitials: String {
@@ -63,19 +49,23 @@ final class AuthenticationService {
     }
 
     var userProfileImageURL: URL? {
-        if authMethod == .email { return nil }
-        return currentUser?.profile?.imageURL(withDimension: 120)
+        Auth.auth().currentUser?.photoURL
     }
 
     private var backendAuthRetryCount: Int = 0
     private let maxBackendAuthRetries: Int = 3
+    private var isGoogleConfigured: Bool = false
 
     init() {
         configureGoogleSignIn()
-        restorePreviousSignIn()
+        setupAuthStateListener()
     }
 
-    private var isGoogleConfigured: Bool = false
+    deinit {
+        if let handle = authStateHandle {
+            Auth.auth().removeStateDidChangeListener(handle)
+        }
+    }
 
     private func configureGoogleSignIn() {
         let clientID = Config.GOOGLE_CLIENT_ID
@@ -90,90 +80,23 @@ final class AuthenticationService {
         isGoogleConfigured = true
     }
 
-    // MARK: - Session Restore
-
-    func restorePreviousSignIn() {
-        isLoading = true
-
-        if let session = KeychainService.loadSessionToken() {
-            guard session.expiry > Date() else {
-                KeychainService.clearSessionToken()
-                UserDefaults.standard.removeObject(forKey: "sv_backend_token")
-                isLoading = false
-                return
-            }
-
-            let savedMethod = UserDefaults.standard.string(forKey: "sv_auth_method")
-            let method = savedMethod.flatMap { AuthMethod(rawValue: $0) }
-
-            if method == .email {
-                if let profile = PersistenceService.shared.loadUserProfile(for: session.userId) {
-                    emailUserProfile = profile
-                    currentUserId = session.userId
-                    authMethod = .email
-                    isSignedIn = true
-                    restoreBackendToken()
-                    refreshSessionIfNeeded()
-                }
-                isLoading = false
-                return
-            }
-
-            if method == .google {
-                if isGoogleConfigured, GIDSignIn.sharedInstance.hasPreviousSignIn() {
-                    GIDSignIn.sharedInstance.restorePreviousSignIn { [weak self] user, error in
-                        Task { @MainActor in
-                            guard let self else { return }
-                            if let user {
-                                self.currentUser = user
-                                let userId = user.userID ?? session.userId
-                                self.currentUserId = userId
-                                self.authMethod = .google
-                                self.isSignedIn = true
-                                self.persistGoogleUserProfile()
-                                self.restoreBackendToken()
-                                self.authenticateGoogleWithBackend()
-                            } else if let profile = PersistenceService.shared.loadUserProfile(for: session.userId) {
-                                self.emailUserProfile = profile
-                                self.currentUserId = session.userId
-                                self.authMethod = .google
-                                self.isSignedIn = true
-                                self.restoreBackendToken()
-                            }
-                            self.isLoading = false
-                        }
+    private func setupAuthStateListener() {
+        authStateHandle = Auth.auth().addStateDidChangeListener { [weak self] _, user in
+            Task { @MainActor in
+                guard let self else { return }
+                if let user {
+                    self.currentUserId = user.uid
+                    self.isSignedIn = true
+                    self.authenticateWithBackend(firebaseUser: user)
+                } else {
+                    if self.isSignedIn {
+                        self.currentUserId = nil
+                        self.backendToken = nil
+                        self.isSignedIn = false
                     }
-                    return
-                } else if let profile = PersistenceService.shared.loadUserProfile(for: session.userId) {
-                    currentUserId = session.userId
-                    authMethod = .google
-                    isSignedIn = true
-                    restoreBackendToken()
-                    isLoading = false
-                    return
                 }
+                self.isLoading = false
             }
-        }
-
-        if isGoogleConfigured, GIDSignIn.sharedInstance.hasPreviousSignIn() {
-            GIDSignIn.sharedInstance.restorePreviousSignIn { [weak self] user, error in
-                Task { @MainActor in
-                    guard let self else { return }
-                    if let user {
-                        self.currentUser = user
-                        let userId = user.userID ?? UUID().uuidString
-                        self.currentUserId = userId
-                        self.authMethod = .google
-                        self.isSignedIn = true
-                        self.createSession(userId: userId, method: .google)
-                        self.persistGoogleUserProfile()
-                        self.authenticateGoogleWithBackend()
-                    }
-                    self.isLoading = false
-                }
-            }
-        } else {
-            isLoading = false
         }
     }
 
@@ -192,6 +115,7 @@ final class AuthenticationService {
         }
 
         errorMessage = nil
+        isSubmitting = true
 
         GIDSignIn.sharedInstance.signIn(withPresenting: rootVC) { [weak self] result, error in
             Task { @MainActor in
@@ -200,18 +124,32 @@ final class AuthenticationService {
                     if (error as NSError).code != GIDSignInError.canceled.rawValue {
                         self.errorMessage = error.localizedDescription
                     }
+                    self.isSubmitting = false
                     return
                 }
-                guard let user = result?.user else { return }
-                self.currentUser = user
-                let userId = user.userID ?? UUID().uuidString
-                self.currentUserId = userId
-                self.authMethod = .google
-                UserDefaults.standard.set(AuthMethod.google.rawValue, forKey: "sv_auth_method")
-                self.createSession(userId: userId, method: .google)
-                self.persistGoogleUserProfile()
-                self.isSignedIn = true
-                self.authenticateGoogleWithBackend()
+                guard let user = result?.user,
+                      let idToken = user.idToken?.tokenString else {
+                    self.errorMessage = "Unable to get Google credentials"
+                    self.isSubmitting = false
+                    return
+                }
+
+                let credential = GoogleAuthProvider.credential(
+                    withIDToken: idToken,
+                    accessToken: user.accessToken.tokenString
+                )
+
+                do {
+                    let authResult = try await Auth.auth().signIn(with: credential)
+                    self.authMethod = .google
+                    UserDefaults.standard.set(AuthMethod.google.rawValue, forKey: "sv_auth_method")
+                    self.currentUserId = authResult.user.uid
+                    self.isSignedIn = true
+                    self.persistUserProfile(firebaseUser: authResult.user)
+                } catch {
+                    self.errorMessage = error.localizedDescription
+                }
+                self.isSubmitting = false
             }
         }
     }
@@ -302,38 +240,6 @@ final class AuthenticationService {
         return valid
     }
 
-    func validateResetFields(email: String, newPassword: String, confirmPassword: String) -> Bool {
-        clearFieldErrors()
-        var valid = true
-
-        let trimmedEmail = email.trimmingCharacters(in: .whitespaces)
-        if trimmedEmail.isEmpty {
-            emailError = "Email is required"
-            valid = false
-        } else if !isValidEmail(trimmedEmail) {
-            emailError = "Enter a valid email address"
-            valid = false
-        }
-
-        if newPassword.isEmpty {
-            passwordError = "New password is required"
-            valid = false
-        } else if !isStrongPassword(newPassword) {
-            passwordError = "Must be 8+ characters with a letter and number"
-            valid = false
-        }
-
-        if confirmPassword.isEmpty {
-            confirmPasswordError = "Please confirm your password"
-            valid = false
-        } else if newPassword != confirmPassword {
-            confirmPasswordError = "Passwords do not match"
-            valid = false
-        }
-
-        return valid
-    }
-
     func signUpWithEmail(firstName: String, lastName: String, email: String, password: String) {
         guard validateSignUpFields(firstName: firstName, lastName: lastName, email: email, password: password) else { return }
         isSubmitting = true
@@ -342,64 +248,24 @@ final class AuthenticationService {
         let capitalizedFirst = capitalizeName(firstName)
         let capitalizedLast = capitalizeName(lastName)
         let fullName = "\(capitalizedFirst) \(capitalizedLast)"
-        let initials = "\(capitalizedFirst.prefix(1))\(capitalizedLast.prefix(1))".uppercased()
 
-        if APIService.shared.isConfigured {
-            Task {
-                await registerWithBackendFirst(name: fullName, email: trimmedEmail, password: password, initials: initials)
+        Task {
+            do {
+                let authResult = try await Auth.auth().createUser(withEmail: trimmedEmail, password: password)
+
+                let changeRequest = authResult.user.createProfileChangeRequest()
+                changeRequest.displayName = fullName
+                try await changeRequest.commitChanges()
+
+                self.authMethod = .email
+                UserDefaults.standard.set(AuthMethod.email.rawValue, forKey: "sv_auth_method")
+                self.currentUserId = authResult.user.uid
+                self.isSignedIn = true
+                self.persistUserProfile(firebaseUser: authResult.user, overrideName: fullName)
+            } catch let error as NSError {
+                self.handleFirebaseAuthError(error)
             }
-        } else {
-            completeLocalSignUp(name: fullName, email: trimmedEmail, password: password, initials: initials)
-        }
-    }
-
-    private func completeLocalSignUp(name: String, email: String, password: String, initials: String, userId: String? = nil) {
-        let resolvedUserId = userId ?? UUID().uuidString
-
-        _ = KeychainService.savePassword(password, for: email)
-
-        let profile = UserProfile(
-            id: resolvedUserId,
-            name: name,
-            email: email,
-            initials: initials,
-            profileImageURL: nil
-        )
-
-        PersistenceService.shared.saveUserProfile(profile, for: resolvedUserId)
-        PersistenceService.shared.saveEmailToUserIdMapping(email: email, userId: resolvedUserId)
-        emailUserProfile = profile
-        currentUserId = resolvedUserId
-        isSignedIn = true
-        authMethod = .email
-        isSubmitting = false
-        UserDefaults.standard.set(AuthMethod.email.rawValue, forKey: "sv_auth_method")
-        createSession(userId: resolvedUserId, method: .email)
-    }
-
-    private func registerWithBackendFirst(name: String, email: String, password: String, initials: String) async {
-        do {
-            let response = try await APIService.shared.register(name: name, email: email, password: password)
-            if response.success, let token = response.token {
-                let userId = response.userId ?? UUID().uuidString
-                backendToken = token
-                UserDefaults.standard.set(token, forKey: "sv_backend_token")
-                APIService.shared.setAuth(token: token, userId: userId)
-                completeLocalSignUp(name: name, email: email, password: password, initials: initials, userId: userId)
-            } else if let serverError = response.error {
-                if serverError.lowercased().contains("already exists") {
-                    emailError = "An account with this email already exists"
-                    errorMessage = "Please sign in instead."
-                } else {
-                    errorMessage = serverError
-                }
-                isSubmitting = false
-            } else {
-                errorMessage = "Unable to create account. Please try again."
-                isSubmitting = false
-            }
-        } catch {
-            completeLocalSignUp(name: name, email: email, password: password, initials: initials)
+            self.isSubmitting = false
         }
     }
 
@@ -411,207 +277,144 @@ final class AuthenticationService {
 
         let trimmedEmail = email.lowercased().trimmingCharacters(in: .whitespaces)
 
-        guard let storedPassword = KeychainService.loadPassword(for: trimmedEmail) else {
-            emailError = "No account found with this email"
-            errorMessage = "Please sign up instead."
-            isSubmitting = false
-            return
+        Task {
+            do {
+                let authResult = try await Auth.auth().signIn(withEmail: trimmedEmail, password: password)
+                self.authMethod = .email
+                UserDefaults.standard.set(AuthMethod.email.rawValue, forKey: "sv_auth_method")
+                self.currentUserId = authResult.user.uid
+                self.isSignedIn = true
+                self.persistUserProfile(firebaseUser: authResult.user)
+            } catch let error as NSError {
+                self.handleFirebaseAuthError(error)
+            }
+            self.isSubmitting = false
         }
-
-        guard storedPassword == password else {
-            passwordError = "Incorrect password"
-            isSubmitting = false
-            return
-        }
-
-        let userId: String
-        if let mappedId = PersistenceService.shared.loadUserIdForEmail(trimmedEmail) {
-            userId = mappedId
-        } else {
-            userId = UUID().uuidString
-            PersistenceService.shared.saveEmailToUserIdMapping(email: trimmedEmail, userId: userId)
-        }
-
-        if let profile = PersistenceService.shared.loadUserProfile(for: userId) {
-            emailUserProfile = profile
-        } else {
-            let profile = UserProfile(
-                id: userId,
-                name: trimmedEmail.components(separatedBy: "@").first ?? "User",
-                email: trimmedEmail,
-                initials: String(trimmedEmail.prefix(2)).uppercased(),
-                profileImageURL: nil
-            )
-            PersistenceService.shared.saveUserProfile(profile, for: userId)
-            emailUserProfile = profile
-        }
-
-        currentUserId = userId
-        isSignedIn = true
-        authMethod = .email
-        isSubmitting = false
-        UserDefaults.standard.set(AuthMethod.email.rawValue, forKey: "sv_auth_method")
-        createSession(userId: userId, method: .email)
-
-        loginWithBackend(email: trimmedEmail, password: password, userId: userId)
     }
 
     // MARK: - Password Reset
 
-    func resetPassword(email: String, newPassword: String, confirmPassword: String) {
-        guard validateResetFields(email: email, newPassword: newPassword, confirmPassword: confirmPassword) else { return }
-        isSubmitting = true
-
+    func sendPasswordReset(email: String) {
+        clearFieldErrors()
         let trimmedEmail = email.lowercased().trimmingCharacters(in: .whitespaces)
 
-        guard KeychainService.loadPassword(for: trimmedEmail) != nil else {
-            emailError = "No account found with this email"
-            isSubmitting = false
+        guard !trimmedEmail.isEmpty else {
+            emailError = "Email is required"
+            return
+        }
+        guard isValidEmail(trimmedEmail) else {
+            emailError = "Enter a valid email address"
             return
         }
 
-        guard KeychainService.updatePassword(newPassword, for: trimmedEmail) else {
-            errorMessage = "Unable to reset password. Please try again."
-            isSubmitting = false
-            return
-        }
+        isSubmitting = true
 
-        isSubmitting = false
-        passwordResetSuccess = true
-        showPasswordReset = false
+        Task {
+            do {
+                try await Auth.auth().sendPasswordReset(withEmail: trimmedEmail)
+                self.passwordResetSuccess = true
+                self.showPasswordReset = false
+            } catch let error as NSError {
+                self.handleFirebaseAuthError(error)
+            }
+            self.isSubmitting = false
+        }
     }
 
     // MARK: - Sign Out
 
     func signOut() {
-        logoutFromBackend()
-        if authMethod == .google {
+        do {
+            try Auth.auth().signOut()
             GIDSignIn.sharedInstance.signOut()
-            currentUser = nil
+        } catch {
+            errorMessage = "Unable to sign out. Please try again."
+            return
         }
-        emailUserProfile = nil
         currentUserId = nil
         backendToken = nil
         isSignedIn = false
         authMethod = nil
-        KeychainService.clearSessionToken()
         UserDefaults.standard.removeObject(forKey: "sv_auth_method")
         UserDefaults.standard.removeObject(forKey: "sv_backend_token")
     }
 
     func deleteAccount() {
-        let email = userEmail
-        let userId = currentUserId
-
-        signOut()
-
-        if !email.isEmpty {
-            KeychainService.deletePassword(for: email)
+        guard let user = Auth.auth().currentUser else {
+            signOut()
+            return
         }
-        if let userId {
+        let userId = user.uid
+
+        Task {
+            do {
+                try await user.delete()
+            } catch {
+                errorMessage = "Unable to delete account. You may need to sign in again."
+                return
+            }
+            self.currentUserId = nil
+            self.backendToken = nil
+            self.isSignedIn = false
+            self.authMethod = nil
+            UserDefaults.standard.removeObject(forKey: "sv_auth_method")
+            UserDefaults.standard.removeObject(forKey: "sv_backend_token")
             PersistenceService.shared.clearUserData(for: userId)
         }
     }
 
-    // MARK: - Session Management
-
-    private func createSession(userId: String, method: AuthMethod) {
-        let token = KeychainService.generateToken()
-        let expiry = Date().addingTimeInterval(30 * 24 * 60 * 60)
-        _ = KeychainService.saveSessionToken(token, userId: userId, expiry: expiry)
-    }
-
-    private func refreshSessionIfNeeded() {
-        guard let session = KeychainService.loadSessionToken(),
-              Date(timeIntervalSince1970: 0) < session.expiry else { return }
-
-        let timeToExpiry = session.expiry.timeIntervalSinceNow
-        if timeToExpiry < 7 * 24 * 60 * 60 {
-            _ = KeychainService.refreshSessionToken()
-        }
-    }
-
-    func validateSession() -> Bool {
-        guard let session = KeychainService.loadSessionToken() else {
-            if isSignedIn && authMethod == .email {
-                signOut()
-            }
-            return false
-        }
-        refreshSessionIfNeeded()
-        return session.expiry > Date()
-    }
-
-    // MARK: - Helpers
-
-    private func persistGoogleUserProfile() {
-        guard let user = currentUser, let profile = user.profile else { return }
-        let userId = user.userID ?? UUID().uuidString
-        let initials: String = {
-            let parts = profile.name.split(separator: " ")
-            if parts.count >= 2 {
-                return "\(parts[0].prefix(1))\(parts[1].prefix(1))".uppercased()
-            }
-            return String(profile.name.prefix(2)).uppercased()
-        }()
-        let userProfile = UserProfile(
-            id: userId,
-            name: profile.name,
-            email: profile.email,
-            initials: initials,
-            profileImageURL: profile.imageURL(withDimension: 120)?.absoluteString
-        )
-        PersistenceService.shared.saveUserProfile(userProfile, for: userId)
-    }
+    // MARK: - URL Handling
 
     func handleURL(_ url: URL) -> Bool {
         GIDSignIn.sharedInstance.handle(url)
     }
 
-    private func isValidEmail(_ email: String) -> Bool {
-        let regex = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/
-        return email.wholeMatch(of: regex) != nil
-    }
+    // MARK: - Session Validation
 
-    private func isStrongPassword(_ password: String) -> Bool {
-        guard password.count >= 8 else { return false }
-        let hasLetter = password.contains(where: \.isLetter)
-        let hasNumber = password.contains(where: \.isNumber)
-        return hasLetter && hasNumber
+    func validateAndRefreshSession() {
+        guard isSignedIn, let user = Auth.auth().currentUser else { return }
+        Task {
+            do {
+                let token = try await user.getIDToken()
+                if self.backendToken == nil, APIService.shared.isConfigured {
+                    self.authenticateWithBackend(firebaseUser: user)
+                }
+                _ = token
+            } catch {
+                self.signOut()
+                self.errorMessage = "Your session has expired. Please sign in again."
+            }
+        }
     }
 
     // MARK: - Backend Auth
 
-
-
-    private func loginWithBackend(email: String, password: String, userId: String) {
+    private func authenticateWithBackend(firebaseUser user: FirebaseAuth.User) {
         guard APIService.shared.isConfigured else { return }
         backendAuthRetryCount = 0
-        Task {
-            await performBackendAuth({
-                try await APIService.shared.login(email: email, password: password)
-            }, userId: userId)
-        }
-    }
 
-    private func authenticateGoogleWithBackend() {
-        guard APIService.shared.isConfigured else { return }
-        guard let user = currentUser, let profile = user.profile else { return }
-        let googleUserId = user.userID ?? UUID().uuidString
-        backendAuthRetryCount = 0
         Task {
-            await performBackendAuth({
-                try await APIService.shared.googleAuth(
-                    googleUserId: googleUserId,
-                    name: profile.name,
-                    email: profile.email
-                )
-            }, userId: googleUserId)
+            do {
+                let idToken = try await user.getIDToken()
+                let name = user.displayName ?? ""
+                let email = user.email ?? ""
+                let uid = user.uid
+
+                await performBackendAuth({
+                    try await APIService.shared.firebaseAuth(
+                        idToken: idToken,
+                        uid: uid,
+                        name: name,
+                        email: email
+                    )
+                }, userId: uid)
+            } catch {
+                // Silent failure — user is still authenticated via Firebase
+            }
         }
     }
 
     private func performBackendAuth(_ authCall: () async throws -> AuthResponse, userId: String) async {
-        var lastError: Error?
         for attempt in 0...maxBackendAuthRetries {
             do {
                 let response = try await authCall()
@@ -625,37 +428,20 @@ final class AuthenticationService {
                     return
                 }
             } catch let error as APIError {
-                lastError = error
                 if error.isRetryable && attempt < maxBackendAuthRetries {
                     let delay = Double(1 << attempt) * 0.5
                     try? await Task.sleep(for: .seconds(delay))
                     continue
                 }
-                if case .validationError(let msg) = error {
-                    errorMessage = msg
-                } else if case .unauthorized = error {
-                    errorMessage = "Session expired. Please sign in again."
-                } else {
-                    errorMessage = "Unable to connect to server. Your data is saved locally."
-                }
                 return
             } catch {
-                lastError = error
                 if attempt < maxBackendAuthRetries {
                     let delay = Double(1 << attempt) * 0.5
                     try? await Task.sleep(for: .seconds(delay))
                     continue
                 }
-                errorMessage = "Unable to connect to server. Your data is saved locally."
                 return
             }
-        }
-    }
-
-    private func logoutFromBackend() {
-        guard APIService.shared.isConfigured, backendToken != nil else { return }
-        Task {
-            try? await APIService.shared.logout()
         }
     }
 
@@ -666,31 +452,58 @@ final class AuthenticationService {
         APIService.shared.setAuth(token: token, userId: userId)
     }
 
-    func validateAndRefreshSession() {
-        guard isSignedIn else { return }
-        guard let session = KeychainService.loadSessionToken() else {
-            signOut()
-            return
-        }
-        if session.expiry < Date() {
-            signOut()
-            errorMessage = "Your session has expired. Please sign in again."
-            return
-        }
-        refreshSessionIfNeeded()
+    // MARK: - Helpers
 
-        if backendToken == nil, APIService.shared.isConfigured {
-            retryBackendAuthIfNeeded()
+    private func persistUserProfile(firebaseUser user: FirebaseAuth.User, overrideName: String? = nil) {
+        let name = overrideName ?? user.displayName ?? ""
+        let email = user.email ?? ""
+        let initials: String = {
+            let parts = name.split(separator: " ")
+            if parts.count >= 2 {
+                return "\(parts[0].prefix(1))\(parts[1].prefix(1))".uppercased()
+            }
+            return String(name.prefix(2)).uppercased()
+        }()
+        let profile = UserProfile(
+            id: user.uid,
+            name: name,
+            email: email,
+            initials: initials,
+            profileImageURL: user.photoURL?.absoluteString
+        )
+        PersistenceService.shared.saveUserProfile(profile, for: user.uid)
+    }
+
+    private func handleFirebaseAuthError(_ error: NSError) {
+        let code = AuthErrorCode(rawValue: error.code)
+        switch code {
+        case .emailAlreadyInUse:
+            emailError = "An account with this email already exists"
+            errorMessage = "Please sign in instead."
+        case .invalidEmail:
+            emailError = "Enter a valid email address"
+        case .wrongPassword, .invalidCredential:
+            passwordError = "Incorrect email or password"
+        case .userNotFound:
+            emailError = "No account found with this email"
+            errorMessage = "Please sign up instead."
+        case .weakPassword:
+            passwordError = "Password is too weak"
+        case .networkError:
+            errorMessage = "Network error. Please check your connection."
+        case .tooManyRequests:
+            errorMessage = "Too many attempts. Please try again later."
+        case .userDisabled:
+            errorMessage = "This account has been disabled."
+        case .requiresRecentLogin:
+            errorMessage = "Please sign in again to complete this action."
+        default:
+            errorMessage = error.localizedDescription
         }
     }
 
-    private func retryBackendAuthIfNeeded() {
-        guard let method = authMethod else { return }
-        switch method {
-        case .google:
-            authenticateGoogleWithBackend()
-        case .email:
-            break
-        }
+    private func isValidEmail(_ email: String) -> Bool {
+        let regex = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/
+        return email.wholeMatch(of: regex) != nil
     }
 }

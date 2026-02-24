@@ -1,6 +1,7 @@
 import SwiftUI
 import GoogleSignIn
 import RevenueCat
+import FirebaseCore
 
 @main
 struct ShiftVoiceApp: App {
