@@ -13,13 +13,15 @@ struct RecordView: View {
     @Environment(\.dismiss) private var dismiss
     private let subscription = SubscriptionService.shared
 
+    private var recording: RecordingViewModel { viewModel.recording }
+
     private var currentShiftDisplay: ShiftDisplayInfo {
         selectedShiftDisplay ?? viewModel.currentShiftDisplayInfo
     }
 
     var body: some View {
         Group {
-            if showReview, let reviewData = viewModel.pendingReviewData {
+            if showReview, let reviewData = recording.pendingReviewData {
                 NoteReviewView(
                     viewModel: viewModel,
                     rawTranscript: reviewData.rawTranscript,
@@ -31,7 +33,7 @@ struct RecordView: View {
                     actionItems: reviewData.actionItems,
                     structuringWarning: reviewData.structuringWarning,
                     onDiscard: {
-                        viewModel.discardPendingNote()
+                        recording.discardPendingNote()
                         dismiss()
                     },
                     onPublish: { note in
@@ -56,7 +58,7 @@ struct RecordView: View {
             ZStack {
                 SVTheme.background.ignoresSafeArea()
 
-                if viewModel.isProcessing {
+                if recording.isProcessing {
                     processingView
                 } else if showSuccess {
                     successView
@@ -89,16 +91,16 @@ struct RecordView: View {
                 PaywallView()
             }
             .task {
-                let granted = await viewModel.requestRecordingPermissions()
+                let granted = await recording.requestRecordingPermissions()
                 permissionGranted = granted
             }
-            .onChange(of: viewModel.audioRecorder.didAutoStop) { _, didAutoStop in
+            .onChange(of: recording.audioRecorder.didAutoStop) { _, didAutoStop in
                 if didAutoStop {
                     stopRecording()
                 }
             }
-            .onChange(of: viewModel.isProcessing) { oldValue, newValue in
-                if oldValue && !newValue && viewModel.pendingReviewData != nil {
+            .onChange(of: recording.isProcessing) { oldValue, newValue in
+                if oldValue && !newValue && recording.pendingReviewData != nil {
                     showReview = true
                 }
             }
@@ -148,7 +150,7 @@ struct RecordView: View {
 
             Spacer()
 
-            if viewModel.isRecording {
+            if recording.isRecording {
                 liveTranscriptView
                     .padding(.horizontal, 24)
                     .padding(.bottom, 8)
@@ -158,7 +160,7 @@ struct RecordView: View {
             }
 
             ZStack {
-                if viewModel.isRecording && !reduceMotion {
+                if recording.isRecording && !reduceMotion {
                     Circle()
                         .stroke(SVTheme.urgentRed.opacity(0.12), lineWidth: 1)
                         .frame(width: 120, height: 120)
@@ -170,7 +172,7 @@ struct RecordView: View {
                 }
 
                 Button {
-                    if viewModel.isRecording {
+                    if recording.isRecording {
                         stopRecording()
                     } else {
                         startRecording()
@@ -178,10 +180,10 @@ struct RecordView: View {
                 } label: {
                     ZStack {
                         Circle()
-                            .fill(viewModel.isRecording ? SVTheme.urgentRed : SVTheme.textPrimary)
+                            .fill(recording.isRecording ? SVTheme.urgentRed : SVTheme.textPrimary)
                             .frame(width: 88, height: 88)
 
-                        if viewModel.isRecording {
+                        if recording.isRecording {
                             RoundedRectangle(cornerRadius: 6)
                                 .fill(.white)
                                 .frame(width: 26, height: 26)
@@ -192,13 +194,13 @@ struct RecordView: View {
                         }
                     }
                 }
-                .sensoryFeedback(.impact(weight: .heavy), trigger: viewModel.isRecording)
+                .sensoryFeedback(.impact(weight: .heavy), trigger: recording.isRecording)
             }
             .frame(height: 160)
 
-            if viewModel.isRecording {
+            if recording.isRecording {
                 VStack(spacing: 4) {
-                    Text(formatDuration(viewModel.recordingDuration))
+                    Text(formatDuration(recording.recordingDuration))
                         .font(.system(.title2, design: .monospaced).weight(.medium))
                         .foregroundStyle(SVTheme.urgentRed)
                     Text("3:00 max")
@@ -220,7 +222,7 @@ struct RecordView: View {
 
             Spacer()
 
-            if let error = viewModel.audioRecorder.errorMessage ?? viewModel.transcriptionService.errorMessage {
+            if let error = recording.audioRecorder.errorMessage ?? recording.transcriptionService.errorMessage {
                 HStack(spacing: 6) {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .font(.caption)
@@ -243,9 +245,9 @@ struct RecordView: View {
 
     private var liveTranscriptView: some View {
         Group {
-            if !viewModel.transcriptionService.transcribedText.isEmpty {
+            if !recording.transcriptionService.transcribedText.isEmpty {
                 ScrollView {
-                    Text(viewModel.transcriptionService.transcribedText)
+                    Text(recording.transcriptionService.transcribedText)
                         .font(.subheadline)
                         .foregroundStyle(SVTheme.textSecondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -267,7 +269,7 @@ struct RecordView: View {
             ForEach(0..<30, id: \.self) { index in
                 RoundedRectangle(cornerRadius: 1.5)
                     .fill(SVTheme.urgentRed.opacity(0.5))
-                    .frame(width: 3, height: max(3, viewModel.audioLevels[index] * 36))
+                    .frame(width: 3, height: max(3, recording.audioLevels[index] * 36))
             }
         }
         .frame(height: 40)
@@ -299,8 +301,8 @@ struct RecordView: View {
                     .foregroundStyle(SVTheme.textTertiary)
             }
 
-            if !viewModel.transcriptionService.transcribedText.isEmpty {
-                Text(viewModel.transcriptionService.transcribedText)
+            if !recording.transcriptionService.transcribedText.isEmpty {
+                Text(recording.transcriptionService.transcribedText)
                     .font(.caption)
                     .foregroundStyle(SVTheme.textSecondary)
                     .multilineTextAlignment(.center)
@@ -308,9 +310,9 @@ struct RecordView: View {
                     .padding(.horizontal, 32)
             }
 
-            if viewModel.processingElapsed >= 15 {
+            if recording.processingElapsed >= 15 {
                 Button {
-                    viewModel.cancelProcessing()
+                    recording.cancelProcessing()
                 } label: {
                     Text("Cancel")
                         .font(.subheadline.weight(.medium))
@@ -329,22 +331,22 @@ struct RecordView: View {
 
             Spacer()
         }
-        .animation(.easeInOut(duration: 0.3), value: viewModel.processingElapsed >= 15)
+        .animation(.easeInOut(duration: 0.3), value: recording.processingElapsed >= 15)
     }
 
     private var processingTitle: String {
-        if viewModel.processingElapsed >= 20 {
+        if recording.processingElapsed >= 20 {
             return "Still working on it..."
-        } else if viewModel.processingElapsed >= 10 {
+        } else if recording.processingElapsed >= 10 {
             return "AI is structuring your notes"
         }
         return "Processing your shift notes"
     }
 
     private var processingSubtitle: String {
-        if viewModel.processingElapsed >= 20 {
+        if recording.processingElapsed >= 20 {
             return "This is taking longer than usual"
-        } else if viewModel.processingElapsed >= 10 {
+        } else if recording.processingElapsed >= 10 {
             return "Categorizing and creating action items"
         }
         return "Transcribing audio and categorizing"
@@ -393,7 +395,7 @@ struct RecordView: View {
             showPaywall = true
             return
         }
-        viewModel.startRecording()
+        recording.startRecording()
         if !reduceMotion {
             withAnimation(.easeInOut(duration: 1).repeatForever(autoreverses: true)) {
                 pulseScale = 1.15
@@ -403,7 +405,13 @@ struct RecordView: View {
 
     private func stopRecording() {
         pulseScale = 1.0
-        viewModel.stopRecording(selectedShift: selectedShiftDisplay)
+        recording.stopRecording(
+            selectedShift: selectedShiftDisplay,
+            defaultShift: viewModel.currentShiftDisplayInfo,
+            businessType: viewModel.organizationBusinessType.rawValue.lowercased(),
+            authToken: viewModel.backendAuthToken,
+            userId: viewModel.currentUserId
+        )
     }
 
     private func formatDuration(_ duration: TimeInterval) -> String {
