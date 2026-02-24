@@ -71,10 +71,35 @@ struct ShiftFeedView: View {
 
     private var locationHeader: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Your Inbox")
-                .font(.system(.largeTitle, design: .serif, weight: .bold))
-                .foregroundStyle(SVTheme.textPrimary)
-                .tracking(-0.5)
+            HStack(alignment: .top) {
+                Text("Your Inbox")
+                    .font(.system(.largeTitle, design: .serif, weight: .bold))
+                    .foregroundStyle(SVTheme.textPrimary)
+                    .tracking(-0.5)
+                Spacer()
+                if let syncError = viewModel.syncError {
+                    Button {
+                        viewModel.forceSync()
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "exclamationmark.arrow.triangle.2.circlepath")
+                                .font(.caption2)
+                            Text("Retry")
+                                .font(.caption2.weight(.medium))
+                        }
+                        .foregroundStyle(SVTheme.urgentRed)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(SVTheme.urgentRed.opacity(0.08))
+                        .clipShape(.rect(cornerRadius: 6))
+                    }
+                } else if let lastSync = viewModel.lastSyncDate {
+                    Text(lastSyncLabel(lastSync))
+                        .font(.caption2)
+                        .foregroundStyle(SVTheme.textTertiary)
+                        .padding(.top, 8)
+                }
+            }
 
             Button {
                 showLocationPicker = true
@@ -196,6 +221,14 @@ struct ShiftFeedView: View {
                 )
             }
         }
+    }
+
+    private func lastSyncLabel(_ date: Date) -> String {
+        let interval = Date().timeIntervalSince(date)
+        if interval < 60 { return "Synced just now" }
+        if interval < 3600 { return "Synced \(Int(interval / 60))m ago" }
+        if interval < 86400 { return "Synced \(Int(interval / 3600))h ago" }
+        return "Synced \(Int(interval / 86400))d ago"
     }
 
     private var locationPickerSheet: some View {

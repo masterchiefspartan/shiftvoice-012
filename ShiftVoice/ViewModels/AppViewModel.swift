@@ -30,11 +30,20 @@ final class AppViewModel {
     var operationState: OperationState = .idle
     var saveError: String?
     var structuringWarning: String?
+    var toastMessage: ToastMessage?
+    var publishError: String?
+    var pendingPublishNote: ShiftNote?
+    var processingElapsed: TimeInterval = 0
+    private var processingTimer: Task<Void, Never>?
 
     let networkMonitor = NetworkMonitor.shared
     var isOffline: Bool { !networkMonitor.isConnected }
 
     var pendingOfflineActions: [PendingAction] = []
+
+    var pendingOfflineCount: Int {
+        pendingOfflineActions.count
+    }
 
     var paginatedNotes: [ShiftNote] = []
     var paginationCursor: String? = nil
@@ -199,6 +208,21 @@ final class AppViewModel {
         pushToBackend()
     }
 
+    private func persistDataLocal() {
+        guard let userId = authenticatedUserId else { return }
+        let appData = AppData(
+            organization: organization,
+            locations: locations,
+            teamMembers: teamMembers,
+            shiftNotes: shiftNotes,
+            recurringIssues: recurringIssues,
+            userProfile: persistence.loadUserProfile(for: userId),
+            selectedLocationId: selectedLocationId
+        )
+        persistence.save(appData, for: userId)
+        saveError = nil
+    }
+
     // MARK: - Backend Sync
 
     func setBackendAuth(token: String, userId: String) {
@@ -272,32 +296,40 @@ final class AppViewModel {
                 syncError = nil
             } catch {
                 syncError = error.localizedDescription
+                showToast("Sync failed: \(error.localizedDescription)", isError: true)
             }
             isSyncing = false
         }
     }
 
+    private var pushDebounceTask: Task<Void, Never>?
+
     private func pushToBackend() {
         guard api.isConfigured, !isOffline else { return }
         guard let userId = authenticatedUserId else { return }
 
-        let appData = AppData(
-            organization: organization,
-            locations: locations,
-            teamMembers: teamMembers,
-            shiftNotes: shiftNotes,
-            recurringIssues: recurringIssues,
-            userProfile: persistence.loadUserProfile(for: userId),
-            selectedLocationId: selectedLocationId
-        )
+        pushDebounceTask?.cancel()
+        pushDebounceTask = Task {
+            try? await Task.sleep(for: .milliseconds(500))
+            guard !Task.isCancelled else { return }
 
-        Task {
+            let appData = AppData(
+                organization: self.organization,
+                locations: self.locations,
+                teamMembers: self.teamMembers,
+                shiftNotes: self.shiftNotes,
+                recurringIssues: self.recurringIssues,
+                userProfile: self.persistence.loadUserProfile(for: userId),
+                selectedLocationId: self.selectedLocationId
+            )
+
             do {
-                _ = try await api.pushData(appData: appData)
-                lastSyncDate = Date()
-                syncError = nil
+                _ = try await self.api.pushData(appData: appData)
+                self.lastSyncDate = Date()
+                self.syncError = nil
             } catch {
-                syncError = error.localizedDescription
+                self.syncError = error.localizedDescription
+                self.showToast("Failed to save to server", isError: true)
             }
         }
     }
@@ -357,6 +389,14 @@ final class AppViewModel {
 
     func dismissOperationState() {
         operationState = .idle
+    }
+
+    func showToast(_ message: String, isError: Bool = false) {
+        toastMessage = ToastMessage(text: message, isError: isError)
+    }
+
+    func dismissToast() {
+        toastMessage = nil
     }
 
     func applyOnboardingData(businessType: BusinessType, locationName: String, timezone: String, teamInvites: [TeamInvite]) {
@@ -467,6 +507,8 @@ final class AppViewModel {
         audioRecorder.stopRecording()
         isProcessing = true
         structuringWarning = nil
+        processingElapsed = 0
+        startProcessingTimer()
 
         Task {
             var transcript = ""
@@ -540,14 +582,47 @@ final class AppViewModel {
                 usedAI: usedAI,
                 structuringWarning: structuringWarning
             )
+            stopProcessingTimer()
             isProcessing = false
         }
+    }
+
+    func cancelProcessing() {
+        stopProcessingTimer()
+        isProcessing = false
+        pendingReviewData = nil
+    }
+
+    private func startProcessingTimer() {
+        processingTimer?.cancel()
+        processingTimer = Task {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                if Task.isCancelled { break }
+                processingElapsed += 1
+            }
+        }
+    }
+
+    private func stopProcessingTimer() {
+        processingTimer?.cancel()
+        processingTimer = nil
     }
 
     func publishReviewedNote(_ note: ShiftNote) {
         shiftNotes.insert(note, at: 0)
         updateUnacknowledgedCount()
-        persistData()
+        publishError = nil
+        pendingPublishNote = nil
+
+        if isOffline {
+            let action = PendingAction(type: .syncNotes, payload: note.id)
+            pendingOfflineActions.append(action)
+            persistDataLocal()
+            showToast("Saved offline — will sync when connected", isError: false)
+        } else {
+            persistData()
+        }
         pendingReviewData = nil
     }
 
@@ -810,7 +885,17 @@ final class AppViewModel {
 
     func handleNetworkReconnect() {
         guard authenticatedUserId != nil else { return }
+        if !pendingOfflineActions.isEmpty {
+            showToast("Back online — syncing \(pendingOfflineActions.count) pending changes", isError: false)
+            pendingOfflineActions.removeAll()
+        }
         forceSync()
+    }
+
+    func retryPublish() {
+        guard let note = pendingPublishNote else { return }
+        publishError = nil
+        publishReviewedNote(note)
     }
 
     var pendingReviewData: PendingNoteReviewData?

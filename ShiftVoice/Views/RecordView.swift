@@ -291,10 +291,10 @@ struct RecordView: View {
             }
 
             VStack(spacing: 6) {
-                Text("Processing your shift notes")
+                Text(processingTitle)
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(SVTheme.textPrimary)
-                Text("Transcribing audio and categorizing")
+                Text(processingSubtitle)
                     .font(.caption)
                     .foregroundStyle(SVTheme.textTertiary)
             }
@@ -308,8 +308,46 @@ struct RecordView: View {
                     .padding(.horizontal, 32)
             }
 
+            if viewModel.processingElapsed >= 15 {
+                Button {
+                    viewModel.cancelProcessing()
+                } label: {
+                    Text("Cancel")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(SVTheme.textSecondary)
+                        .padding(.horizontal, 24)
+                        .padding(.vertical, 10)
+                        .background(SVTheme.surface)
+                        .clipShape(.rect(cornerRadius: 8))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(SVTheme.surfaceBorder, lineWidth: 1)
+                        )
+                }
+                .transition(.opacity.combined(with: .scale(scale: 0.9)))
+            }
+
             Spacer()
         }
+        .animation(.easeInOut(duration: 0.3), value: viewModel.processingElapsed >= 15)
+    }
+
+    private var processingTitle: String {
+        if viewModel.processingElapsed >= 20 {
+            return "Still working on it..."
+        } else if viewModel.processingElapsed >= 10 {
+            return "AI is structuring your notes"
+        }
+        return "Processing your shift notes"
+    }
+
+    private var processingSubtitle: String {
+        if viewModel.processingElapsed >= 20 {
+            return "This is taking longer than usual"
+        } else if viewModel.processingElapsed >= 10 {
+            return "Categorizing and creating action items"
+        }
+        return "Transcribing audio and categorizing"
     }
 
     private var successView: some View {

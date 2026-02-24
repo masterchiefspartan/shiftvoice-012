@@ -62,17 +62,32 @@ struct ContentView: View {
                             withAnimation { viewModel.dismissOperationState() }
                         }
                     }
+            } else if let toast = viewModel.toastMessage {
+                operationToast(message: toast.text, isError: toast.isError)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .onAppear {
+                        Task {
+                            try? await Task.sleep(for: .seconds(toast.isError ? 4 : 2.5))
+                            withAnimation { viewModel.dismissToast() }
+                        }
+                    }
             }
         }
         .animation(.spring(duration: 0.3), value: viewModel.operationState.isVisible)
+        .animation(.spring(duration: 0.3), value: viewModel.toastMessage)
     }
 
     private var offlineBanner: some View {
         HStack(spacing: 8) {
             Image(systemName: "wifi.slash")
                 .font(.system(size: 12, weight: .semibold))
-            Text("You're offline — changes are saved locally")
-                .font(.system(size: 12, weight: .medium))
+            if viewModel.pendingOfflineCount > 0 {
+                Text("Offline — \(viewModel.pendingOfflineCount) pending change\(viewModel.pendingOfflineCount == 1 ? "" : "s")")
+                    .font(.system(size: 12, weight: .medium))
+            } else {
+                Text("You're offline — changes are saved locally")
+                    .font(.system(size: 12, weight: .medium))
+            }
         }
         .foregroundStyle(.white)
         .frame(maxWidth: .infinity)
