@@ -9,11 +9,16 @@ final class AudioRecorderService: NSObject, AVAudioRecorderDelegate {
     var currentAudioURL: URL?
     var errorMessage: String?
     var didAutoStop: Bool = false
+    var autoStopWarningActive: Bool = false
+    var micSilent: Bool = false
 
     private var audioRecorder: AVAudioRecorder?
     private var meteringTimer: Timer?
     private var durationTimer: Timer?
     private var levelHistory: [CGFloat] = []
+    private var silentFrameCount: Int = 0
+    private let silentThreshold: CGFloat = 0.08
+    private let silentFrameLimit: Int = 60 // 3 seconds at 20fps metering
 
     private var recordingDirectory: URL {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
@@ -31,6 +36,9 @@ final class AudioRecorderService: NSObject, AVAudioRecorderDelegate {
     func startRecording() {
         errorMessage = nil
         didAutoStop = false
+        autoStopWarningActive = false
+        micSilent = false
+        silentFrameCount = 0
 
         do {
             try FileManager.default.createDirectory(at: recordingDirectory, withIntermediateDirectories: true)
@@ -103,6 +111,13 @@ final class AudioRecorderService: NSObject, AVAudioRecorderDelegate {
         let normalizedLevel = CGFloat(max(0, (power + 50) / 50))
         let smoothed = max(0.05, normalizedLevel)
 
+        if smoothed < silentThreshold {
+            silentFrameCount += 1
+        } else {
+            silentFrameCount = 0
+        }
+        micSilent = silentFrameCount >= silentFrameLimit
+
         levelHistory.append(smoothed)
         if levelHistory.count > 30 {
             levelHistory.removeFirst(levelHistory.count - 30)
@@ -121,7 +136,11 @@ final class AudioRecorderService: NSObject, AVAudioRecorderDelegate {
             Task { @MainActor [weak self] in
                 guard let self, self.isRecording else { return }
                 self.recordingDuration += 1
+                if self.recordingDuration == 150 {
+                    self.autoStopWarningActive = true
+                }
                 if self.recordingDuration >= 180 {
+                    self.autoStopWarningActive = false
                     self.didAutoStop = true
                     self.stopRecording()
                 }

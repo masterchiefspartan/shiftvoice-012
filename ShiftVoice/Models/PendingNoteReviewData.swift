@@ -10,4 +10,6 @@ struct PendingNoteReviewData {
     let actionItems: [ActionItem]
     var usedAI: Bool = true
     var structuringWarning: String? = nil
+    var transcriptionFailed: Bool = false
+    var transcriptionFailureMessage: String? = nil
 }

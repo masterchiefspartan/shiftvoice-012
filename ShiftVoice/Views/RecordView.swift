@@ -32,6 +32,8 @@ struct RecordView: View {
                     categorizedItems: reviewData.categorizedItems,
                     actionItems: reviewData.actionItems,
                     structuringWarning: reviewData.structuringWarning,
+                    transcriptionFailed: reviewData.transcriptionFailed,
+                    transcriptionFailureMessage: reviewData.transcriptionFailureMessage,
                     onDiscard: {
                         recording.discardPendingNote()
                         dismiss()
@@ -99,6 +101,7 @@ struct RecordView: View {
                     stopRecording()
                 }
             }
+            .sensoryFeedback(.warning, trigger: recording.audioRecorder.autoStopWarningActive)
             .onChange(of: recording.isProcessing) { oldValue, newValue in
                 if oldValue && !newValue && recording.pendingReviewData != nil {
                     showReview = true
@@ -202,12 +205,41 @@ struct RecordView: View {
                 VStack(spacing: 4) {
                     Text(formatDuration(recording.recordingDuration))
                         .font(.system(.title2, design: .monospaced).weight(.medium))
-                        .foregroundStyle(SVTheme.urgentRed)
-                    Text("3:00 max")
-                        .font(.caption)
-                        .foregroundStyle(SVTheme.textTertiary)
+                        .foregroundStyle(recording.audioRecorder.autoStopWarningActive ? SVTheme.amber : SVTheme.urgentRed)
+
+                    if recording.audioRecorder.autoStopWarningActive {
+                        HStack(spacing: 4) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.caption2)
+                            Text("Auto-stop in \(max(0, 180 - Int(recording.recordingDuration)))s")
+                                .font(.caption.weight(.medium))
+                        }
+                        .foregroundStyle(SVTheme.amber)
+                        .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                    } else {
+                        Text("3:00 max")
+                            .font(.caption)
+                            .foregroundStyle(SVTheme.textTertiary)
+                    }
+
+                    if recording.audioRecorder.micSilent {
+                        HStack(spacing: 4) {
+                            Image(systemName: "mic.slash.fill")
+                                .font(.caption2)
+                            Text("No audio detected — check your microphone")
+                                .font(.caption2)
+                        }
+                        .foregroundStyle(SVTheme.amber)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 6)
+                        .background(SVTheme.amber.opacity(0.08))
+                        .clipShape(.rect(cornerRadius: 6))
+                        .transition(.opacity)
+                    }
                 }
                 .padding(.top, 16)
+                .animation(.easeInOut(duration: 0.3), value: recording.audioRecorder.autoStopWarningActive)
+                .animation(.easeInOut(duration: 0.3), value: recording.audioRecorder.micSilent)
             } else {
                 VStack(spacing: 4) {
                     Text("Tap to record")

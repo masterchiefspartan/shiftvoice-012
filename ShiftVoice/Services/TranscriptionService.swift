@@ -8,6 +8,32 @@ nonisolated struct TranscribeResponse: Codable, Sendable {
     let error: String?
 }
 
+nonisolated enum TranscriptionFailureReason: Sendable {
+    case noAudioFile
+    case emptyAudioFile
+    case corruptAudioFile
+    case cloudFailed
+    case localFailed(String)
+    case noResult
+
+    var userMessage: String {
+        switch self {
+        case .noAudioFile:
+            return "No audio file found. The recording may not have saved."
+        case .emptyAudioFile:
+            return "The recording appears to be empty (zero length)."
+        case .corruptAudioFile:
+            return "The audio file could not be read. It may be corrupted."
+        case .cloudFailed:
+            return "Cloud transcription failed."
+        case .localFailed(let msg):
+            return msg
+        case .noResult:
+            return "No speech was detected in the recording."
+        }
+    }
+}
+
 @Observable
 final class TranscriptionService {
     var transcribedText: String = ""
@@ -15,6 +41,7 @@ final class TranscriptionService {
     var authorizationStatus: SFSpeechRecognizerAuthorizationStatus = .notDetermined
     var errorMessage: String?
     var usedCloudTranscription: Bool = false
+    var failureReason: TranscriptionFailureReason?
 
     private let speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
     private var recognitionTask: SFSpeechRecognitionTask?
@@ -43,11 +70,48 @@ final class TranscriptionService {
         }
     }
 
+    enum AudioValidationResult {
+        case valid
+        case missing
+        case empty
+        case corrupt
+    }
+
+    func validateAudioFile(at url: URL) -> AudioValidationResult {
+        let fileManager = FileManager.default
+        guard fileManager.fileExists(atPath: url.path) else { return .missing }
+        guard let attrs = try? fileManager.attributesOfItem(atPath: url.path),
+              let size = attrs[.size] as? UInt64, size > 0 else { return .empty }
+        guard AVURLAsset(url: url).isPlayable else { return .corrupt }
+        return .valid
+    }
+
     func transcribeAudioFile(at url: URL, authToken: String? = nil, userId: String? = nil) async -> String? {
         isTranscribing = true
         transcribedText = ""
         errorMessage = nil
         usedCloudTranscription = false
+        failureReason = nil
+
+        switch validateAudioFile(at: url) {
+        case .missing:
+            failureReason = .noAudioFile
+            errorMessage = TranscriptionFailureReason.noAudioFile.userMessage
+            isTranscribing = false
+            return nil
+        case .empty:
+            failureReason = .emptyAudioFile
+            errorMessage = TranscriptionFailureReason.emptyAudioFile.userMessage
+            isTranscribing = false
+            return nil
+        case .corrupt:
+            failureReason = .corruptAudioFile
+            errorMessage = TranscriptionFailureReason.corruptAudioFile.userMessage
+            isTranscribing = false
+            return nil
+        case .valid:
+            break
+        }
 
         if !baseURL.isEmpty {
             if let cloudResult = await transcribeViaCloud(audioURL: url, authToken: authToken, userId: userId) {
@@ -59,6 +123,10 @@ final class TranscriptionService {
         }
 
         let localResult = await transcribeLocally(at: url)
+        if localResult == nil && failureReason == nil {
+            failureReason = .noResult
+            errorMessage = TranscriptionFailureReason.noResult.userMessage
+        }
         isTranscribing = false
         return localResult
     }
@@ -113,8 +181,27 @@ final class TranscriptionService {
         }
     }
 
+    private final class ContinuationGuard<T: Sendable>: @unchecked Sendable {
+        private var hasResumed = false
+        private let lock = NSLock()
+        private let continuation: CheckedContinuation<T, Never>
+
+        init(_ continuation: CheckedContinuation<T, Never>) {
+            self.continuation = continuation
+        }
+
+        func resume(returning value: T) {
+            lock.lock()
+            defer { lock.unlock() }
+            guard !hasResumed else { return }
+            hasResumed = true
+            continuation.resume(returning: value)
+        }
+    }
+
     private func transcribeLocally(at url: URL) async -> String? {
         guard let speechRecognizer, speechRecognizer.isAvailable else {
+            failureReason = .localFailed("Speech recognition is not available.")
             errorMessage = "Speech recognition is not available."
             return nil
         }
@@ -127,16 +214,18 @@ final class TranscriptionService {
         request.addsPunctuation = true
 
         return await withCheckedContinuation { continuation in
+            let guard_ = ContinuationGuard<String?>(continuation)
             recognitionTask = speechRecognizer.recognitionTask(with: request) { [weak self] result, error in
                 Task { @MainActor [weak self] in
                     if let result {
                         self?.transcribedText = result.bestTranscription.formattedString
                         if result.isFinal {
-                            continuation.resume(returning: result.bestTranscription.formattedString)
+                            guard_.resume(returning: result.bestTranscription.formattedString)
                         }
                     } else if let error {
+                        self?.failureReason = .localFailed("Transcription failed: \(error.localizedDescription)")
                         self?.errorMessage = "Transcription failed: \(error.localizedDescription)"
-                        continuation.resume(returning: nil)
+                        guard_.resume(returning: nil)
                     }
                 }
             }

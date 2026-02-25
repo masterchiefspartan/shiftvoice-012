@@ -2,7 +2,7 @@ import SwiftUI
 
 struct NoteReviewView: View {
     @Bindable var viewModel: AppViewModel
-    let rawTranscript: String
+    @State private var rawTranscript: String
     let audioDuration: TimeInterval
     let audioUrl: String?
     let shiftInfo: ShiftDisplayInfo
@@ -19,6 +19,8 @@ struct NoteReviewView: View {
     @State private var showAssignSheet: Bool = false
     @State private var assigningActionId: String?
     @State private var structuringWarning: String?
+    @State private var transcriptionFailed: Bool
+    @State private var transcriptionFailureMessage: String?
     @Environment(\.dismiss) private var dismiss
 
     init(
@@ -31,11 +33,13 @@ struct NoteReviewView: View {
         categorizedItems: [CategorizedItem],
         actionItems: [ActionItem],
         structuringWarning: String? = nil,
+        transcriptionFailed: Bool = false,
+        transcriptionFailureMessage: String? = nil,
         onDiscard: @escaping () -> Void,
         onPublish: @escaping (ShiftNote) -> Void
     ) {
         self.viewModel = viewModel
-        self.rawTranscript = rawTranscript
+        _rawTranscript = State(initialValue: rawTranscript)
         self.audioDuration = audioDuration
         self.audioUrl = audioUrl
         self.shiftInfo = shiftInfo
@@ -45,6 +49,8 @@ struct NoteReviewView: View {
         _editableCategorizedItems = State(initialValue: categorizedItems.map { EditableCategorizedItem(from: $0) })
         _editableActionItems = State(initialValue: actionItems.map { EditableActionItem(from: $0) })
         _structuringWarning = State(initialValue: structuringWarning)
+        _transcriptionFailed = State(initialValue: transcriptionFailed)
+        _transcriptionFailureMessage = State(initialValue: transcriptionFailureMessage)
     }
 
     private func structuringWarningBanner(_ warning: String) -> some View {
@@ -81,6 +87,9 @@ struct NoteReviewView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
+                    if transcriptionFailed {
+                        transcriptionFailedBanner
+                    }
                     if let warning = structuringWarning {
                         structuringWarningBanner(warning)
                     }
@@ -223,6 +232,75 @@ struct NoteReviewView: View {
         )
     }
 
+    private var transcriptionFailedBanner: some View {
+        VStack(spacing: 12) {
+            HStack(spacing: 10) {
+                Image(systemName: "waveform.badge.exclamationmark")
+                    .font(.title3)
+                    .foregroundStyle(SVTheme.urgentRed)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Transcription Failed")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(SVTheme.textPrimary)
+                    Text(transcriptionFailureMessage ?? "Could not transcribe audio.")
+                        .font(.caption)
+                        .foregroundStyle(SVTheme.textSecondary)
+                }
+
+                Spacer(minLength: 0)
+            }
+
+            Button {
+                Task {
+                    await viewModel.recording.retryTranscription(
+                        authToken: viewModel.backendAuthToken,
+                        userId: viewModel.currentUserId,
+                        businessType: viewModel.organizationBusinessType.rawValue.lowercased()
+                    )
+                    if let updated = viewModel.recording.pendingReviewData {
+                        rawTranscript = updated.rawTranscript
+                        summary = updated.summary
+                        editableCategorizedItems = updated.categorizedItems.map { EditableCategorizedItem(from: $0) }
+                        editableActionItems = updated.actionItems.map { EditableActionItem(from: $0) }
+                        structuringWarning = updated.structuringWarning
+                        transcriptionFailed = updated.transcriptionFailed
+                        transcriptionFailureMessage = updated.transcriptionFailureMessage
+                    }
+                    if viewModel.recording.transcriptionFailed {
+                        transcriptionFailed = true
+                        transcriptionFailureMessage = viewModel.recording.transcriptionFailureMessage
+                    }
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    if viewModel.recording.isRetryingTranscription {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.caption.weight(.semibold))
+                    }
+                    Text(viewModel.recording.isRetryingTranscription ? "Retrying..." : "Retry Transcription")
+                        .font(.subheadline.weight(.semibold))
+                }
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .frame(height: 40)
+                .background(SVTheme.accent)
+                .clipShape(.rect(cornerRadius: 8))
+            }
+            .disabled(viewModel.recording.isRetryingTranscription)
+        }
+        .padding(14)
+        .background(SVTheme.urgentRed.opacity(0.06))
+        .clipShape(.rect(cornerRadius: 12))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(SVTheme.urgentRed.opacity(0.2), lineWidth: 1)
+        )
+    }
+
     private var transcriptPreview: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
@@ -235,11 +313,21 @@ struct NoteReviewView: View {
                     .tracking(0.5)
             }
 
-            Text(rawTranscript.isEmpty ? "No transcription available" : rawTranscript)
-                .font(.caption)
-                .foregroundStyle(SVTheme.textSecondary)
-                .lineLimit(3)
-                .lineSpacing(2)
+            if rawTranscript.isEmpty {
+                HStack(spacing: 6) {
+                    Image(systemName: transcriptionFailed ? "exclamationmark.triangle" : "waveform.slash")
+                        .font(.caption)
+                    Text(transcriptionFailed ? "Transcription failed — tap Retry above" : "No speech detected in recording")
+                        .font(.caption)
+                }
+                .foregroundStyle(transcriptionFailed ? SVTheme.urgentRed : SVTheme.textTertiary)
+            } else {
+                Text(rawTranscript)
+                    .font(.caption)
+                    .foregroundStyle(SVTheme.textSecondary)
+                    .lineLimit(3)
+                    .lineSpacing(2)
+            }
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
