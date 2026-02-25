@@ -1022,7 +1022,17 @@ app.patch("/rest/shift-notes/:noteId", async (c) => {
   }
 
   const body = await c.req.json();
-  const updated = { ...existing, ...body, id: noteId, ownerId: auth.userId, updatedAt: new Date().toISOString() };
+  const allowedNoteFields = [
+    "authorId", "authorName", "authorInitials", "locationId", "shiftType",
+    "shiftTemplateId", "rawTranscript", "audioUrl", "audioDuration", "summary",
+    "categorizedItems", "actionItems", "photoUrls", "acknowledgments",
+    "voiceReplies", "isSynced",
+  ];
+  const sanitized: Record<string, any> = {};
+  for (const key of allowedNoteFields) {
+    if (key in body) sanitized[key] = body[key];
+  }
+  const updated = { ...existing, ...sanitized, id: noteId, ownerId: auth.userId, updatedAt: new Date().toISOString() };
   storage.upsertShiftNote(updated);
 
   return c.json({ success: true, noteId });
@@ -1096,7 +1106,10 @@ app.delete("/rest/shift-notes/:noteId", async (c) => {
 
   const noteId = c.req.param("noteId");
   const note = storage.getShiftNote(noteId);
-  if (note && note.ownerId !== auth.userId) {
+  if (!note) {
+    return errorResponse(c, 404, "Note not found", "NOT_FOUND");
+  }
+  if (note.ownerId !== auth.userId) {
     return errorResponse(c, 403, "Forbidden", "FORBIDDEN");
   }
 
@@ -1140,7 +1153,14 @@ app.patch("/rest/locations/:locationId", async (c) => {
   }
 
   const body = await c.req.json();
-  const updated = { ...existing, ...body, id: locationId, ownerId: auth.userId, updatedAt: new Date().toISOString() };
+  const allowedLocationFields = [
+    "name", "address", "timezone", "openingTime", "midTime", "closingTime", "managerIds",
+  ];
+  const sanitized: Record<string, any> = {};
+  for (const key of allowedLocationFields) {
+    if (key in body) sanitized[key] = body[key];
+  }
+  const updated = { ...existing, ...sanitized, id: locationId, ownerId: auth.userId, updatedAt: new Date().toISOString() };
   storage.upsertLocation(updated);
 
   return c.json({ success: true, locationId });
@@ -1201,7 +1221,14 @@ app.patch("/rest/team/:memberId", async (c) => {
   }
 
   const body = await c.req.json();
-  const updated = { ...existing, ...body, id: memberId, ownerId: auth.userId, updatedAt: new Date().toISOString() };
+  const allowedMemberFields = [
+    "name", "email", "role", "roleTemplateId", "locationIds", "inviteStatus", "avatarInitials",
+  ];
+  const sanitized: Record<string, any> = {};
+  for (const key of allowedMemberFields) {
+    if (key in body) sanitized[key] = body[key];
+  }
+  const updated = { ...existing, ...sanitized, id: memberId, ownerId: auth.userId, updatedAt: new Date().toISOString() };
   storage.upsertTeamMember(updated);
 
   return c.json({ success: true, memberId });
@@ -1214,6 +1241,15 @@ app.delete("/rest/team/:memberId", async (c) => {
   if (!auth) return errorResponse(c, 401, "Unauthorized", "UNAUTHORIZED");
 
   const memberId = c.req.param("memberId");
+  const members = storage.getTeamMembers(auth.userId);
+  const existing = members.find((m) => m.id === memberId);
+  if (!existing) {
+    return errorResponse(c, 404, "Team member not found", "NOT_FOUND");
+  }
+  if (existing.ownerId !== auth.userId) {
+    return errorResponse(c, 403, "Forbidden", "FORBIDDEN");
+  }
+
   storage.deleteTeamMember(memberId);
   return c.json({ success: true });
 });
