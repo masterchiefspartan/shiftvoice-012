@@ -13,6 +13,7 @@ struct ShiftNoteDetailView: View {
     @State private var assigningActionId: String?
     @State private var audioPlayer: AVAudioPlayer?
     @State private var progressTimer: Timer?
+    @State private var isAcknowledging: Bool = false
 
     private var note: ShiftNote? {
         viewModel.shiftNotes.first { $0.id == noteId }
@@ -434,20 +435,28 @@ struct ShiftNoteDetailView: View {
 
     private var acknowledgeButton: some View {
         Button {
+            guard !isAcknowledging else { return }
+            isAcknowledging = true
             viewModel.acknowledgeNote(noteId)
         } label: {
             HStack(spacing: 8) {
-                Image(systemName: "checkmark")
-                    .font(.subheadline.weight(.semibold))
-                Text("Acknowledge & Start Shift")
-                    .font(.subheadline.weight(.semibold))
+                if isAcknowledging {
+                    ProgressView()
+                        .tint(.white)
+                } else {
+                    Image(systemName: "checkmark")
+                        .font(.subheadline.weight(.semibold))
+                    Text("Acknowledge & Start Shift")
+                        .font(.subheadline.weight(.semibold))
+                }
             }
             .foregroundStyle(.white)
             .frame(maxWidth: .infinity)
             .frame(height: 48)
-            .background(SVTheme.accent)
+            .background(isAcknowledging ? SVTheme.accent.opacity(0.6) : SVTheme.accent)
             .clipShape(.rect(cornerRadius: 8))
         }
+        .disabled(isAcknowledging)
         .sensoryFeedback(.success, trigger: isAcknowledged)
     }
 

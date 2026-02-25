@@ -12,6 +12,7 @@ struct PaywallView: View {
     @State private var errorMessage: String = ""
     @State private var purchaseSuccess: Bool = false
     @State private var subscriptionsUnavailable: Bool = false
+    @State private var usingFallbackPrices: Bool = false
 
     private let subscription = SubscriptionService.shared
 
@@ -29,6 +30,9 @@ struct PaywallView: View {
                     ScrollView {
                         VStack(spacing: 28) {
                             headerSection
+                            if usingFallbackPrices {
+                                fallbackPriceBanner
+                            }
                             planSelector
                             billingToggle
                             selectedPlanCard
@@ -329,6 +333,40 @@ struct PaywallView: View {
         }
     }
 
+    private var fallbackPriceBanner: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.subheadline)
+                .foregroundStyle(.orange)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Prices may vary")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(SVTheme.textPrimary)
+                Text("Could not load current pricing. Tap to retry.")
+                    .font(.caption2)
+                    .foregroundStyle(SVTheme.textSecondary)
+            }
+            Spacer()
+            Button {
+                Task { await fetchOfferings() }
+            } label: {
+                Image(systemName: "arrow.clockwise")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(SVTheme.accent)
+                    .frame(width: 32, height: 32)
+                    .background(SVTheme.accent.opacity(0.1))
+                    .clipShape(Circle())
+            }
+        }
+        .padding(12)
+        .background(Color.orange.opacity(0.08))
+        .clipShape(.rect(cornerRadius: 10))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(Color.orange.opacity(0.2), lineWidth: 1)
+        )
+    }
+
     private var unavailableView: some View {
         VStack(spacing: 20) {
             Image(systemName: "cart.badge.questionmark")
@@ -357,12 +395,13 @@ struct PaywallView: View {
 
     private func fetchOfferings() async {
         isLoading = true
+        usingFallbackPrices = false
         do {
             offerings = try await subscription.fetchOfferings()
         } catch is SubscriptionServiceError {
             subscriptionsUnavailable = true
         } catch {
-            // continue with fallback prices
+            usingFallbackPrices = true
         }
         isLoading = false
     }
