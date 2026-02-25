@@ -7,6 +7,14 @@ nonisolated enum SubscriptionTier: String, Sendable {
     case team
 }
 
+nonisolated enum SubscriptionServiceError: Error, LocalizedError, Sendable {
+    case notConfigured
+
+    var errorDescription: String? {
+        "Subscriptions are temporarily unavailable. Please try again later."
+    }
+}
+
 @Observable
 final class SubscriptionService {
     static let shared = SubscriptionService()
@@ -72,15 +80,26 @@ final class SubscriptionService {
         } catch {}
     }
 
+    func fetchOfferings() async throws -> Offerings {
+        guard isConfigured else {
+            throw SubscriptionServiceError.notConfigured
+        }
+        return try await Purchases.shared.offerings()
+    }
+
     func purchase(package: Package) async throws -> Bool {
-        guard isConfigured else { return false }
+        guard isConfigured else {
+            throw SubscriptionServiceError.notConfigured
+        }
         let result = try await Purchases.shared.purchase(package: package)
         updateTier(from: result.customerInfo)
         return isProUser
     }
 
     func restorePurchases() async throws {
-        guard isConfigured else { return }
+        guard isConfigured else {
+            throw SubscriptionServiceError.notConfigured
+        }
         let customerInfo = try await Purchases.shared.restorePurchases()
         updateTier(from: customerInfo)
     }

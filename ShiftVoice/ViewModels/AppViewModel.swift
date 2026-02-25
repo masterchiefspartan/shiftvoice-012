@@ -296,12 +296,15 @@ final class AppViewModel {
             if let profile { self.userProfile = profile }
             self.organizationId = orgId
             if let locId { self.selectedLocationId = locId }
+            syncError = nil
             if let orgId {
                 startListeners(orgId: orgId)
             } else {
                 loadDemoData()
             }
         } catch {
+            syncError = "Could not load your data. Tap to retry."
+            isInitialLoading = false
             loadDemoData()
         }
     }
@@ -744,7 +747,15 @@ final class AppViewModel {
     }
 
     func forceSync() {
-        showToast("Data syncs automatically via Firestore", isError: false)
+        guard let userId = authenticatedUserId else {
+            showToast("Not signed in", isError: true)
+            return
+        }
+        syncError = nil
+        isInitialLoading = true
+        Task {
+            await loadUserData(userId)
+        }
     }
 
     func syncSubscriptionPlan() async {

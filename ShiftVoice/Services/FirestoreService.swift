@@ -105,6 +105,7 @@ final class FirestoreService {
     func startShiftNotesListener(_ orgId: String, onChange: @escaping ([ShiftNote]) -> Void) {
         let reg = db.collection("organizations").document(orgId).collection("shiftNotes")
             .order(by: "createdAt", descending: true)
+            .limit(to: 300)
             .addSnapshotListener { snapshot, _ in
                 let items = snapshot?.documents.compactMap { try? $0.data(as: ShiftNote.self) } ?? []
                 onChange(items)

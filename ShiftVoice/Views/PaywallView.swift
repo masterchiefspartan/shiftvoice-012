@@ -11,6 +11,7 @@ struct PaywallView: View {
     @State private var showError: Bool = false
     @State private var errorMessage: String = ""
     @State private var purchaseSuccess: Bool = false
+    @State private var subscriptionsUnavailable: Bool = false
 
     private let subscription = SubscriptionService.shared
 
@@ -22,6 +23,8 @@ struct PaywallView: View {
                 if isLoading {
                     ProgressView()
                         .tint(SVTheme.accent)
+                } else if subscriptionsUnavailable {
+                    unavailableView
                 } else {
                     ScrollView {
                         VStack(spacing: 28) {
@@ -326,10 +329,38 @@ struct PaywallView: View {
         }
     }
 
+    private var unavailableView: some View {
+        VStack(spacing: 20) {
+            Image(systemName: "cart.badge.questionmark")
+                .font(.system(size: 48))
+                .foregroundStyle(SVTheme.textTertiary)
+            Text("Subscriptions Unavailable")
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(SVTheme.textPrimary)
+            Text("In-app purchases are not available at this time. Please try again later.")
+                .font(.subheadline)
+                .foregroundStyle(SVTheme.textSecondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 32)
+            Button("Close") { dismiss() }
+                .font(.headline)
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .frame(height: 50)
+                .background(SVTheme.accent)
+                .clipShape(.rect(cornerRadius: 14))
+                .padding(.horizontal, 32)
+                .padding(.top, 8)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
     private func fetchOfferings() async {
         isLoading = true
         do {
-            offerings = try await Purchases.shared.offerings()
+            offerings = try await subscription.fetchOfferings()
+        } catch is SubscriptionServiceError {
+            subscriptionsUnavailable = true
         } catch {
             // continue with fallback prices
         }
