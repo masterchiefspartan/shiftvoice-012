@@ -341,28 +341,76 @@ final class AuthenticationService {
         KeychainService.clearBackendToken()
     }
 
-    func deleteAccount() {
+    func deleteAccount(password: String? = nil) {
         guard let user = Auth.auth().currentUser else {
             signOut()
             return
         }
-        let userId = user.uid
+
+        isSubmitting = true
 
         Task {
             do {
+                let savedMethod = UserDefaults.standard.string(forKey: "sv_auth_method")
+                if savedMethod == AuthMethod.email.rawValue {
+                    guard let password, !password.isEmpty else {
+                        errorMessage = "Password is required to delete your account."
+                        isSubmitting = false
+                        return
+                    }
+                    guard let email = user.email else {
+                        errorMessage = "Unable to verify account. Please sign in again."
+                        isSubmitting = false
+                        return
+                    }
+                    let credential = EmailAuthProvider.credential(withEmail: email, password: password)
+                    try await user.reauthenticate(with: credential)
+                } else if savedMethod == AuthMethod.google.rawValue {
+                    guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                          let rootVC = windowScene.windows.first?.rootViewController else {
+                        errorMessage = "Unable to verify account."
+                        isSubmitting = false
+                        return
+                    }
+                    let result = try await GIDSignIn.sharedInstance.signIn(withPresenting: rootVC)
+                    guard let idToken = result.user.idToken?.tokenString else {
+                        errorMessage = "Unable to get Google credentials."
+                        isSubmitting = false
+                        return
+                    }
+                    let credential = GoogleAuthProvider.credential(
+                        withIDToken: idToken,
+                        accessToken: result.user.accessToken.tokenString
+                    )
+                    try await user.reauthenticate(with: credential)
+                }
+
+                let userId = user.uid
                 try await user.delete()
-            } catch {
-                errorMessage = "Unable to delete account. You may need to sign in again."
-                return
+
+                self.currentUserId = nil
+                self.backendToken = nil
+                self.isSignedIn = false
+                self.authMethod = nil
+                UserDefaults.standard.removeObject(forKey: "sv_auth_method")
+                KeychainService.clearBackendToken()
+                FirestoreService.shared.deleteUserData(userId)
+            } catch let error as NSError {
+                let code = AuthErrorCode(rawValue: error.code)
+                if code == .wrongPassword || code == .invalidCredential {
+                    self.errorMessage = "Incorrect password. Please try again."
+                } else if code == .requiresRecentLogin {
+                    self.errorMessage = "Please sign in again to delete your account."
+                } else {
+                    self.errorMessage = "Unable to delete account: \(error.localizedDescription)"
+                }
             }
-            self.currentUserId = nil
-            self.backendToken = nil
-            self.isSignedIn = false
-            self.authMethod = nil
-            UserDefaults.standard.removeObject(forKey: "sv_auth_method")
-            KeychainService.clearBackendToken()
-            FirestoreService.shared.deleteUserData(userId)
+            self.isSubmitting = false
         }
+    }
+
+    var isEmailAuth: Bool {
+        UserDefaults.standard.string(forKey: "sv_auth_method") == AuthMethod.email.rawValue
     }
 
     // MARK: - URL Handling

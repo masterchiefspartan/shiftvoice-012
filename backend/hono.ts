@@ -63,9 +63,12 @@ app.use("/rest/*", async (c, next) => {
 // --- Validation Schemas ---
 
 const registerSchema = z.object({
-  name: z.string().min(2, "Name must be at least 2 characters"),
+  name: z.string().min(2, "Name must be at least 2 characters").max(100, "Name must be under 100 characters"),
   email: z.string().email("Invalid email address"),
-  password: z.string().min(8, "Password must be at least 8 characters"),
+  password: z.string()
+    .min(8, "Password must be at least 8 characters")
+    .refine((p) => /[a-zA-Z]/.test(p), { message: "Password must contain at least one letter" })
+    .refine((p) => /[0-9]/.test(p), { message: "Password must contain at least one number" }),
   authMethod: z.enum(["email", "google"]).default("email"),
 });
 

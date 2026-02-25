@@ -18,8 +18,6 @@ struct OnboardingTeamView: View {
             }
             .onTapGesture {
                 isAnyFieldFocused = false
-
-                Spacer(minLength: 40)
             }
             .padding(.horizontal, 24)
             .padding(.top, 24)

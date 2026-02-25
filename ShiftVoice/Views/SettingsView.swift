@@ -27,6 +27,8 @@ struct SettingsView: View {
     @State private var showTeamSheet: Bool = false
     @State private var showLocationSheet: Bool = false
     @State private var showDeleteConfirmation: Bool = false
+    @State private var deletePassword: String = ""
+    @State private var showDeletePasswordPrompt: Bool = false
 
     var body: some View {
         NavigationStack {
@@ -566,9 +568,17 @@ struct SettingsView: View {
             VStack(spacing: 0) {
                 settingsValueRow(title: "Version", value: "1.0.0")
                 Rectangle().fill(SVTheme.divider).frame(height: 1).padding(.leading, 16)
-                settingsNavigationRow(title: "Privacy Policy") {}
+                settingsNavigationRow(title: "Privacy Policy") {
+                    if let url = URL(string: "https://shiftvoice.app/privacy") {
+                        UIApplication.shared.open(url)
+                    }
+                }
                 Rectangle().fill(SVTheme.divider).frame(height: 1).padding(.leading, 16)
-                settingsNavigationRow(title: "Terms of Service") {}
+                settingsNavigationRow(title: "Terms of Service") {
+                    if let url = URL(string: "https://shiftvoice.app/terms") {
+                        UIApplication.shared.open(url)
+                    }
+                }
                 Rectangle().fill(SVTheme.divider).frame(height: 1).padding(.leading, 16)
                 HStack {
                     Text("Support")
@@ -669,7 +679,12 @@ struct SettingsView: View {
             )
 
             Button {
-                showDeleteConfirmation = true
+                if authService.isEmailAuth {
+                    deletePassword = ""
+                    showDeletePasswordPrompt = true
+                } else {
+                    showDeleteConfirmation = true
+                }
             } label: {
                 HStack {
                     Image(systemName: "trash")
@@ -682,19 +697,31 @@ struct SettingsView: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 14)
             }
+            .disabled(authService.isSubmitting)
             .background(SVTheme.cardBackground)
             .clipShape(.rect(cornerRadius: 12))
             .overlay(
                 RoundedRectangle(cornerRadius: 12)
                     .stroke(SVTheme.surfaceBorder, lineWidth: 1)
             )
+            .alert("Delete Account", isPresented: $showDeletePasswordPrompt) {
+                SecureField("Enter your password", text: $deletePassword)
+                Button("Delete", role: .destructive) {
+                    authService.deleteAccount(password: deletePassword)
+                }
+                Button("Cancel", role: .cancel) {
+                    deletePassword = ""
+                }
+            } message: {
+                Text("Enter your password to confirm account deletion. This cannot be undone.")
+            }
             .alert("Delete Account", isPresented: $showDeleteConfirmation) {
                 Button("Delete", role: .destructive) {
                     authService.deleteAccount()
                 }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("This will permanently delete your account, credentials, and all associated data. This cannot be undone.")
+                Text("You will be asked to re-authenticate with Google. This will permanently delete your account and cannot be undone.")
             }
         }
     }
