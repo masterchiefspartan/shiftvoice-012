@@ -98,6 +98,24 @@ struct DashboardView: View {
             .sheet(isPresented: $showFilterSheet) {
                 filterSheetContent
             }
+            .onAppear {
+                viewModel.loadFirstActionPage(filtered: filteredActions)
+            }
+            .onChange(of: selectedUrgencyFilter) { _, _ in
+                viewModel.loadFirstActionPage(filtered: filteredActions)
+            }
+            .onChange(of: selectedStatusFilter) { _, _ in
+                viewModel.loadFirstActionPage(filtered: filteredActions)
+            }
+            .onChange(of: selectedLocationFilter) { _, _ in
+                viewModel.loadFirstActionPage(filtered: filteredActions)
+            }
+            .onChange(of: selectedCategoryFilter) { _, _ in
+                viewModel.loadFirstActionPage(filtered: filteredActions)
+            }
+            .onChange(of: selectedDateRange) { _, _ in
+                viewModel.loadFirstActionPage(filtered: filteredActions)
+            }
         }
     }
 
@@ -335,11 +353,12 @@ struct DashboardView: View {
                 }
             }
 
-            if filteredActions.isEmpty {
+            if viewModel.paginatedActionItems.isEmpty && filteredActions.isEmpty {
                 emptyState
             } else {
+                let items = viewModel.paginatedActionItems
                 VStack(spacing: 0) {
-                    ForEach(Array(filteredActions.enumerated()), id: \.element.item.id) { index, entry in
+                    ForEach(Array(items.enumerated()), id: \.element.item.id) { index, entry in
                         NavigationLink(value: entry.noteId) {
                             ActionItemRow(
                                 item: entry.item,
@@ -363,13 +382,37 @@ struct DashboardView: View {
                             )
                         }
                         .buttonStyle(.plain)
+                        .onAppear {
+                            if index == items.count - 1 && viewModel.hasMoreActionItems {
+                                viewModel.loadNextActionPage(filtered: filteredActions)
+                            }
+                        }
 
-                        if index < filteredActions.count - 1 {
+                        if index < items.count - 1 {
                             Rectangle()
                                 .fill(SVTheme.divider)
                                 .frame(height: 1)
                                 .padding(.leading, 52)
                         }
+                    }
+
+                    if viewModel.isLoadingActionPage {
+                        HStack(spacing: 8) {
+                            ProgressView()
+                            Text("Loading more…")
+                                .font(.caption)
+                                .foregroundStyle(SVTheme.textTertiary)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                    }
+
+                    if !viewModel.hasMoreActionItems && filteredActions.count > 30 {
+                        Text("All \(filteredActions.count) items loaded")
+                            .font(.caption2)
+                            .foregroundStyle(SVTheme.textTertiary)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
                     }
                 }
                 .background(SVTheme.cardBackground)

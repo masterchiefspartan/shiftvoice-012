@@ -99,12 +99,33 @@ const emailIndex = new Map<string, string>();
 const sessions = new Map<string, SessionData>();
 
 const organizations = new Map<string, StoredOrganization>();
+const orgOwnerIndex = new Map<string, string>();
 const locations = new Map<string, StoredLocation>();
+const locationOwnerIndex = new Map<string, Set<string>>();
 const teamMembers = new Map<string, StoredTeamMember>();
+const memberOwnerIndex = new Map<string, Set<string>>();
 const shiftNotes = new Map<string, StoredShiftNote>();
+const noteOwnerIndex = new Map<string, Set<string>>();
+const noteLocationIndex = new Map<string, Set<string>>();
 const recurringIssues = new Map<string, StoredRecurringIssue>();
+const issueOwnerIndex = new Map<string, Set<string>>();
 
 const userSelectedLocation = new Map<string, string>();
+
+function addToIndex(index: Map<string, Set<string>>, key: string, id: string): void {
+  let set = index.get(key);
+  if (!set) { set = new Set(); index.set(key, set); }
+  set.add(id);
+}
+
+function removeFromIndex(index: Map<string, Set<string>>, key: string, id: string): void {
+  const set = index.get(key);
+  if (set) { set.delete(id); if (set.size === 0) index.delete(key); }
+}
+
+function getFromIndex(index: Map<string, Set<string>>, key: string): Set<string> {
+  return index.get(key) || new Set();
+}
 
 function now(): string {
   return new Date().toISOString();
@@ -153,20 +174,30 @@ export const storage = {
 
   // --- Organizations ---
   getOrganization(userId: string): StoredOrganization | null {
-    for (const org of organizations.values()) {
-      if (org.ownerId === userId) return org;
-    }
-    return null;
+    const orgId = orgOwnerIndex.get(userId);
+    if (!orgId) return null;
+    return organizations.get(orgId) || null;
   },
 
   upsertOrganization(org: StoredOrganization): void {
     org.updatedAt = now();
+    const existing = orgOwnerIndex.get(org.ownerId);
+    if (existing && existing !== org.id) {
+      organizations.delete(existing);
+    }
     organizations.set(org.id, org);
+    orgOwnerIndex.set(org.ownerId, org.id);
   },
 
   // --- Locations ---
   getLocations(userId: string): StoredLocation[] {
-    return Array.from(locations.values()).filter((l) => l.ownerId === userId);
+    const ids = getFromIndex(locationOwnerIndex, userId);
+    const result: StoredLocation[] = [];
+    for (const id of ids) {
+      const loc = locations.get(id);
+      if (loc) result.push(loc);
+    }
+    return result;
   },
 
   getLocation(id: string): StoredLocation | null {
@@ -176,26 +207,48 @@ export const storage = {
   upsertLocation(loc: StoredLocation): void {
     loc.updatedAt = now();
     locations.set(loc.id, loc);
+    addToIndex(locationOwnerIndex, loc.ownerId, loc.id);
   },
 
   deleteLocation(id: string): void {
-    locations.delete(id);
-    for (const [noteId, note] of shiftNotes.entries()) {
-      if (note.locationId === id) shiftNotes.delete(noteId);
+    const loc = locations.get(id);
+    if (loc) {
+      removeFromIndex(locationOwnerIndex, loc.ownerId, id);
     }
+    locations.delete(id);
+    const noteIds = getFromIndex(noteLocationIndex, id);
+    for (const noteId of noteIds) {
+      const note = shiftNotes.get(noteId);
+      if (note) {
+        removeFromIndex(noteOwnerIndex, note.ownerId, noteId);
+      }
+      shiftNotes.delete(noteId);
+    }
+    noteLocationIndex.delete(id);
   },
 
   // --- Team Members ---
   getTeamMembers(userId: string): StoredTeamMember[] {
-    return Array.from(teamMembers.values()).filter((m) => m.ownerId === userId);
+    const ids = getFromIndex(memberOwnerIndex, userId);
+    const result: StoredTeamMember[] = [];
+    for (const id of ids) {
+      const m = teamMembers.get(id);
+      if (m) result.push(m);
+    }
+    return result;
   },
 
   upsertTeamMember(member: StoredTeamMember): void {
     member.updatedAt = now();
     teamMembers.set(member.id, member);
+    addToIndex(memberOwnerIndex, member.ownerId, member.id);
   },
 
   deleteTeamMember(id: string): void {
+    const member = teamMembers.get(id);
+    if (member) {
+      removeFromIndex(memberOwnerIndex, member.ownerId, id);
+    }
     teamMembers.delete(id);
   },
 
@@ -207,7 +260,12 @@ export const storage = {
     limit?: number;
     updatedSince?: string | null;
   }): { notes: StoredShiftNote[]; totalCount: number; hasMore: boolean; nextCursor: string | null } {
-    let notes = Array.from(shiftNotes.values()).filter((n) => n.ownerId === userId);
+    const ids = getFromIndex(noteOwnerIndex, userId);
+    let notes: StoredShiftNote[] = [];
+    for (const id of ids) {
+      const n = shiftNotes.get(id);
+      if (n) notes.push(n);
+    }
 
     if (opts?.locationId) {
       notes = notes.filter((n) => n.locationId === opts.locationId);
@@ -246,24 +304,46 @@ export const storage = {
 
   upsertShiftNote(note: StoredShiftNote): void {
     note.updatedAt = now();
+    const existing = shiftNotes.get(note.id);
+    if (existing && existing.locationId !== note.locationId) {
+      removeFromIndex(noteLocationIndex, existing.locationId, note.id);
+    }
     shiftNotes.set(note.id, note);
+    addToIndex(noteOwnerIndex, note.ownerId, note.id);
+    addToIndex(noteLocationIndex, note.locationId, note.id);
   },
 
   deleteShiftNote(id: string): void {
+    const note = shiftNotes.get(id);
+    if (note) {
+      removeFromIndex(noteOwnerIndex, note.ownerId, id);
+      removeFromIndex(noteLocationIndex, note.locationId, id);
+    }
     shiftNotes.delete(id);
   },
 
   // --- Recurring Issues ---
   getRecurringIssues(userId: string): StoredRecurringIssue[] {
-    return Array.from(recurringIssues.values()).filter((i) => i.ownerId === userId);
+    const ids = getFromIndex(issueOwnerIndex, userId);
+    const result: StoredRecurringIssue[] = [];
+    for (const id of ids) {
+      const i = recurringIssues.get(id);
+      if (i) result.push(i);
+    }
+    return result;
   },
 
   upsertRecurringIssue(issue: StoredRecurringIssue): void {
     issue.updatedAt = now();
     recurringIssues.set(issue.id, issue);
+    addToIndex(issueOwnerIndex, issue.ownerId, issue.id);
   },
 
   deleteRecurringIssue(id: string): void {
+    const issue = recurringIssues.get(id);
+    if (issue) {
+      removeFromIndex(issueOwnerIndex, issue.ownerId, id);
+    }
     recurringIssues.delete(id);
   },
 
@@ -289,9 +369,13 @@ export const storage = {
     const org = this.getOrganization(userId);
     const locs = this.getLocations(userId);
     const team = this.getTeamMembers(userId);
-    const notes = Array.from(shiftNotes.values())
-      .filter((n) => n.ownerId === userId)
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    const noteIds = getFromIndex(noteOwnerIndex, userId);
+    const notes: StoredShiftNote[] = [];
+    for (const nid of noteIds) {
+      const n = shiftNotes.get(nid);
+      if (n) notes.push(n);
+    }
+    notes.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
     const issues = this.getRecurringIssues(userId);
     const selLoc = this.getSelectedLocationId(userId);
 
@@ -374,7 +458,12 @@ export const storage = {
     }
 
     if (data.shiftNotes) {
-      const existingNotes = Array.from(shiftNotes.values()).filter((n) => n.ownerId === userId);
+      const existingNoteIds = getFromIndex(noteOwnerIndex, userId);
+    const existingNotes: StoredShiftNote[] = [];
+    for (const nid of existingNoteIds) {
+      const n = shiftNotes.get(nid);
+      if (n) existingNotes.push(n);
+    }
       for (const en of existingNotes) {
         if (!data.shiftNotes.find((n: any) => n.id === en.id)) {
           shiftNotes.delete(en.id);
@@ -419,15 +508,34 @@ export const storage = {
       accounts.delete(userId);
     }
 
-    const org = this.getOrganization(userId);
-    if (org) organizations.delete(org.id);
-
-    for (const loc of this.getLocations(userId)) locations.delete(loc.id);
-    for (const member of this.getTeamMembers(userId)) teamMembers.delete(member.id);
-    for (const [id, note] of shiftNotes.entries()) {
-      if (note.ownerId === userId) shiftNotes.delete(id);
+    const orgId = orgOwnerIndex.get(userId);
+    if (orgId) {
+      organizations.delete(orgId);
+      orgOwnerIndex.delete(userId);
     }
-    for (const issue of this.getRecurringIssues(userId)) recurringIssues.delete(issue.id);
+
+    for (const locId of getFromIndex(locationOwnerIndex, userId)) {
+      locations.delete(locId);
+    }
+    locationOwnerIndex.delete(userId);
+
+    for (const memId of getFromIndex(memberOwnerIndex, userId)) {
+      teamMembers.delete(memId);
+    }
+    memberOwnerIndex.delete(userId);
+
+    for (const noteId of getFromIndex(noteOwnerIndex, userId)) {
+      const note = shiftNotes.get(noteId);
+      if (note) removeFromIndex(noteLocationIndex, note.locationId, noteId);
+      shiftNotes.delete(noteId);
+    }
+    noteOwnerIndex.delete(userId);
+
+    for (const issueId of getFromIndex(issueOwnerIndex, userId)) {
+      recurringIssues.delete(issueId);
+    }
+    issueOwnerIndex.delete(userId);
+
     userSelectedLocation.delete(userId);
 
     for (const [token, session] of sessions.entries()) {

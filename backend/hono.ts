@@ -923,7 +923,12 @@ app.get("/rest/sync", async (c) => {
       return c.json({ hasData: true, data: filteredData, isDelta: true });
     }
 
-    return c.json({ hasData: true, data });
+    const maxSyncNotes = 100;
+    if (data.shiftNotes && data.shiftNotes.length > maxSyncNotes) {
+      data.shiftNotes = data.shiftNotes.slice(0, maxSyncNotes);
+    }
+
+    return c.json({ hasData: true, data, totalNotes: data.shiftNotes?.length || 0 });
   } catch (error: any) {
     console.error("Sync pull error:", error?.message || error);
     return errorResponse(c, 500, "Sync failed", "SYNC_ERROR");

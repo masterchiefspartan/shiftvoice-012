@@ -300,7 +300,7 @@ struct ShiftFeedView: View {
                 EmptyView()
             } else {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("\(results.count) result\(results.count == 1 ? "" : "s")")
+                    Text(results.count >= 50 ? "50+ results" : "\(results.count) result\(results.count == 1 ? "" : "s")")
                         .font(.caption.weight(.medium))
                         .foregroundStyle(SVTheme.textTertiary)
 

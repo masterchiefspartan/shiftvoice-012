@@ -48,17 +48,30 @@ final class AppViewModel {
     // MARK: - Loading State
     var isInitialLoading: Bool = true
 
+    // MARK: - Action Items Pagination
+    private let actionPageSize = 30
+    var paginatedActionItems: [(item: ActionItem, noteId: String, authorName: String, locationId: String, createdAt: Date)] = []
+    var hasMoreActionItems: Bool = false
+    var isLoadingActionPage: Bool = false
+    private var currentActionPage: Int = 0
+
     // MARK: - Search
+    private let maxSearchResults = 50
     var searchQuery: String = ""
     var searchResults: [ShiftNote] {
         guard !searchQuery.isEmpty else { return [] }
         let q = searchQuery.lowercased()
-        return feedNotes.filter {
-            $0.rawTranscript.lowercased().localizedStandardContains(q) ||
-            $0.summary.lowercased().localizedStandardContains(q) ||
-            $0.authorName.lowercased().localizedStandardContains(q) ||
-            $0.actionItems.contains { $0.task.lowercased().localizedStandardContains(q) }
+        var results: [ShiftNote] = []
+        for note in feedNotes {
+            if results.count >= maxSearchResults { break }
+            if note.rawTranscript.lowercased().localizedStandardContains(q) ||
+               note.summary.lowercased().localizedStandardContains(q) ||
+               note.authorName.lowercased().localizedStandardContains(q) ||
+               note.actionItems.contains(where: { $0.task.lowercased().localizedStandardContains(q) }) {
+                results.append(note)
+            }
         }
+        return results
     }
 
     let recording = RecordingViewModel()
@@ -198,6 +211,29 @@ final class AppViewModel {
         paginatedNotes = Array(source.prefix(pageSize))
         hasMoreNotes = source.count > pageSize
         totalNoteCount = source.count
+    }
+
+    // MARK: - Action Items Pagination
+
+    func loadFirstActionPage(filtered: [(item: ActionItem, noteId: String, authorName: String, locationId: String, createdAt: Date)]) {
+        currentActionPage = 0
+        let page = Array(filtered.prefix(actionPageSize))
+        paginatedActionItems = page
+        hasMoreActionItems = filtered.count > actionPageSize
+    }
+
+    func loadNextActionPage(filtered: [(item: ActionItem, noteId: String, authorName: String, locationId: String, createdAt: Date)]) {
+        guard !isLoadingActionPage, hasMoreActionItems else { return }
+        isLoadingActionPage = true
+        currentActionPage += 1
+        let start = currentActionPage * actionPageSize
+        let nextBatch = Array(filtered.dropFirst(start).prefix(actionPageSize))
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(100))
+            paginatedActionItems.append(contentsOf: nextBatch)
+            hasMoreActionItems = paginatedActionItems.count < filtered.count
+            isLoadingActionPage = false
+        }
     }
 
     func loadNextPage(shiftFilter: String? = nil) {
