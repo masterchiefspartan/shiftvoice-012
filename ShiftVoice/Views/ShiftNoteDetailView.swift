@@ -52,9 +52,9 @@ struct ShiftNoteDetailView: View {
             if let actionId = assigningActionId, let note {
                 AssigneePickerView(
                     teamMembers: viewModel.teamMembers,
-                    currentAssignee: note.actionItems.first(where: { $0.id == actionId })?.assignee
-                ) { selectedName in
-                    viewModel.updateActionItemAssignee(noteId: noteId, actionItemId: actionId, assignee: selectedName)
+                    currentAssigneeId: note.actionItems.first(where: { $0.id == actionId })?.assigneeId
+                ) { selectedId, selectedName in
+                    viewModel.updateActionItemAssignee(noteId: noteId, actionItemId: actionId, assignee: selectedName, assigneeId: selectedId)
                     showAssignSheet = false
                     assigningActionId = nil
                 }

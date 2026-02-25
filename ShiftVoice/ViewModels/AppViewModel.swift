@@ -355,13 +355,13 @@ final class AppViewModel {
     func publishReviewedNote(_ note: ShiftNote) {
         var mutableNote = note
         mutableNote.updatedAt = Date()
-        shiftNotes.insert(mutableNote, at: 0)
         publishError = nil
         pendingPublishNote = nil
         recording.discardPendingNote()
         writeShiftNote(mutableNote)
 
         if isOffline {
+            shiftNotes.insert(mutableNote, at: 0)
             showToast("Saved offline — will sync when connected", isError: false)
         }
     }
@@ -401,11 +401,12 @@ final class AppViewModel {
         writeShiftNote(shiftNotes[noteIndex])
     }
 
-    func updateActionItemAssignee(noteId: String, actionItemId: String, assignee: String?) {
+    func updateActionItemAssignee(noteId: String, actionItemId: String, assignee: String?, assigneeId: String? = nil) {
         guard let noteIndex = shiftNotes.firstIndex(where: { $0.id == noteId }),
               let itemIndex = shiftNotes[noteIndex].actionItems.firstIndex(where: { $0.id == actionItemId }) else { return }
         let now = Date()
         shiftNotes[noteIndex].actionItems[itemIndex].assignee = assignee
+        shiftNotes[noteIndex].actionItems[itemIndex].assigneeId = assigneeId
         shiftNotes[noteIndex].actionItems[itemIndex].assigneeUpdatedAt = now
         shiftNotes[noteIndex].actionItems[itemIndex].updatedAt = now
         shiftNotes[noteIndex].updatedAt = now

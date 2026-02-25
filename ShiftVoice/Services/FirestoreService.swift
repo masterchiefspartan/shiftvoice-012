@@ -1,6 +1,7 @@
 import Foundation
 import FirebaseFirestore
 
+@MainActor
 final class FirestoreService {
     static let shared = FirestoreService()
     private lazy var db = Firestore.firestore()

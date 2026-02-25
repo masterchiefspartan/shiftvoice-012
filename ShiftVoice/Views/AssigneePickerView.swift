@@ -2,8 +2,8 @@ import SwiftUI
 
 struct AssigneePickerView: View {
     let teamMembers: [TeamMember]
-    let currentAssignee: String?
-    let onSelect: (String?) -> Void
+    let currentAssigneeId: String?
+    let onSelect: (_ memberId: String?, _ memberName: String?) -> Void
 
     @State private var searchText: String = ""
     @Environment(\.dismiss) private var dismiss
@@ -19,10 +19,10 @@ struct AssigneePickerView: View {
     var body: some View {
         NavigationStack {
             List {
-                if currentAssignee != nil {
+                if currentAssigneeId != nil {
                     Section {
                         Button {
-                            onSelect(nil)
+                            onSelect(nil, nil)
                         } label: {
                             HStack(spacing: 12) {
                                 Image(systemName: "person.slash")
@@ -43,7 +43,7 @@ struct AssigneePickerView: View {
                 Section {
                     ForEach(filteredMembers) { member in
                         Button {
-                            onSelect(member.name)
+                            onSelect(member.id, member.name)
                         } label: {
                             HStack(spacing: 12) {
                                 Text(member.avatarInitials)
@@ -64,7 +64,7 @@ struct AssigneePickerView: View {
 
                                 Spacer()
 
-                                if currentAssignee == member.name {
+                                if currentAssigneeId == member.id {
                                     Image(systemName: "checkmark.circle.fill")
                                         .font(.body)
                                         .foregroundStyle(SVTheme.accent)

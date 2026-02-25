@@ -134,10 +134,11 @@ struct NoteReviewView: View {
                 if let actionId = assigningActionId {
                     AssigneePickerView(
                         teamMembers: viewModel.teamMembers,
-                        currentAssignee: editableActionItems.first(where: { $0.id == actionId })?.assignee
-                    ) { selectedName in
+                        currentAssigneeId: editableActionItems.first(where: { $0.id == actionId })?.assigneeId
+                    ) { selectedId, selectedName in
                         if let idx = editableActionItems.firstIndex(where: { $0.id == actionId }) {
                             editableActionItems[idx].assignee = selectedName
+                            editableActionItems[idx].assigneeId = selectedId
                         }
                         showAssignSheet = false
                         assigningActionId = nil
@@ -538,14 +539,16 @@ struct EditableActionItem: Identifiable {
     var categoryTemplateId: String?
     var urgency: UrgencyLevel
     var assignee: String?
+    var assigneeId: String?
 
-    init(id: String, task: String, category: NoteCategory, categoryTemplateId: String? = nil, urgency: UrgencyLevel, assignee: String? = nil) {
+    init(id: String, task: String, category: NoteCategory, categoryTemplateId: String? = nil, urgency: UrgencyLevel, assignee: String? = nil, assigneeId: String? = nil) {
         self.id = id
         self.task = task
         self.category = category
         self.categoryTemplateId = categoryTemplateId
         self.urgency = urgency
         self.assignee = assignee
+        self.assigneeId = assigneeId
     }
 
     init(from item: ActionItem) {
@@ -555,6 +558,7 @@ struct EditableActionItem: Identifiable {
         self.categoryTemplateId = item.categoryTemplateId
         self.urgency = item.urgency
         self.assignee = item.assignee
+        self.assigneeId = item.assigneeId
     }
 
     func toActionItem() -> ActionItem {
@@ -564,7 +568,8 @@ struct EditableActionItem: Identifiable {
             category: category,
             categoryTemplateId: categoryTemplateId,
             urgency: urgency,
-            assignee: assignee
+            assignee: assignee,
+            assigneeId: assigneeId
         )
     }
 }

@@ -104,13 +104,14 @@ nonisolated struct ActionItem: Identifiable, Codable, Sendable {
     let urgency: UrgencyLevel
     var status: ActionItemStatus
     var assignee: String?
+    var assigneeId: String?
     var updatedAt: Date
     var statusUpdatedAt: Date
     var assigneeUpdatedAt: Date
     var hasConflict: Bool
     var conflictDescription: String?
 
-    init(id: String = UUID().uuidString, task: String, category: NoteCategory, categoryTemplateId: String? = nil, urgency: UrgencyLevel, status: ActionItemStatus = .open, assignee: String? = nil, updatedAt: Date = Date(), statusUpdatedAt: Date? = nil, assigneeUpdatedAt: Date? = nil, hasConflict: Bool = false, conflictDescription: String? = nil) {
+    init(id: String = UUID().uuidString, task: String, category: NoteCategory, categoryTemplateId: String? = nil, urgency: UrgencyLevel, status: ActionItemStatus = .open, assignee: String? = nil, assigneeId: String? = nil, updatedAt: Date = Date(), statusUpdatedAt: Date? = nil, assigneeUpdatedAt: Date? = nil, hasConflict: Bool = false, conflictDescription: String? = nil) {
         self.id = id
         self.task = task
         self.category = category
@@ -118,6 +119,7 @@ nonisolated struct ActionItem: Identifiable, Codable, Sendable {
         self.urgency = urgency
         self.status = status
         self.assignee = assignee
+        self.assigneeId = assigneeId
         self.updatedAt = updatedAt
         self.statusUpdatedAt = statusUpdatedAt ?? updatedAt
         self.assigneeUpdatedAt = assigneeUpdatedAt ?? updatedAt
