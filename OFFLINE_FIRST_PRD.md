@@ -393,6 +393,78 @@ Firestore uses server timestamps (`FieldValue.serverTimestamp()`) which eliminat
 
 ---
 
+## Execution Control Plan (Risk Mitigation)
+
+### Stage Gates (Go / No-Go)
+
+Each phase is complete only if all gate criteria pass in staging and pilot.
+
+| Gate | Required Evidence | Go Criteria | No-Go Trigger |
+|---|---|---|---|
+| Gate 1 — Foundation Stability (after Phase 1) | Regression suite + manual offline create/edit/delete test + relaunch test | Core flows work offline/online with no manual queue code, no data loss in app restart test | Any reproducible data loss, duplicate writes, or blocked offline flow |
+| Gate 2 — Sync Integrity (after Phase 2) | Telemetry from metadata-driven listeners (`isFromCache`, `hasPendingWrites`) | Pending writes always converge to zero after reconnect in test matrix | Pending writes stuck, stale cache state never clears, metadata state mismatches UI |
+| Gate 3 — UX Trust (after Phase 3) | Pilot walkthroughs + UX checklist | Users can always identify offline state, pending state, and sync completion | Users cannot tell if data is safe/synced, confusing status transitions |
+| Gate 4 — Conflict Safety (after Phase 4) | Multi-device conflict scenarios + resolution logs | Conflicts are surfaced deterministically with clear resolution state | Silent overwrite without conflict visibility for action-item conflict paths |
+| Gate 5 — Release Readiness (after Phase 5) | Pilot KPI report + crash-free report + support ticket review | KPIs hit targets for 2 consecutive weeks in pilot cohort | Any Sev-1 sync incident or repeated Sev-2 unresolved integrity issue |
+
+### Weekly Risk KPI Scorecard
+
+Track these KPIs weekly in staging and pilot before broad rollout.
+
+| KPI | Definition | Target | Alert Threshold |
+|---|---|---|---|
+| Sync Success Rate | % of queued local writes that reach committed server state within SLA | >= 99.5% | < 99.0% |
+| Duplicate Write Rate | % of user actions resulting in duplicate server-side effects | <= 0.1% | > 0.5% |
+| Conflict Visibility Rate | % of detected action-item conflicts that are surfaced in UI | 100% | < 99% |
+| Mean Time to Sync (MTTS) | Median time from reconnect to `hasPendingWrites = false` | <= 60s (normal backlog) | > 180s |
+| Data Loss Incidents | Confirmed user-intent records not recoverable from cache/server | 0 | >= 1 |
+
+### Risk Register (Focused)
+
+| ID | Risk | Impact | Likelihood | Owner | Early Signal | Mitigation | Contingency |
+|---|---|---|---|---|---|---|---|
+| R1 | Metadata-only updates not reflected in UI quickly enough | High | Medium | iOS | `hasPendingWrites` remains true in UI after backend commit | Use listener options with metadata updates enabled and verify transition tests per screen | Show explicit "Sync status delayed" fallback state and trigger listener refresh |
+| R2 | Pending writes appear stuck after reconnect due to unstable network | High | Medium | iOS + QA | MTTS exceeds threshold for same cohort/network condition | Add reconnect stabilization delay and resilient retry observation window | Provide manual "Force Refresh" action and capture diagnostics for affected org |
+| R3 | Conflict behavior causes silent overwrite confusion in action items | High | Medium | Product + iOS | User reports mismatch between expected and final action-item state | Enforce deterministic conflict badge + details sheet + timestamp attribution | Add temporary server-wins policy flag for high-risk fields |
+| R4 | Phase 1 cleanup removes code paths still used by tests/legacy flows | Medium | High | iOS | Failing regression tests tied to removed queue/persistence APIs | Update tests in same PR as cleanup; require green suite before merge | Hotfix adapter shim for one release if legacy call sites remain |
+| R5 | Overstated "real-time" analytics while offline backlog flushes later | Medium | Medium | Product + Data | Dashboard values shift materially after reconnect | Label delayed ingestion metrics and add event-time vs ingest-time views | Communicate SLA language in customer-facing analytics docs |
+
+### Pilot Rollout Checklist (Enterprise Risk-Controlled)
+
+#### Pilot Scope
+- 1-2 organizations
+- 10-30 frontline users across poor-connectivity environments
+- Minimum pilot duration: 2 weeks
+
+#### Entry Criteria
+- Gates 1-4 passed in staging
+- QA matrix complete: airplane mode, app kill/relaunch, long offline window (8+ hours), network flap
+- No open Sev-1 issues
+
+#### Exit Criteria
+- Gate 5 passed
+- Data Loss Incidents = 0
+- Sync Success Rate >= 99.5% for 2 consecutive weeks
+- Duplicate Write Rate <= 0.1%
+- Conflict Visibility Rate = 100%
+
+#### Rollout Decision
+- **Go broad:** all exit criteria met
+- **Hold:** any threshold missed
+- **Rollback:** any Sev-1 integrity incident
+
+### Test Matrix (Minimum)
+
+| Scenario | Expected Result |
+|---|---|
+| Create/edit/delete notes fully offline | UI updates immediately from cache; sync completes on reconnect |
+| App terminated while offline with pending writes | Writes persist and replay after relaunch/reconnect |
+| Network flaps during backlog drain | No duplicate writes; pending state eventually clears |
+| Two users edit same action item during disconnect window | Conflict is surfaced with deterministic badge/details |
+| Reconnect after long shift backlog (30+ writes) | Queue drains without app freeze; MTTS within threshold |
+
+---
+
 ## Timeline Summary
 
 | Phase | Duration | Key Deliverable |
