@@ -75,31 +75,17 @@ Transform ShiftVoice from a voice-first shift notes tool into the **operating sy
 
 ---
 
-### Phase 6: Performance, Polish & Activation
+### Phase 6: Performance, Polish & Activation ✅
 **Priority:** 🟡 Medium | **Effort:** Medium | **Target:** 1 week
 
-**Problems:**
-- `feedNotes` recomputes on every access
-- `allActionItems` scans every note on every render
-- All 3 tabs always in memory (opacity/hitTesting instead of lazy)
-- `notesThisMonth` iterates all notes on every record button tap
-- No guided first-run experience — users who don't record a note in their first session are lost forever (PRD activation metric: <3 min to first structured note)
-
-**Deliverables:**
-1. Cache computed properties, invalidate on data change
-2. Lazy-load tab content (only mount active tab)
-3. Proper loading skeleton states for initial data fetch
-4. Incremental `unacknowledgedCount` updates
-5. Pagination for feed (load 20 notes at a time, infinite scroll)
-6. Search performance optimization with debounced input
-7. **Guided first-run experience** — Walk new users through recording a sample note, seeing the AI structure it, and feeling the "magic moment" within 3 minutes of signup (target: >30% activation rate at 3+ notes in first 7 days)
-
-**Tests:**
-- Feed performance with 100+ notes
-- Tab switching memory profile
-- Computed property caching correctness
-- Pagination boundary conditions
-- First-run flow completion tracking
+**Delivered:**
+- `feedNotes`, `allActionItemsWithDate`, `notesThisMonth`, `unacknowledgedCount` all cached as stored properties — invalidated via `didSet` on `shiftNotes` and `selectedLocationId`
+- Lazy tab mounting — tabs only instantiated when first visited; scroll state preserved on return
+- Client-side pagination — 20 notes per page, infinite scroll trigger on last visible row, auto-refreshes on Firestore updates
+- Search with 300ms debounce — full-text across transcript, summary, author, and action items; bypasses pagination to search all `feedNotes`
+- Skeleton loading rows with shimmer animation while initial Firestore data loads
+- `isInitialLoading` flag cleared on first Firestore snapshot
+- **Guided first-run experience** — 3-step paged modal (Record → AI Structures → Team Sync) shown once on first app open, CTA launches recorder directly; tracked with `@AppStorage`
 
 ---
 
@@ -315,7 +301,7 @@ ShiftHandoff {
 | 3 | Error Handling | ✅ Done | High | Low-Med | — |
 | 4 | Data Sync Integrity | ✅ Done | High | High | — |
 | 5 | Recording Reliability | 🔲 | Medium | Medium | Week 3 |
-| 6 | Performance, Polish & Activation | 🔲 | Medium | Medium | Week 4 |
+| 6 | Performance, Polish & Activation | ✅ Done | Medium | Medium | — |
 | 7 | Shift Handoff Reports | 🔲 | Critical | High | Week 5-7 |
 | 8 | @Mentions & Escalation | 🔲 | Critical | High | Week 7-9 |
 | 9 | Trend Analytics | 🔲 | High | High | Week 9-11 |

@@ -16,13 +16,21 @@ nonisolated enum OperationState: Sendable {
 
 @Observable
 final class AppViewModel {
-    var shiftNotes: [ShiftNote] = []
+    var shiftNotes: [ShiftNote] = [] {
+        didSet { invalidateCaches() }
+    }
     var locations: [Location] = []
     var teamMembers: [TeamMember] = []
     var organization: Organization = Organization(name: "", ownerId: "")
     var recurringIssues: [RecurringIssue] = []
 
-    var selectedLocationId: String = ""
+    var selectedLocationId: String = "" {
+        didSet {
+            guard oldValue != selectedLocationId else { return }
+            invalidateCaches()
+            loadFirstPage(shiftFilter: nil)
+        }
+    }
     var unacknowledgedCount: Int = 0
 
     var operationState: OperationState = .idle
@@ -35,11 +43,36 @@ final class AppViewModel {
     var isOffline: Bool { !networkMonitor.isConnected }
     var pendingOfflineCount: Int { 0 }
 
+    // MARK: - Cached Computed Properties
+    private(set) var feedNotes: [ShiftNote] = []
+    private(set) var allActionItemsWithDate: [(item: ActionItem, noteId: String, authorName: String, locationId: String, createdAt: Date)] = []
+    private(set) var notesThisMonth: Int = 0
+    private(set) var conflictedActionItemsCache: [(item: ActionItem, noteId: String)] = []
+
+    // MARK: - Pagination
     var paginatedNotes: [ShiftNote] = []
     var paginationCursor: String? = nil
     var hasMoreNotes: Bool = false
     var isLoadingPage: Bool = false
     var totalNoteCount: Int = 0
+    private var currentShiftFilter: String? = nil
+    private let pageSize = 20
+
+    // MARK: - Loading State
+    var isInitialLoading: Bool = true
+
+    // MARK: - Search
+    var searchQuery: String = ""
+    var searchResults: [ShiftNote] {
+        guard !searchQuery.isEmpty else { return [] }
+        let q = searchQuery.lowercased()
+        return feedNotes.filter {
+            $0.rawTranscript.lowercased().localizedStandardContains(q) ||
+            $0.summary.lowercased().localizedStandardContains(q) ||
+            $0.authorName.lowercased().localizedStandardContains(q) ||
+            $0.actionItems.contains { $0.task.lowercased().localizedStandardContains(q) }
+        }
+    }
 
     let recording = RecordingViewModel()
     private let firestore = FirestoreService.shared
@@ -100,22 +133,103 @@ final class AppViewModel {
         return ShiftDisplayInfo(from: best)
     }
 
-    var notesThisMonth: Int {
-        let calendar = Calendar.current
-        let now = Date()
-        return shiftNotes.filter {
-            $0.authorId == currentUserId &&
-            calendar.isDate($0.createdAt, equalTo: now, toGranularity: .month)
-        }.count
+    var allActionItems: [(item: ActionItem, noteId: String, authorName: String, locationId: String)] {
+        allActionItemsWithDate.map { (item: $0.item, noteId: $0.noteId, authorName: $0.authorName, locationId: $0.locationId) }
     }
 
-    var feedNotes: [ShiftNote] {
-        shiftNotes
-            .filter { $0.locationId == selectedLocationId }
-            .sorted { $0.createdAt > $1.createdAt }
+    var conflictedActionItems: [(item: ActionItem, noteId: String)] {
+        conflictedActionItemsCache
     }
 
     init() {}
+
+    // MARK: - Cache Invalidation
+
+    private func invalidateCaches() {
+        let newFeedNotes = shiftNotes
+            .filter { $0.locationId == selectedLocationId }
+            .sorted { $0.createdAt > $1.createdAt }
+        feedNotes = newFeedNotes
+
+        allActionItemsWithDate = shiftNotes.flatMap { note in
+            note.actionItems.map { (
+                item: $0,
+                noteId: note.id,
+                authorName: note.authorName,
+                locationId: note.locationId,
+                createdAt: note.createdAt
+            ) }
+        }
+
+        conflictedActionItemsCache = shiftNotes.flatMap { note in
+            note.actionItems.filter { $0.hasConflict }.map { (item: $0, noteId: note.id) }
+        }
+
+        let calendar = Calendar.current
+        let now = Date()
+        let uid = currentUserId
+        notesThisMonth = shiftNotes.filter {
+            $0.authorId == uid &&
+            calendar.isDate($0.createdAt, equalTo: now, toGranularity: .month)
+        }.count
+
+        unacknowledgedCount = newFeedNotes
+            .filter { !$0.acknowledgments.contains(where: { $0.userId == uid }) }
+            .count
+
+        refreshPaginatedNotes()
+    }
+
+    // MARK: - Pagination
+
+    private func filteredSource(for shiftFilter: String?) -> [ShiftNote] {
+        guard let filter = shiftFilter else { return feedNotes }
+        return feedNotes.filter { $0.shiftDisplayInfo.id == filter }
+    }
+
+    private func refreshPaginatedNotes() {
+        let source = filteredSource(for: currentShiftFilter)
+        let preserve = max(paginatedNotes.count, pageSize)
+        paginatedNotes = Array(source.prefix(preserve))
+        hasMoreNotes = source.count > preserve
+        totalNoteCount = source.count
+    }
+
+    func resetPagination() {
+        paginatedNotes = []
+        paginationCursor = nil
+        hasMoreNotes = false
+        totalNoteCount = 0
+        isLoadingPage = false
+    }
+
+    func loadFirstPage(shiftFilter: String? = nil) {
+        currentShiftFilter = shiftFilter
+        isLoadingPage = false
+        let source = filteredSource(for: shiftFilter)
+        paginatedNotes = Array(source.prefix(pageSize))
+        hasMoreNotes = source.count > pageSize
+        totalNoteCount = source.count
+    }
+
+    func loadNextPage(shiftFilter: String? = nil) {
+        guard !isLoadingPage, hasMoreNotes else { return }
+        isLoadingPage = true
+        currentShiftFilter = shiftFilter
+        let source = filteredSource(for: shiftFilter)
+        let nextBatch = Array(source.dropFirst(paginatedNotes.count).prefix(pageSize))
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(200))
+            paginatedNotes.append(contentsOf: nextBatch)
+            hasMoreNotes = paginatedNotes.count < source.count
+            totalNoteCount = source.count
+            isLoadingPage = false
+        }
+    }
+
+    func filteredPaginatedNotes(shiftDisplayFilter: ShiftDisplayInfo?) -> [ShiftNote] {
+        paginatedNotes
+    }
 
     // MARK: - Auth Lifecycle
 
@@ -148,6 +262,7 @@ final class AppViewModel {
         unacknowledgedCount = 0
         lastSyncDate = nil
         syncError = nil
+        isInitialLoading = true
     }
 
     private func loadUserData(_ userId: String) async {
@@ -159,6 +274,7 @@ final class AppViewModel {
             if let orgId { startListeners(orgId: orgId) }
         } catch {
             syncError = "Unable to load data: \(error.localizedDescription)"
+            isInitialLoading = false
         }
     }
 
@@ -176,7 +292,6 @@ final class AppViewModel {
             if self.selectedLocationId.isEmpty, let first = locations.first {
                 self.selectedLocationId = first.id
             }
-            self.updateUnacknowledgedCount()
         }
 
         firestore.startTeamMembersListener(orgId) { [weak self] members in
@@ -187,7 +302,7 @@ final class AppViewModel {
         firestore.startShiftNotesListener(orgId) { [weak self] notes in
             guard let self else { return }
             self.shiftNotes = notes
-            self.updateUnacknowledgedCount()
+            self.isInitialLoading = false
             self.lastSyncDate = Date()
         }
 
@@ -240,7 +355,6 @@ final class AppViewModel {
         var mutableNote = note
         mutableNote.updatedAt = Date()
         shiftNotes.insert(mutableNote, at: 0)
-        updateUnacknowledgedCount()
         publishError = nil
         pendingPublishNote = nil
         recording.discardPendingNote()
@@ -253,7 +367,6 @@ final class AppViewModel {
 
     func deleteNote(_ noteId: String) {
         shiftNotes.removeAll { $0.id == noteId }
-        updateUnacknowledgedCount()
         guard let orgId = organizationId else { return }
         firestore.deleteShiftNote(noteId, orgId: orgId)
     }
@@ -263,7 +376,6 @@ final class AppViewModel {
         let ack = Acknowledgment(userId: currentUserId, userName: currentUserName)
         shiftNotes[index].acknowledgments.append(ack)
         shiftNotes[index].updatedAt = Date()
-        updateUnacknowledgedCount()
         writeShiftNote(shiftNotes[index])
     }
 
@@ -307,12 +419,6 @@ final class AppViewModel {
         writeShiftNote(shiftNotes[noteIdx])
     }
 
-    var conflictedActionItems: [(item: ActionItem, noteId: String)] {
-        shiftNotes.flatMap { note in
-            note.actionItems.filter { $0.hasConflict }.map { (item: $0, noteId: note.id) }
-        }
-    }
-
     // MARK: - Locations
 
     func addLocation(_ location: Location) {
@@ -326,7 +432,6 @@ final class AppViewModel {
         if selectedLocationId == locationId {
             selectedLocationId = locations.first?.id ?? ""
         }
-        updateUnacknowledgedCount()
         guard let orgId = organizationId else { return }
         firestore.deleteLocation(locationId, orgId: orgId)
         Task { try? await firestore.deleteLocationNotes(locationId: locationId, orgId: orgId) }
@@ -363,7 +468,6 @@ final class AppViewModel {
 
     func updateSelectedLocation(_ locationId: String) {
         selectedLocationId = locationId
-        updateUnacknowledgedCount()
         guard let userId = authenticatedUserId else { return }
         firestore.updateUserPreferences(userId: userId, selectedLocationId: locationId)
     }
@@ -439,9 +543,9 @@ final class AppViewModel {
     // MARK: - UI State
 
     func updateUnacknowledgedCount() {
-        unacknowledgedCount = shiftNotes
-            .filter { $0.locationId == selectedLocationId }
-            .filter { !$0.acknowledgments.contains(where: { $0.userId == currentUserId }) }
+        let uid = currentUserId
+        unacknowledgedCount = feedNotes
+            .filter { !$0.acknowledgments.contains(where: { $0.userId == uid }) }
             .count
     }
 
@@ -475,23 +579,6 @@ final class AppViewModel {
         publishReviewedNote(note)
     }
 
-    // MARK: - Pagination
-
-    func resetPagination() {
-        paginatedNotes = []
-        paginationCursor = nil
-        hasMoreNotes = false
-        totalNoteCount = 0
-    }
-
-    func loadFirstPage(shiftFilter: String? = nil) {}
-    func loadNextPage(shiftFilter: String? = nil) {}
-
-    func filteredPaginatedNotes(shiftDisplayFilter: ShiftDisplayInfo?) -> [ShiftNote] {
-        guard let filter = shiftDisplayFilter else { return feedNotes }
-        return feedNotes.filter { $0.shiftDisplayInfo.id == filter.id }
-    }
-
     // MARK: - Push Notifications
 
     var pendingNoteId: String?
@@ -503,34 +590,25 @@ final class AppViewModel {
     // MARK: - Display Helpers
 
     func filteredNotes(shiftFilter: ShiftType?) -> [ShiftNote] {
-        let notes = feedNotes
-        guard let filter = shiftFilter else { return notes }
-        return notes.filter { $0.shiftType == filter }
+        guard let filter = shiftFilter else { return feedNotes }
+        return feedNotes.filter { $0.shiftType == filter }
     }
 
     func filteredNotes(shiftDisplayFilter: ShiftDisplayInfo?) -> [ShiftNote] {
-        let notes = feedNotes
-        guard let filter = shiftDisplayFilter else { return notes }
-        return notes.filter { $0.shiftDisplayInfo.id == filter.id }
+        guard let filter = shiftDisplayFilter else { return feedNotes }
+        return feedNotes.filter { $0.shiftDisplayInfo.id == filter.id }
     }
 
     func locationStats(_ locationId: String) -> (noteCount: Int, unacknowledged: Int, highestUrgency: UrgencyLevel) {
         let notes = notesForLocation(locationId)
-        let unack = notes.filter { !$0.acknowledgments.contains(where: { $0.userId == currentUserId }) }.count
+        let uid = currentUserId
+        let unack = notes.filter { !$0.acknowledgments.contains(where: { $0.userId == uid }) }.count
         let highest = notes.compactMap { $0.highestUrgency }.min(by: { $0.sortOrder < $1.sortOrder }) ?? .fyi
         return (notes.count, unack, highest)
     }
 
-    var allActionItems: [(item: ActionItem, noteId: String, authorName: String, locationId: String)] {
-        shiftNotes.flatMap { note in
-            note.actionItems.map { (item: $0, noteId: note.id, authorName: note.authorName, locationId: note.locationId) }
-        }
-    }
-
-    var allActionItemsWithDate: [(item: ActionItem, noteId: String, authorName: String, locationId: String, createdAt: Date)] {
-        shiftNotes.flatMap { note in
-            note.actionItems.map { (item: $0, noteId: note.id, authorName: note.authorName, locationId: note.locationId, createdAt: note.createdAt) }
-        }
+    func allActionItemsWithDateForDisplay() -> [(item: ActionItem, noteId: String, authorName: String, locationId: String, createdAt: Date)] {
+        allActionItemsWithDate
     }
 
     func locationName(for locationId: String) -> String {
@@ -547,7 +625,7 @@ final class AppViewModel {
         return local.updatedAt >= server.updatedAt ? local : server
     }
 
-    // MARK: - Test Helpers (delegate to TranscriptProcessor)
+    // MARK: - Test Helpers
 
     func testGenerateCategories(from transcript: String) -> [CategorizedItem] {
         TranscriptProcessor.generateCategories(from: transcript)

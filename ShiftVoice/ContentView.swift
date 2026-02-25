@@ -4,26 +4,38 @@ struct ContentView: View {
     let authService: AuthenticationService
     let viewModel: AppViewModel
     @State private var selectedTab: AppTab = .inbox
+    @State private var tabsLoaded: Set<AppTab> = [.inbox]
     @State private var showRecordSheet: Bool = false
     @State private var showPaywall: Bool = false
+    @AppStorage("hasSeenFirstRunGuide") private var hasSeenFirstRunGuide: Bool = false
+    @State private var showFirstRunGuide: Bool = false
     private let subscription = SubscriptionService.shared
 
     var body: some View {
         ZStack(alignment: .bottom) {
             ZStack {
-                ShiftFeedView(viewModel: viewModel)
-                    .opacity(selectedTab == .inbox ? 1 : 0)
-                    .allowsHitTesting(selectedTab == .inbox)
+                if tabsLoaded.contains(.inbox) {
+                    ShiftFeedView(viewModel: viewModel)
+                        .opacity(selectedTab == .inbox ? 1 : 0)
+                        .allowsHitTesting(selectedTab == .inbox)
+                }
 
-                DashboardView(viewModel: viewModel)
-                    .opacity(selectedTab == .actions ? 1 : 0)
-                    .allowsHitTesting(selectedTab == .actions)
+                if tabsLoaded.contains(.actions) {
+                    DashboardView(viewModel: viewModel)
+                        .opacity(selectedTab == .actions ? 1 : 0)
+                        .allowsHitTesting(selectedTab == .actions)
+                }
 
-                SettingsView(viewModel: viewModel, authService: authService)
-                    .opacity(selectedTab == .profile ? 1 : 0)
-                    .allowsHitTesting(selectedTab == .profile)
+                if tabsLoaded.contains(.profile) {
+                    SettingsView(viewModel: viewModel, authService: authService)
+                        .opacity(selectedTab == .profile ? 1 : 0)
+                        .allowsHitTesting(selectedTab == .profile)
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .onChange(of: selectedTab) { _, newTab in
+                tabsLoaded.insert(newTab)
+            }
 
             VStack(spacing: 0) {
                 if viewModel.isOffline {
@@ -42,6 +54,14 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showPaywall) {
             PaywallView()
+        }
+        .sheet(isPresented: $showFirstRunGuide) {
+            FirstRunGuideView(onStartRecording: {
+                showFirstRunGuide = false
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                    showRecordSheet = true
+                }
+            })
         }
         .overlay(alignment: .top) {
             if case .success(let message) = viewModel.operationState {
@@ -75,6 +95,15 @@ struct ContentView: View {
         }
         .animation(.spring(duration: 0.3), value: viewModel.operationState.isVisible)
         .animation(.spring(duration: 0.3), value: viewModel.toastMessage)
+        .onAppear {
+            if !hasSeenFirstRunGuide {
+                Task {
+                    try? await Task.sleep(for: .seconds(1.0))
+                    showFirstRunGuide = true
+                    hasSeenFirstRunGuide = true
+                }
+            }
+        }
     }
 
     private var offlineBanner: some View {
@@ -116,13 +145,9 @@ struct ContentView: View {
             Rectangle().fill(SVTheme.divider).frame(height: 1 / UIScreen.main.scale)
             HStack(spacing: 0) {
                 tabButton(tab: .inbox, icon: "tray.fill", inactiveIcon: "tray", label: "Inbox", badge: viewModel.unacknowledgedCount)
-
                 tabButton(tab: .actions, icon: "bolt.fill", inactiveIcon: "bolt", label: "Actions", badge: 0)
-
                 recordButton
-
                 Spacer().frame(maxWidth: .infinity)
-
                 tabButton(tab: .profile, icon: "person.fill", inactiveIcon: "person", label: "Profile", badge: 0)
             }
             .padding(.horizontal, 8)

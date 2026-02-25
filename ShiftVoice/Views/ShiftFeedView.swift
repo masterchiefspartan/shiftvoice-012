@@ -3,8 +3,10 @@ import SwiftUI
 struct ShiftFeedView: View {
     @Bindable var viewModel: AppViewModel
     @State private var selectedShiftFilter: ShiftDisplayInfo? = nil
-    @State private var selectedNoteId: String? = nil
     @State private var showLocationPicker: Bool = false
+    @State private var searchText: String = ""
+    @State private var isSearchActive: Bool = false
+    @State private var searchDebounceTask: Task<Void, Never>? = nil
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -13,7 +15,11 @@ struct ShiftFeedView: View {
                 VStack(spacing: 24) {
                     locationHeader
                         .padding(.horizontal, 24)
-                    filterBar
+                    searchBar
+                        .padding(.horizontal, 24)
+                    if !isSearchActive {
+                        filterBar
+                    }
                     notesList
                         .padding(.horizontal, 24)
                 }
@@ -56,6 +62,22 @@ struct ShiftFeedView: View {
             }
             .onChange(of: selectedShiftFilter) { _, newValue in
                 viewModel.loadFirstPage(shiftFilter: newValue?.id)
+            }
+            .onChange(of: searchText) { _, newValue in
+                searchDebounceTask?.cancel()
+                let trimmed = newValue.trimmingCharacters(in: .whitespaces)
+                if trimmed.isEmpty {
+                    viewModel.searchQuery = ""
+                    withAnimation(.easeOut(duration: 0.2)) { isSearchActive = false }
+                } else {
+                    withAnimation(.easeOut(duration: 0.2)) { isSearchActive = true }
+                    searchDebounceTask = Task {
+                        try? await Task.sleep(for: .milliseconds(300))
+                        if !Task.isCancelled {
+                            viewModel.searchQuery = trimmed
+                        }
+                    }
+                }
             }
             .refreshable {
                 viewModel.loadFirstPage(shiftFilter: selectedShiftFilter?.id)
@@ -137,6 +159,40 @@ struct ShiftFeedView: View {
         }
     }
 
+    private var searchBar: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "magnifyingglass")
+                .font(.subheadline)
+                .foregroundStyle(searchText.isEmpty ? SVTheme.textTertiary : SVTheme.textSecondary)
+
+            TextField("Search notes, tasks, people…", text: $searchText)
+                .font(.subheadline)
+                .foregroundStyle(SVTheme.textPrimary)
+                .autocorrectionDisabled()
+
+            if !searchText.isEmpty {
+                Button {
+                    searchText = ""
+                    viewModel.searchQuery = ""
+                    withAnimation(.easeOut(duration: 0.2)) { isSearchActive = false }
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.subheadline)
+                        .foregroundStyle(SVTheme.textTertiary)
+                }
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 11)
+        .background(SVTheme.surface)
+        .clipShape(.rect(cornerRadius: 12))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(isSearchActive ? SVTheme.accent.opacity(0.3) : SVTheme.surfaceBorder, lineWidth: 1)
+        )
+        .animation(.easeOut(duration: 0.15), value: isSearchActive)
+    }
+
     private var availableShifts: [ShiftDisplayInfo] {
         let template = IndustrySeed.template(for: viewModel.organizationBusinessType)
         return template.defaultShifts.map { ShiftDisplayInfo(from: $0) }
@@ -163,22 +219,22 @@ struct ShiftFeedView: View {
     }
 
     private var notesList: some View {
-        let notes = viewModel.filteredPaginatedNotes(shiftDisplayFilter: selectedShiftFilter)
+        Group {
+            if isSearchActive {
+                searchResultsList
+            } else if viewModel.isInitialLoading {
+                skeletonList
+            } else {
+                paginatedNotesList
+            }
+        }
+    }
+
+    private var paginatedNotesList: some View {
+        let notes = viewModel.paginatedNotes
         return Group {
-            if notes.isEmpty && !viewModel.isLoadingPage {
-                VStack(spacing: 12) {
-                    Image(systemName: "tray")
-                        .font(.system(size: 36))
-                        .foregroundStyle(SVTheme.textTertiary)
-                    Text("No shift notes yet")
-                        .font(.headline)
-                        .foregroundStyle(SVTheme.textSecondary)
-                    Text("Tap the mic button to record your first shift note")
-                        .font(.subheadline)
-                        .foregroundStyle(SVTheme.textTertiary)
-                        .multilineTextAlignment(.center)
-                }
-                .padding(.top, 60)
+            if notes.isEmpty {
+                emptyState
             } else {
                 LazyVStack(spacing: 0) {
                     ForEach(notes, id: \.id) { note in
@@ -205,12 +261,20 @@ struct ShiftFeedView: View {
                     if viewModel.isLoadingPage {
                         HStack(spacing: 8) {
                             ProgressView()
-                            Text("Loading more...")
+                            Text("Loading more…")
                                 .font(.caption)
                                 .foregroundStyle(SVTheme.textTertiary)
                         }
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 16)
+                    }
+
+                    if !viewModel.hasMoreNotes && viewModel.totalNoteCount > 20 {
+                        Text("All \(viewModel.totalNoteCount) notes loaded")
+                            .font(.caption2)
+                            .foregroundStyle(SVTheme.textTertiary)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 14)
                     }
                 }
                 .background(SVTheme.cardBackground)
@@ -221,6 +285,95 @@ struct ShiftFeedView: View {
                 )
             }
         }
+    }
+
+    private var searchResultsList: some View {
+        let results = viewModel.searchResults
+        return Group {
+            if results.isEmpty && !viewModel.searchQuery.isEmpty {
+                VStack(spacing: 10) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 32))
+                        .foregroundStyle(SVTheme.textTertiary)
+                    Text("No results")
+                        .font(.headline)
+                        .foregroundStyle(SVTheme.textSecondary)
+                    Text("No notes for: \(viewModel.searchQuery)")
+                        .font(.subheadline)
+                        .foregroundStyle(SVTheme.textTertiary)
+                        .multilineTextAlignment(.center)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.top, 48)
+            } else if results.isEmpty {
+                EmptyView()
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("\(results.count) result\(results.count == 1 ? "" : "s")")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(SVTheme.textTertiary)
+
+                    LazyVStack(spacing: 0) {
+                        ForEach(results, id: \.id) { note in
+                            NavigationLink(value: note.id) {
+                                ShiftNoteCardView(
+                                    note: note,
+                                    isAcknowledged: viewModel.isNoteAcknowledged(note)
+                                )
+                            }
+                            .buttonStyle(.plain)
+
+                            if note.id != results.last?.id {
+                                Rectangle()
+                                    .fill(SVTheme.divider)
+                                    .frame(height: 1)
+                            }
+                        }
+                    }
+                    .background(SVTheme.cardBackground)
+                    .clipShape(.rect(cornerRadius: 12))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(SVTheme.surfaceBorder, lineWidth: 1)
+                    )
+                }
+            }
+        }
+    }
+
+    private var skeletonList: some View {
+        VStack(spacing: 0) {
+            ForEach(0..<5, id: \.self) { index in
+                ShiftNoteSkeletonRow()
+                if index < 4 {
+                    Rectangle()
+                        .fill(SVTheme.divider)
+                        .frame(height: 1)
+                }
+            }
+        }
+        .background(SVTheme.cardBackground)
+        .clipShape(.rect(cornerRadius: 12))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(SVTheme.surfaceBorder, lineWidth: 1)
+        )
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "tray")
+                .font(.system(size: 36))
+                .foregroundStyle(SVTheme.textTertiary)
+            Text("No shift notes yet")
+                .font(.headline)
+                .foregroundStyle(SVTheme.textSecondary)
+            Text("Tap the mic button to record your first shift note")
+                .font(.subheadline)
+                .foregroundStyle(SVTheme.textTertiary)
+                .multilineTextAlignment(.center)
+        }
+        .padding(.top, 60)
     }
 
     private func lastSyncLabel(_ date: Date) -> String {
@@ -319,5 +472,49 @@ struct FilterChip: View {
                     .stroke(isSelected ? Color.clear : SVTheme.surfaceBorder, lineWidth: 1)
             )
         }
+    }
+}
+
+struct ShiftNoteSkeletonRow: View {
+    @State private var phase: CGFloat = 0
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            RoundedRectangle(cornerRadius: 6)
+                .fill(shimmerColor)
+                .frame(width: 36, height: 36)
+
+            VStack(alignment: .leading, spacing: 8) {
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(shimmerColor)
+                    .frame(height: 13)
+                    .frame(maxWidth: .infinity)
+
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(shimmerColor)
+                    .frame(height: 11)
+                    .frame(maxWidth: 200)
+
+                HStack(spacing: 6) {
+                    RoundedRectangle(cornerRadius: 3)
+                        .fill(shimmerColor)
+                        .frame(width: 50, height: 9)
+                    RoundedRectangle(cornerRadius: 3)
+                        .fill(shimmerColor)
+                        .frame(width: 70, height: 9)
+                }
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .onAppear {
+            withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) {
+                phase = 1
+            }
+        }
+    }
+
+    private var shimmerColor: Color {
+        Color(.systemFill).opacity(0.6 + 0.4 * phase)
     }
 }
