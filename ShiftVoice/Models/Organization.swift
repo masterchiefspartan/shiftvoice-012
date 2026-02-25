@@ -69,7 +69,7 @@ nonisolated struct Organization: Identifiable, Codable, Sendable {
     let id: String
     let name: String
     let ownerId: String
-    let plan: SubscriptionPlan
+    var plan: SubscriptionPlan
     let industryType: IndustryType
 
     init(id: String = UUID().uuidString, name: String, ownerId: String, plan: SubscriptionPlan = .free, industryType: IndustryType = .restaurant) {

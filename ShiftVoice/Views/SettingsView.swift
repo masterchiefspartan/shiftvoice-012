@@ -6,10 +6,24 @@ struct SettingsView: View {
     private let pushService = PushNotificationService.shared
     private let subscription = SubscriptionService.shared
     @State private var pushEnabled: Bool = false
-    @State private var urgentOnly: Bool = false
-    @State private var quietHoursEnabled: Bool = true
-    @State private var quietStart: Date = Calendar.current.date(from: DateComponents(hour: 23)) ?? Date()
-    @State private var quietEnd: Date = Calendar.current.date(from: DateComponents(hour: 7)) ?? Date()
+    @AppStorage("notif_urgentOnly") private var urgentOnly: Bool = false
+    @AppStorage("notif_quietHoursEnabled") private var quietHoursEnabled: Bool = true
+    @AppStorage("notif_quietStartMinutes") private var quietStartMinutes: Int = 1380
+    @AppStorage("notif_quietEndMinutes") private var quietEndMinutes: Int = 420
+
+    private var quietStartBinding: Binding<Date> {
+        Binding(
+            get: { Calendar.current.date(from: DateComponents(hour: quietStartMinutes / 60, minute: quietStartMinutes % 60)) ?? Date() },
+            set: { quietStartMinutes = Calendar.current.component(.hour, from: $0) * 60 + Calendar.current.component(.minute, from: $0) }
+        )
+    }
+
+    private var quietEndBinding: Binding<Date> {
+        Binding(
+            get: { Calendar.current.date(from: DateComponents(hour: quietEndMinutes / 60, minute: quietEndMinutes % 60)) ?? Date() },
+            set: { quietEndMinutes = Calendar.current.component(.hour, from: $0) * 60 + Calendar.current.component(.minute, from: $0) }
+        )
+    }
     @State private var showTeamSheet: Bool = false
     @State private var showLocationSheet: Bool = false
     @State private var showDeleteConfirmation: Bool = false
@@ -243,9 +257,9 @@ struct SettingsView: View {
                 settingsToggleRow(title: "Quiet Hours", isOn: $quietHoursEnabled)
                 if quietHoursEnabled {
                     Rectangle().fill(SVTheme.divider).frame(height: 1).padding(.leading, 16)
-                    settingsDateRow(title: "Start", selection: $quietStart)
+                    settingsDateRow(title: "Start", selection: quietStartBinding)
                     Rectangle().fill(SVTheme.divider).frame(height: 1).padding(.leading, 16)
-                    settingsDateRow(title: "End", selection: $quietEnd)
+                    settingsDateRow(title: "End", selection: quietEndBinding)
                 }
             }
             .background(SVTheme.cardBackground)

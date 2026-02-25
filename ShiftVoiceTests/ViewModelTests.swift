@@ -181,7 +181,6 @@ struct ViewModelTests {
         let note3 = ShiftNote(authorId: "u2", authorName: "C", authorInitials: "C", locationId: "loc2", shiftType: .mid, rawTranscript: "", summary: "")
 
         vm.shiftNotes = [note1, note2, note3]
-        vm.updateUnacknowledgedCount()
 
         #expect(vm.unacknowledgedCount == 2)
     }

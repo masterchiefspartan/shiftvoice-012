@@ -94,6 +94,14 @@ final class SubscriptionService {
         freeMonthlyNoteLimit
     }
 
+    var correspondingPlan: SubscriptionPlan {
+        switch currentTier {
+        case .free: return .free
+        case .pro: return .professional
+        case .team: return .enterprise
+        }
+    }
+
     private func updateTier(from customerInfo: CustomerInfo) {
         if customerInfo.entitlements[teamEntitlementId]?.isActive == true {
             currentTier = .team

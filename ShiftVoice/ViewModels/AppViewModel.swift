@@ -1,19 +1,5 @@
 import SwiftUI
 
-nonisolated enum OperationState: Sendable {
-    case idle
-    case loading
-    case success(String)
-    case failure(String)
-
-    var isVisible: Bool {
-        switch self {
-        case .idle: return false
-        case .loading, .success, .failure: return true
-        }
-    }
-}
-
 @Observable
 final class AppViewModel {
     var shiftNotes: [ShiftNote] = [] {
@@ -33,7 +19,6 @@ final class AppViewModel {
     }
     var unacknowledgedCount: Int = 0
 
-    var operationState: OperationState = .idle
     var saveError: String?
     var toastMessage: ToastMessage?
     var publishError: String?
@@ -230,10 +215,6 @@ final class AppViewModel {
         }
     }
 
-    func filteredPaginatedNotes(shiftDisplayFilter: ShiftDisplayInfo?) -> [ShiftNote] {
-        paginatedNotes
-    }
-
     // MARK: - Auth Lifecycle
 
     func setAuthenticatedUser(_ userId: String, name: String = "", email: String = "") {
@@ -248,7 +229,10 @@ final class AppViewModel {
         }
 
         pendingActions = persistence.loadPendingActions(for: userId)
-        Task { await loadUserData(userId) }
+        Task {
+            await loadUserData(userId)
+            await syncSubscriptionPlan()
+        }
     }
 
     func clearAuthenticatedUser() {
@@ -589,17 +573,6 @@ final class AppViewModel {
 
     // MARK: - UI State
 
-    func updateUnacknowledgedCount() {
-        let uid = currentUserId
-        unacknowledgedCount = feedNotes
-            .filter { !$0.acknowledgments.contains(where: { $0.userId == uid }) }
-            .count
-    }
-
-    func dismissOperationState() {
-        operationState = .idle
-    }
-
     func showToast(_ message: String, isError: Bool = false) {
         toastMessage = ToastMessage(text: message, isError: isError)
     }
@@ -624,6 +597,21 @@ final class AppViewModel {
 
     func forceSync() {
         showToast("Data syncs automatically via Firestore", isError: false)
+    }
+
+    func syncSubscriptionPlan() async {
+        let subscription = SubscriptionService.shared
+        await subscription.refreshStatus()
+        let newPlan = subscription.correspondingPlan
+        guard organization.plan != newPlan, !organization.name.isEmpty else { return }
+        organization = Organization(
+            id: organization.id,
+            name: organization.name,
+            ownerId: organization.ownerId,
+            plan: newPlan,
+            industryType: organization.industryType
+        )
+        writeOrganization(organization)
     }
 
     func deltaSyncFromBackend() {}

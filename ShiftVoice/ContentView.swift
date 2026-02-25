@@ -80,25 +80,7 @@ struct ContentView: View {
             })
         }
         .overlay(alignment: .top) {
-            if case .success(let message) = viewModel.operationState {
-                operationToast(message: message, isError: false)
-                    .transition(.move(edge: .top).combined(with: .opacity))
-                    .onAppear {
-                        Task {
-                            try? await Task.sleep(for: .seconds(2))
-                            withAnimation { viewModel.dismissOperationState() }
-                        }
-                    }
-            } else if case .failure(let message) = viewModel.operationState {
-                operationToast(message: message, isError: true)
-                    .transition(.move(edge: .top).combined(with: .opacity))
-                    .onAppear {
-                        Task {
-                            try? await Task.sleep(for: .seconds(3))
-                            withAnimation { viewModel.dismissOperationState() }
-                        }
-                    }
-            } else if let toast = viewModel.toastMessage {
+            if let toast = viewModel.toastMessage {
                 operationToast(message: toast.text, isError: toast.isError)
                     .transition(.move(edge: .top).combined(with: .opacity))
                     .onAppear {
@@ -109,7 +91,6 @@ struct ContentView: View {
                     }
             }
         }
-        .animation(.spring(duration: 0.3), value: viewModel.operationState.isVisible)
         .animation(.spring(duration: 0.3), value: viewModel.toastMessage)
         .onAppear {
             if !hasSeenFirstRunGuide {

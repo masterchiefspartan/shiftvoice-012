@@ -120,36 +120,6 @@ struct ErrorHandlingTests {
         #expect(vm.syncError == "Network timeout")
     }
 
-    // MARK: - OperationState Tests
-
-    @Test func operationStateIdle() {
-        let state = OperationState.idle
-        #expect(!state.isVisible)
-    }
-
-    @Test func operationStateLoading() {
-        let state = OperationState.loading
-        #expect(state.isVisible)
-    }
-
-    @Test func operationStateSuccess() {
-        let state = OperationState.success("Done")
-        #expect(state.isVisible)
-    }
-
-    @Test func operationStateFailure() {
-        let state = OperationState.failure("Error")
-        #expect(state.isVisible)
-    }
-
-    @Test func dismissOperationState() {
-        let vm = AppViewModel()
-        vm.operationState = .success("Test")
-        #expect(vm.operationState.isVisible)
-        vm.dismissOperationState()
-        #expect(!vm.operationState.isVisible)
-    }
-
     // MARK: - PendingAction Tests
 
     @Test func pendingActionCreation() {

@@ -1,4 +1,5 @@
 import SwiftUI
+import AVFoundation
 
 struct ShiftNoteDetailView: View {
     let noteId: String
@@ -10,6 +11,8 @@ struct ShiftNoteDetailView: View {
     @State private var showTranscript: Bool = false
     @State private var showAssignSheet: Bool = false
     @State private var assigningActionId: String?
+    @State private var audioPlayer: AVAudioPlayer?
+    @State private var progressTimer: Timer?
 
     private var note: ShiftNote? {
         viewModel.shiftNotes.first { $0.id == noteId }
@@ -90,6 +93,9 @@ struct ShiftNoteDetailView: View {
             .padding(.bottom, 32)
         }
         .background(SVTheme.background)
+        .onDisappear {
+            stopAudioPlayback()
+        }
     }
 
     private func headerSection(_ note: ShiftNote) -> some View {
@@ -146,9 +152,10 @@ struct ShiftNoteDetailView: View {
         VStack(spacing: 14) {
             HStack(spacing: 14) {
                 Button {
-                    isPlayingAudio.toggle()
                     if isPlayingAudio {
-                        simulatePlayback()
+                        pauseAudioPlayback()
+                    } else {
+                        startAudioPlayback(note)
                     }
                 } label: {
                     Image(systemName: isPlayingAudio ? "pause.fill" : "play.fill")
@@ -450,15 +457,75 @@ struct ShiftNoteDetailView: View {
         return String(format: "%d:%02d", m, s)
     }
 
-    private func simulatePlayback() {
-        audioProgress = 0
-        Task {
-            for i in 1...50 {
-                try? await Task.sleep(for: .milliseconds(100))
-                guard isPlayingAudio else { return }
-                audioProgress = Double(i) / 50.0
+    private func resolveAudioURL(for note: ShiftNote) -> URL? {
+        guard let audioFilename = note.audioUrl else { return nil }
+        if audioFilename.hasPrefix("http://") || audioFilename.hasPrefix("https://") {
+            return URL(string: audioFilename)
+        }
+        let recordingDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("ShiftVoiceRecordings", isDirectory: true)
+        return recordingDir.appendingPathComponent(audioFilename)
+    }
+
+    private func startAudioPlayback(_ note: ShiftNote) {
+        if let player = audioPlayer {
+            player.play()
+            isPlayingAudio = true
+            startProgressTimer(duration: player.duration)
+            return
+        }
+
+        guard let url = resolveAudioURL(for: note),
+              FileManager.default.fileExists(atPath: url.path) else { return }
+
+        do {
+            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
+            try AVAudioSession.sharedInstance().setActive(true)
+            let player = try AVAudioPlayer(contentsOf: url)
+            player.prepareToPlay()
+            player.play()
+            audioPlayer = player
+            isPlayingAudio = true
+            audioProgress = 0
+            startProgressTimer(duration: player.duration)
+        } catch {}
+    }
+
+    private func pauseAudioPlayback() {
+        audioPlayer?.pause()
+        isPlayingAudio = false
+        progressTimer?.invalidate()
+        progressTimer = nil
+    }
+
+    private func stopAudioPlayback() {
+        progressTimer?.invalidate()
+        progressTimer = nil
+        audioPlayer?.stop()
+        audioPlayer = nil
+        isPlayingAudio = false
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    }
+
+    private func startProgressTimer(duration: TimeInterval) {
+        progressTimer?.invalidate()
+        progressTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
+            Task { @MainActor in
+                guard let player = audioPlayer else {
+                    progressTimer?.invalidate()
+                    progressTimer = nil
+                    return
+                }
+                if player.isPlaying {
+                    audioProgress = player.currentTime / max(player.duration, 1)
+                } else if player.currentTime >= player.duration - 0.15 {
+                    audioProgress = 1.0
+                    isPlayingAudio = false
+                    progressTimer?.invalidate()
+                    progressTimer = nil
+                    audioPlayer = nil
+                }
             }
-            isPlayingAudio = false
         }
     }
 }
