@@ -51,7 +51,9 @@ struct SettingsView: View {
                     teamSection
                     subscriptionSection
                     aboutSection
+                    #if DEBUG
                     debugSection
+                    #endif
                     signOutSection
                 }
                 .padding(.horizontal, 24)
@@ -589,6 +591,7 @@ struct SettingsView: View {
         }
     }
 
+    #if DEBUG
     private var debugSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("DEBUG")
@@ -640,6 +643,7 @@ struct SettingsView: View {
             )
         }
     }
+    #endif
 
     private var signOutSection: some View {
         VStack(spacing: 12) {

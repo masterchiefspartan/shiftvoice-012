@@ -1,6 +1,7 @@
 import { initTRPC, TRPCError } from "@trpc/server";
 import { FetchCreateContextFnOptions } from "@trpc/server/adapters/fetch";
 import superjson from "superjson";
+import { storage } from "../storage";
 
 export const createContext = async (opts: FetchCreateContextFnOptions) => {
   const authHeader = opts.req.headers.get("authorization");
@@ -28,6 +29,13 @@ export const protectedProcedure = t.procedure.use(async ({ ctx, next }) => {
     throw new TRPCError({
       code: "UNAUTHORIZED",
       message: "Authentication required",
+    });
+  }
+  const validUserId = storage.validateSession(ctx.token);
+  if (!validUserId || validUserId !== ctx.userId) {
+    throw new TRPCError({
+      code: "UNAUTHORIZED",
+      message: "Invalid or expired session",
     });
   }
   return next({ ctx: { ...ctx, userId: ctx.userId, token: ctx.token } });

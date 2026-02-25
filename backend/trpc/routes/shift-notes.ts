@@ -3,9 +3,32 @@ import * as z from "zod";
 import { createTRPCRouter, protectedProcedure } from "../create-context";
 import { storage } from "../../storage";
 
+const shiftNoteSchema = z.object({
+  id: z.string().min(1),
+  authorId: z.string().optional(),
+  authorName: z.string().optional(),
+  authorInitials: z.string().optional(),
+  locationId: z.string().optional(),
+  shiftType: z.string().optional(),
+  shiftTemplateId: z.string().nullable().optional(),
+  rawTranscript: z.string().optional(),
+  audioUrl: z.string().nullable().optional(),
+  audioDuration: z.number().min(0).optional(),
+  summary: z.string().optional(),
+  categorizedItems: z.array(z.any()).optional(),
+  actionItems: z.array(z.any()).optional(),
+  photoUrls: z.array(z.string()).optional(),
+  acknowledgments: z.array(z.any()).optional(),
+  voiceReplies: z.array(z.any()).optional(),
+  createdAt: z.string().optional(),
+  isSynced: z.boolean().optional(),
+});
+
+const shiftNoteUpdateSchema = shiftNoteSchema.partial().omit({ id: true });
+
 export const shiftNotesRouter = createTRPCRouter({
   create: protectedProcedure
-    .input(z.object({ note: z.any() }))
+    .input(z.object({ note: shiftNoteSchema }))
     .mutation(({ ctx, input }) => {
       const data = storage.getUserData(ctx.userId);
       if (!data) {
@@ -17,7 +40,7 @@ export const shiftNotesRouter = createTRPCRouter({
     }),
 
   update: protectedProcedure
-    .input(z.object({ noteId: z.string(), updates: z.any() }))
+    .input(z.object({ noteId: z.string(), updates: shiftNoteUpdateSchema }))
     .mutation(({ ctx, input }) => {
       const data = storage.getUserData(ctx.userId);
       if (!data) {

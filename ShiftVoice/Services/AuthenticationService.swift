@@ -55,6 +55,8 @@ final class AuthenticationService {
     private var backendAuthRetryCount: Int = 0
     private let maxBackendAuthRetries: Int = 3
     private var isGoogleConfigured: Bool = false
+    private(set) var backendAuthFailed: Bool = false
+    private var isRetryingBackendAuth: Bool = false
 
     init() {
         configureGoogleSignIn()
@@ -409,9 +411,39 @@ final class AuthenticationService {
                     )
                 }, userId: uid)
             } catch {
-                // Silent failure — user is still authenticated via Firebase
+                self.backendAuthFailed = true
             }
         }
+    }
+
+    func retryBackendAuthIfNeeded() async -> Bool {
+        guard backendAuthFailed || backendToken == nil else { return true }
+        guard !isRetryingBackendAuth else { return false }
+        guard let user = Auth.auth().currentUser else { return false }
+        guard APIService.shared.isConfigured else { return false }
+
+        isRetryingBackendAuth = true
+        defer { isRetryingBackendAuth = false }
+
+        do {
+            let idToken = try await user.getIDToken()
+            let response = try await APIService.shared.firebaseAuth(
+                idToken: idToken,
+                uid: user.uid,
+                name: user.displayName ?? "",
+                email: user.email ?? ""
+            )
+            if response.success, let token = response.token {
+                backendToken = token
+                backendAuthFailed = false
+                _ = KeychainService.saveBackendToken(token)
+                APIService.shared.setAuth(token: token, userId: response.userId ?? user.uid)
+                return true
+            }
+        } catch {
+            backendAuthFailed = true
+        }
+        return false
     }
 
     private func performBackendAuth(_ authCall: () async throws -> AuthResponse, userId: String) async {
@@ -420,6 +452,7 @@ final class AuthenticationService {
                 let response = try await authCall()
                 if response.success, let token = response.token {
                     backendToken = token
+                    backendAuthFailed = false
                     _ = KeychainService.saveBackendToken(token)
                     APIService.shared.setAuth(token: token, userId: response.userId ?? userId)
                     return
