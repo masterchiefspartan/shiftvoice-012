@@ -49,6 +49,22 @@ nonisolated enum KeychainService: Sendable {
         return savePassword(newPassword, for: email)
     }
 
+    // MARK: - Backend Token
+
+    private static let backendTokenKey = "sv_backend_token"
+
+    static func saveBackendToken(_ token: String) -> Bool {
+        saveSecureValue(token, forKey: backendTokenKey)
+    }
+
+    static func loadBackendToken() -> String? {
+        loadSecureValue(forKey: backendTokenKey)
+    }
+
+    static func clearBackendToken() {
+        deleteSecureValue(forKey: backendTokenKey)
+    }
+
     // MARK: - Session Token
 
     static func saveSessionToken(_ token: String, userId: String, expiry: Date) -> Bool {

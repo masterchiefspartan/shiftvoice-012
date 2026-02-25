@@ -336,7 +336,7 @@ final class AuthenticationService {
         isSignedIn = false
         authMethod = nil
         UserDefaults.standard.removeObject(forKey: "sv_auth_method")
-        UserDefaults.standard.removeObject(forKey: "sv_backend_token")
+        KeychainService.clearBackendToken()
     }
 
     func deleteAccount() {
@@ -358,7 +358,7 @@ final class AuthenticationService {
             self.isSignedIn = false
             self.authMethod = nil
             UserDefaults.standard.removeObject(forKey: "sv_auth_method")
-            UserDefaults.standard.removeObject(forKey: "sv_backend_token")
+            KeychainService.clearBackendToken()
             FirestoreService.shared.deleteUserData(userId)
         }
     }
@@ -420,7 +420,7 @@ final class AuthenticationService {
                 let response = try await authCall()
                 if response.success, let token = response.token {
                     backendToken = token
-                    UserDefaults.standard.set(token, forKey: "sv_backend_token")
+                    _ = KeychainService.saveBackendToken(token)
                     APIService.shared.setAuth(token: token, userId: response.userId ?? userId)
                     return
                 } else if let serverError = response.error {
@@ -446,7 +446,7 @@ final class AuthenticationService {
     }
 
     func restoreBackendToken() {
-        guard let token = UserDefaults.standard.string(forKey: "sv_backend_token"), !token.isEmpty else { return }
+        guard let token = KeychainService.loadBackendToken(), !token.isEmpty else { return }
         backendToken = token
         guard let userId = currentUserId, !userId.isEmpty else { return }
         APIService.shared.setAuth(token: token, userId: userId)
