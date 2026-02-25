@@ -18,6 +18,8 @@ struct NoteReviewView: View {
     @State private var showDiscardAlert: Bool = false
     @State private var showAssignSheet: Bool = false
     @State private var assigningActionId: String?
+    @State private var publishValidationError: String?
+    @State private var isPublishing: Bool = false
     @State private var structuringWarning: String?
     @State private var transcriptionFailed: Bool
     @State private var transcriptionFailureMessage: String?
@@ -456,17 +458,24 @@ struct NoteReviewView: View {
                 publishNote()
             } label: {
                 HStack(spacing: 8) {
-                    Image(systemName: "paperplane.fill")
-                        .font(.subheadline)
+                    if isPublishing {
+                        ProgressView()
+                            .tint(.white)
+                            .scaleEffect(0.8)
+                    } else {
+                        Image(systemName: "paperplane.fill")
+                            .font(.subheadline)
+                    }
                     Text("Send to Team")
                         .font(.subheadline.weight(.semibold))
                 }
                 .foregroundStyle(.white)
                 .frame(maxWidth: .infinity)
                 .frame(height: 48)
-                .background(SVTheme.accent)
+                .background(isPublishing ? SVTheme.accent.opacity(0.6) : SVTheme.accent)
                 .clipShape(.rect(cornerRadius: 10))
             }
+            .disabled(isPublishing)
             .sensoryFeedback(.success, trigger: false)
         }
         .padding(.horizontal, 20)
@@ -475,11 +484,49 @@ struct NoteReviewView: View {
             SVTheme.surface
                 .shadow(color: .black.opacity(0.06), radius: 12, y: -4)
         )
+        .overlay(alignment: .top) {
+            if let error = publishValidationError {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                    Text(error)
+                        .font(.caption.weight(.medium))
+                }
+                .foregroundStyle(SVTheme.urgentRed)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(SVTheme.urgentRed.opacity(0.08))
+                .clipShape(.rect(cornerRadius: 8))
+                .offset(y: -44)
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
+            }
+        }
+        .animation(.easeOut(duration: 0.2), value: publishValidationError)
     }
 
     private func publishNote() {
+        publishValidationError = nil
+
+        let validation = InputValidator.validateShiftNote(
+            summary: summary,
+            rawTranscript: rawTranscript,
+            locationId: viewModel.selectedLocationId,
+            authorId: viewModel.currentUserId
+        )
+
+        guard validation.isValid else {
+            let firstError = validation.errors.values.first ?? "Please fix errors before publishing"
+            publishValidationError = firstError
+            return
+        }
+
+        let sanitizedSummary = InputValidator.sanitizeString(summary)
+        let sanitizedTranscript = InputValidator.sanitizeString(rawTranscript)
+
         let categorizedItems = editableCategorizedItems.map { $0.toCategorizedItem() }
         let actionItems = editableActionItems.map { $0.toActionItem() }
+
+        isPublishing = true
 
         let note = ShiftNote(
             authorId: viewModel.currentUserId,
@@ -488,10 +535,10 @@ struct NoteReviewView: View {
             locationId: viewModel.selectedLocationId,
             shiftType: viewModel.currentShiftType,
             shiftTemplateId: shiftInfo.id,
-            rawTranscript: rawTranscript,
+            rawTranscript: sanitizedTranscript,
             audioUrl: audioUrl,
             audioDuration: audioDuration,
-            summary: summary,
+            summary: sanitizedSummary,
             categorizedItems: categorizedItems,
             actionItems: actionItems
         )
@@ -732,6 +779,7 @@ struct AddActionItemSheet: View {
     @State private var task: String = ""
     @State private var category: NoteCategory = .general
     @State private var urgency: UrgencyLevel = .nextShift
+    @State private var taskError: String?
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -748,6 +796,22 @@ struct AddActionItemSheet: View {
                         .padding(12)
                         .background(SVTheme.surfaceSecondary)
                         .clipShape(.rect(cornerRadius: 10))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10)
+                                .stroke(taskError != nil ? SVTheme.urgentRed.opacity(0.6) : Color.clear, lineWidth: 1.5)
+                        )
+                        .onChange(of: task) { _, _ in taskError = nil }
+
+                    if let error = taskError {
+                        HStack(spacing: 4) {
+                            Image(systemName: "exclamationmark.circle.fill")
+                                .font(.system(size: 10))
+                            Text(error)
+                                .font(.caption)
+                        }
+                        .foregroundStyle(SVTheme.urgentRed)
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                    }
                 }
 
                 VStack(alignment: .leading, spacing: 8) {
@@ -813,8 +877,12 @@ struct AddActionItemSheet: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Add") {
-                        guard !task.trimmingCharacters(in: .whitespaces).isEmpty else { return }
-                        onAdd(task, category, urgency)
+                        taskError = nil
+                        if let error = InputValidator.validateActionItemTask(task) {
+                            taskError = error
+                            return
+                        }
+                        onAdd(InputValidator.sanitizeString(task, maxLength: 500), category, urgency)
                     }
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(task.trimmingCharacters(in: .whitespaces).isEmpty ? SVTheme.textTertiary : SVTheme.accent)
