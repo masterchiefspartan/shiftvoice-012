@@ -1,11 +1,8 @@
 import SwiftUI
 
 struct ShiftNoteDetailView: View {
-    let note: ShiftNote
-    let isAcknowledged: Bool
-    let teamMembers: [TeamMember]
-    let onAcknowledge: () -> Void
-    let onAssignAction: (String, String?) -> Void
+    let noteId: String
+    let viewModel: AppViewModel
 
     @Environment(\.dismiss) private var dismiss
     @State private var isPlayingAudio: Bool = false
@@ -14,32 +11,32 @@ struct ShiftNoteDetailView: View {
     @State private var showAssignSheet: Bool = false
     @State private var assigningActionId: String?
 
+    private var note: ShiftNote? {
+        viewModel.shiftNotes.first { $0.id == noteId }
+    }
+
+    private var isAcknowledged: Bool {
+        guard let note else { return false }
+        return viewModel.isNoteAcknowledged(note)
+    }
+
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                headerSection
-                summarySection
-                if note.audioDuration > 0 {
-                    audioPlayerSection
+        Group {
+            if let note {
+                noteContent(note)
+            } else {
+                VStack(spacing: 12) {
+                    Image(systemName: "doc.questionmark")
+                        .font(.system(size: 36))
+                        .foregroundStyle(SVTheme.textTertiary)
+                    Text("Note not found")
+                        .font(.headline)
+                        .foregroundStyle(SVTheme.textSecondary)
                 }
-                categorizedItemsSection
-                if !note.actionItems.isEmpty {
-                    actionItemsSection
-                }
-                if !note.acknowledgments.isEmpty {
-                    acknowledgmentsSection
-                }
-                if !note.voiceReplies.isEmpty {
-                    repliesSection
-                }
-                if !isAcknowledged {
-                    acknowledgeButton
-                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(SVTheme.background)
             }
-            .padding(24)
-            .padding(.bottom, 32)
         }
-        .background(SVTheme.background)
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -52,12 +49,12 @@ struct ShiftNoteDetailView: View {
         .toolbarBackground(SVTheme.surface, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .sheet(isPresented: $showAssignSheet) {
-            if let actionId = assigningActionId {
+            if let actionId = assigningActionId, let note {
                 AssigneePickerView(
-                    teamMembers: teamMembers,
+                    teamMembers: viewModel.teamMembers,
                     currentAssignee: note.actionItems.first(where: { $0.id == actionId })?.assignee
                 ) { selectedName in
-                    onAssignAction(actionId, selectedName)
+                    viewModel.updateActionItemAssignee(noteId: noteId, actionItemId: actionId, assignee: selectedName)
                     showAssignSheet = false
                     assigningActionId = nil
                 }
@@ -67,7 +64,35 @@ struct ShiftNoteDetailView: View {
         }
     }
 
-    private var headerSection: some View {
+    private func noteContent(_ note: ShiftNote) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                headerSection(note)
+                summarySection(note)
+                if note.audioDuration > 0 {
+                    audioPlayerSection(note)
+                }
+                categorizedItemsSection(note)
+                if !note.actionItems.isEmpty {
+                    actionItemsSection(note)
+                }
+                if !note.acknowledgments.isEmpty {
+                    acknowledgmentsSection(note)
+                }
+                if !note.voiceReplies.isEmpty {
+                    repliesSection(note)
+                }
+                if !isAcknowledged {
+                    acknowledgeButton
+                }
+            }
+            .padding(24)
+            .padding(.bottom, 32)
+        }
+        .background(SVTheme.background)
+    }
+
+    private func headerSection(_ note: ShiftNote) -> some View {
         HStack(spacing: 14) {
             Text(note.authorInitials)
                 .font(.subheadline.weight(.bold))
@@ -94,7 +119,7 @@ struct ShiftNoteDetailView: View {
         }
     }
 
-    private var summarySection: some View {
+    private func summarySection(_ note: ShiftNote) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("SUMMARY")
                 .font(.caption.weight(.semibold))
@@ -117,7 +142,7 @@ struct ShiftNoteDetailView: View {
         )
     }
 
-    private var audioPlayerSection: some View {
+    private func audioPlayerSection(_ note: ShiftNote) -> some View {
         VStack(spacing: 14) {
             HStack(spacing: 14) {
                 Button {
@@ -192,7 +217,7 @@ struct ShiftNoteDetailView: View {
         )
     }
 
-    private var categorizedItemsSection: some View {
+    private func categorizedItemsSection(_ note: ShiftNote) -> some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("CATEGORIZED ITEMS")
                 .font(.caption.weight(.semibold))
@@ -246,7 +271,7 @@ struct ShiftNoteDetailView: View {
         }
     }
 
-    private var actionItemsSection: some View {
+    private func actionItemsSection(_ note: ShiftNote) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Text("ACTION ITEMS")
@@ -280,6 +305,7 @@ struct ShiftNoteDetailView: View {
                                     assigningActionId = item.id
                                     showAssignSheet = true
                                 } label: {
+
                                     HStack(spacing: 4) {
                                         Image(systemName: item.assignee != nil ? "person.fill" : "person.badge.plus")
                                             .font(.system(size: 10))
@@ -315,7 +341,7 @@ struct ShiftNoteDetailView: View {
         }
     }
 
-    private var acknowledgmentsSection: some View {
+    private func acknowledgmentsSection(_ note: ShiftNote) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("ACKNOWLEDGED BY")
                 .font(.caption.weight(.semibold))
@@ -356,7 +382,7 @@ struct ShiftNoteDetailView: View {
         }
     }
 
-    private var repliesSection: some View {
+    private func repliesSection(_ note: ShiftNote) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("REPLIES")
                 .font(.caption.weight(.semibold))
@@ -401,7 +427,7 @@ struct ShiftNoteDetailView: View {
 
     private var acknowledgeButton: some View {
         Button {
-            onAcknowledge()
+            viewModel.acknowledgeNote(noteId)
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: "checkmark")

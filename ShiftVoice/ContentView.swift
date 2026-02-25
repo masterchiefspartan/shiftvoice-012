@@ -6,22 +6,24 @@ struct ContentView: View {
     @State private var selectedTab: AppTab = .inbox
     @State private var tabsLoaded: Set<AppTab> = [.inbox]
     @State private var showRecordSheet: Bool = false
-    @State private var showPaywall: Bool = false
+
     @AppStorage("hasSeenFirstRunGuide") private var hasSeenFirstRunGuide: Bool = false
     @State private var showFirstRunGuide: Bool = false
+    @State private var inboxNavPath: NavigationPath = NavigationPath()
+    @State private var actionsNavPath: NavigationPath = NavigationPath()
     private let subscription = SubscriptionService.shared
 
     var body: some View {
         ZStack(alignment: .bottom) {
             ZStack {
                 if tabsLoaded.contains(.inbox) {
-                    ShiftFeedView(viewModel: viewModel)
+                    ShiftFeedView(viewModel: viewModel, navPath: $inboxNavPath)
                         .opacity(selectedTab == .inbox ? 1 : 0)
                         .allowsHitTesting(selectedTab == .inbox)
                 }
 
                 if tabsLoaded.contains(.actions) {
-                    DashboardView(viewModel: viewModel)
+                    DashboardView(viewModel: viewModel, navPath: $actionsNavPath)
                         .opacity(selectedTab == .actions ? 1 : 0)
                         .allowsHitTesting(selectedTab == .actions)
                 }
@@ -52,13 +54,27 @@ struct ContentView: View {
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
         }
-        .sheet(isPresented: $showPaywall) {
+        .sheet(isPresented: Binding(
+            get: { viewModel.showPaywall },
+            set: { viewModel.showPaywall = $0 }
+        )) {
             PaywallView()
+        }
+        .onChange(of: viewModel.pendingNoteId) { _, noteId in
+            guard let noteId else { return }
+            inboxNavPath = NavigationPath()
+            selectedTab = .inbox
+            Task {
+                try? await Task.sleep(for: .milliseconds(300))
+                inboxNavPath.append(noteId)
+                viewModel.pendingNoteId = nil
+            }
         }
         .sheet(isPresented: $showFirstRunGuide) {
             FirstRunGuideView(onStartRecording: {
                 showFirstRunGuide = false
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                Task {
+                    try? await Task.sleep(for: .milliseconds(400))
                     showRecordSheet = true
                 }
             })

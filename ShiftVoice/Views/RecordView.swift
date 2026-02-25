@@ -7,7 +7,7 @@ struct RecordView: View {
     @State private var pulseScale: CGFloat = 1.0
     @State private var permissionGranted: Bool = true
     @State private var showPermissionAlert: Bool = false
-    @State private var showPaywall: Bool = false
+
     @State private var showReview: Bool = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dismiss) private var dismiss
@@ -20,39 +20,7 @@ struct RecordView: View {
     }
 
     var body: some View {
-        Group {
-            if showReview, let reviewData = recording.pendingReviewData {
-                NoteReviewView(
-                    viewModel: viewModel,
-                    rawTranscript: reviewData.rawTranscript,
-                    audioDuration: reviewData.audioDuration,
-                    audioUrl: reviewData.audioUrl,
-                    shiftInfo: reviewData.shiftInfo,
-                    summary: reviewData.summary,
-                    categorizedItems: reviewData.categorizedItems,
-                    actionItems: reviewData.actionItems,
-                    structuringWarning: reviewData.structuringWarning,
-                    transcriptionFailed: reviewData.transcriptionFailed,
-                    transcriptionFailureMessage: reviewData.transcriptionFailureMessage,
-                    onDiscard: {
-                        recording.discardPendingNote()
-                        dismiss()
-                    },
-                    onPublish: { note in
-                        viewModel.publishReviewedNote(note)
-                        showReview = false
-                        showSuccess = true
-                        Task {
-                            try? await Task.sleep(for: .seconds(1.5))
-                            showSuccess = false
-                            dismiss()
-                        }
-                    }
-                )
-            } else {
-                recordingFlow
-            }
-        }
+        recordingFlow
     }
 
     private var recordingFlow: some View {
@@ -79,6 +47,38 @@ struct RecordView: View {
             }
             .toolbarBackground(SVTheme.surface, for: .navigationBar)
             .toolbarBackground(.visible, for: .navigationBar)
+            .navigationDestination(isPresented: $showReview) {
+                if let reviewData = recording.pendingReviewData {
+                    NoteReviewView(
+                        viewModel: viewModel,
+                        rawTranscript: reviewData.rawTranscript,
+                        audioDuration: reviewData.audioDuration,
+                        audioUrl: reviewData.audioUrl,
+                        shiftInfo: reviewData.shiftInfo,
+                        summary: reviewData.summary,
+                        categorizedItems: reviewData.categorizedItems,
+                        actionItems: reviewData.actionItems,
+                        structuringWarning: reviewData.structuringWarning,
+                        transcriptionFailed: reviewData.transcriptionFailed,
+                        transcriptionFailureMessage: reviewData.transcriptionFailureMessage,
+                        onDiscard: {
+                            showReview = false
+                            recording.discardPendingNote()
+                            dismiss()
+                        },
+                        onPublish: { note in
+                            viewModel.publishReviewedNote(note)
+                            showReview = false
+                            showSuccess = true
+                            Task {
+                                try? await Task.sleep(for: .seconds(1.5))
+                                showSuccess = false
+                                dismiss()
+                            }
+                        }
+                    )
+                }
+            }
             .alert("Permissions Required", isPresented: $showPermissionAlert) {
                 Button("Open Settings") {
                     if let url = URL(string: UIApplication.openSettingsURLString) {
@@ -89,9 +89,7 @@ struct RecordView: View {
             } message: {
                 Text("ShiftVoice needs microphone and speech recognition access to record and transcribe your shift notes. Please enable them in Settings.")
             }
-            .sheet(isPresented: $showPaywall) {
-                PaywallView()
-            }
+
             .task {
                 let granted = await recording.requestRecordingPermissions()
                 permissionGranted = granted
@@ -424,7 +422,7 @@ struct RecordView: View {
         }
         let thisMonthCount = viewModel.notesThisMonth
         if !subscription.canRecordNote(currentMonthNoteCount: thisMonthCount) {
-            showPaywall = true
+            viewModel.showPaywall = true
             return
         }
         recording.startRecording()

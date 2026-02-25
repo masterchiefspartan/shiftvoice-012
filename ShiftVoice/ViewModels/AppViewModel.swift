@@ -38,6 +38,7 @@ final class AppViewModel {
     var toastMessage: ToastMessage?
     var publishError: String?
     var pendingPublishNote: ShiftNote?
+    var showPaywall: Bool = false
 
     let networkMonitor = NetworkMonitor.shared
     var isOffline: Bool { !networkMonitor.isConnected }

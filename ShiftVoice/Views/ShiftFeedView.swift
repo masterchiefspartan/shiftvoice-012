@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ShiftFeedView: View {
     @Bindable var viewModel: AppViewModel
+    @Binding var navPath: NavigationPath
     @State private var selectedShiftFilter: ShiftDisplayInfo? = nil
     @State private var showLocationPicker: Bool = false
     @State private var searchText: String = ""
@@ -10,7 +11,7 @@ struct ShiftFeedView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $navPath) {
             ScrollView {
                 VStack(spacing: 24) {
                     locationHeader
@@ -39,17 +40,7 @@ struct ShiftFeedView: View {
             .toolbarBackground(SVTheme.surface, for: .navigationBar)
             .toolbarBackground(.visible, for: .navigationBar)
             .navigationDestination(for: String.self) { noteId in
-                if let note = viewModel.shiftNotes.first(where: { $0.id == noteId }) {
-                    ShiftNoteDetailView(
-                        note: note,
-                        isAcknowledged: viewModel.isNoteAcknowledged(note),
-                        teamMembers: viewModel.teamMembers,
-                        onAcknowledge: { viewModel.acknowledgeNote(noteId) },
-                        onAssignAction: { actionItemId, assignee in
-                            viewModel.updateActionItemAssignee(noteId: noteId, actionItemId: actionItemId, assignee: assignee)
-                        }
-                    )
-                }
+                ShiftNoteDetailView(noteId: noteId, viewModel: viewModel)
             }
             .sheet(isPresented: $showLocationPicker) {
                 locationPickerSheet
@@ -389,8 +380,7 @@ struct ShiftFeedView: View {
             VStack(spacing: 0) {
                 ForEach(viewModel.locations) { location in
                     Button {
-                        viewModel.selectedLocationId = location.id
-                        viewModel.updateUnacknowledgedCount()
+                        viewModel.updateSelectedLocation(location.id)
                         showLocationPicker = false
                     } label: {
                         HStack(spacing: 12) {

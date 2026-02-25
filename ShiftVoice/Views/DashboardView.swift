@@ -2,6 +2,7 @@ import SwiftUI
 
 struct DashboardView: View {
     @Bindable var viewModel: AppViewModel
+    @Binding var navPath: NavigationPath
     @State private var selectedUrgencyFilter: UrgencyLevel? = nil
     @State private var selectedStatusFilter: ActionItemStatus? = nil
     @State private var selectedLocationFilter: String? = nil
@@ -66,7 +67,7 @@ struct DashboardView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $navPath) {
             ScrollView {
                 VStack(spacing: 24) {
                     headerSection
@@ -92,17 +93,7 @@ struct DashboardView: View {
             .toolbarBackground(SVTheme.surface, for: .navigationBar)
             .toolbarBackground(.visible, for: .navigationBar)
             .navigationDestination(for: String.self) { noteId in
-                if let note = viewModel.shiftNotes.first(where: { $0.id == noteId }) {
-                    ShiftNoteDetailView(
-                        note: note,
-                        isAcknowledged: viewModel.isNoteAcknowledged(note),
-                        teamMembers: viewModel.teamMembers,
-                        onAcknowledge: { viewModel.acknowledgeNote(noteId) },
-                        onAssignAction: { actionItemId, assignee in
-                            viewModel.updateActionItemAssignee(noteId: noteId, actionItemId: actionItemId, assignee: assignee)
-                        }
-                    )
-                }
+                ShiftNoteDetailView(noteId: noteId, viewModel: viewModel)
             }
             .sheet(isPresented: $showFilterSheet) {
                 filterSheetContent
@@ -349,26 +340,29 @@ struct DashboardView: View {
             } else {
                 VStack(spacing: 0) {
                     ForEach(Array(filteredActions.enumerated()), id: \.element.item.id) { index, entry in
-                        ActionItemRow(
-                            item: entry.item,
-                            authorName: entry.authorName,
-                            locationName: viewModel.locationName(for: entry.locationId),
-                            noteId: entry.noteId,
-                            onStatusChange: { newStatus in
-                                withAnimation(.easeOut(duration: 0.2)) {
-                                    viewModel.updateActionItemStatus(
-                                        noteId: entry.noteId,
-                                        actionItemId: entry.item.id,
-                                        newStatus: newStatus
-                                    )
-                                }
-                            },
-                            onDismissConflict: entry.item.hasConflict ? {
-                                withAnimation(.easeOut(duration: 0.2)) {
-                                    viewModel.dismissConflict(noteId: entry.noteId, actionItemId: entry.item.id)
-                                }
-                            } : nil
-                        )
+                        NavigationLink(value: entry.noteId) {
+                            ActionItemRow(
+                                item: entry.item,
+                                authorName: entry.authorName,
+                                locationName: viewModel.locationName(for: entry.locationId),
+                                noteId: entry.noteId,
+                                onStatusChange: { newStatus in
+                                    withAnimation(.easeOut(duration: 0.2)) {
+                                        viewModel.updateActionItemStatus(
+                                            noteId: entry.noteId,
+                                            actionItemId: entry.item.id,
+                                            newStatus: newStatus
+                                        )
+                                    }
+                                },
+                                onDismissConflict: entry.item.hasConflict ? {
+                                    withAnimation(.easeOut(duration: 0.2)) {
+                                        viewModel.dismissConflict(noteId: entry.noteId, actionItemId: entry.item.id)
+                                    }
+                                } : nil
+                            )
+                        }
+                        .buttonStyle(.plain)
 
                         if index < filteredActions.count - 1 {
                             Rectangle()

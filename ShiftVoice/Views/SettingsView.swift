@@ -13,7 +13,6 @@ struct SettingsView: View {
     @State private var showTeamSheet: Bool = false
     @State private var showLocationSheet: Bool = false
     @State private var showDeleteConfirmation: Bool = false
-    @State private var showPaywall: Bool = false
 
     var body: some View {
         NavigationStack {
@@ -62,9 +61,7 @@ struct SettingsView: View {
             .sheet(isPresented: $showLocationSheet) {
                 LocationManagementSheet(viewModel: viewModel)
             }
-            .sheet(isPresented: $showPaywall) {
-                PaywallView()
-            }
+
         }
     }
 
@@ -474,7 +471,7 @@ struct SettingsView: View {
                         }
 
                         Button {
-                            showPaywall = true
+                            viewModel.showPaywall = true
                         } label: {
                             HStack(spacing: 6) {
                                 Image(systemName: "crown.fill")
