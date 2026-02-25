@@ -42,7 +42,8 @@ final class AppViewModel {
 
     let networkMonitor = NetworkMonitor.shared
     var isOffline: Bool { !networkMonitor.isConnected }
-    var pendingOfflineCount: Int { 0 }
+    private(set) var pendingActions: [PendingAction] = []
+    var pendingOfflineCount: Int { pendingActions.count }
 
     // MARK: - Cached Computed Properties
     private(set) var feedNotes: [ShiftNote] = []
@@ -82,6 +83,7 @@ final class AppViewModel {
     private(set) var userProfile: UserProfile?
     private var authenticatedUserId: String?
     private var organizationId: String?
+    private let persistence = PersistenceService.shared
     var lastSyncDate: Date?
     var syncError: String?
 
@@ -245,6 +247,7 @@ final class AppViewModel {
             userProfile = UserProfile(id: userId, name: name, email: email, initials: initials, profileImageURL: nil)
         }
 
+        pendingActions = persistence.loadPendingActions(for: userId)
         Task { await loadUserData(userId) }
     }
 
@@ -261,6 +264,7 @@ final class AppViewModel {
         organization = Organization(name: "", ownerId: "")
         selectedLocationId = ""
         unacknowledgedCount = 0
+        pendingActions = []
         lastSyncDate = nil
         syncError = nil
         isInitialLoading = true
@@ -323,31 +327,70 @@ final class AppViewModel {
 
     private func writeShiftNote(_ note: ShiftNote) {
         guard let orgId = organizationId else { return }
-        do { try firestore.saveShiftNote(note, orgId: orgId) }
-        catch { showToast("Failed to save note", isError: true) }
+        do {
+            try firestore.saveShiftNote(note, orgId: orgId)
+            if isOffline { queuePendingAction(.syncNotes, payload: note.id) }
+        } catch {
+            queuePendingAction(.syncNotes, payload: note.id)
+            showToast("Failed to save note", isError: true)
+        }
     }
 
     private func writeLocation(_ location: Location) {
         guard let orgId = organizationId else { return }
-        do { try firestore.saveLocation(location, orgId: orgId) }
-        catch { showToast("Failed to save location", isError: true) }
+        do {
+            try firestore.saveLocation(location, orgId: orgId)
+            if isOffline { queuePendingAction(.syncNotes, payload: "loc_\(location.id)") }
+        } catch {
+            showToast("Failed to save location", isError: true)
+        }
     }
 
     private func writeTeamMember(_ member: TeamMember) {
         guard let orgId = organizationId else { return }
-        do { try firestore.saveTeamMember(member, orgId: orgId) }
-        catch { showToast("Failed to save team member", isError: true) }
+        do {
+            try firestore.saveTeamMember(member, orgId: orgId)
+            if isOffline { queuePendingAction(.sendInvite, payload: member.id) }
+        } catch {
+            showToast("Failed to save team member", isError: true)
+        }
     }
 
     private func writeOrganization(_ org: Organization) {
-        do { try firestore.saveOrganization(org) }
-        catch { showToast("Failed to save organization", isError: true) }
+        do {
+            try firestore.saveOrganization(org)
+            if isOffline { queuePendingAction(.updateProfile, payload: org.id) }
+        } catch {
+            showToast("Failed to save organization", isError: true)
+        }
     }
 
     private func writeRecurringIssue(_ issue: RecurringIssue) {
         guard let orgId = organizationId else { return }
-        do { try firestore.saveRecurringIssue(issue, orgId: orgId) }
-        catch { showToast("Failed to save issue", isError: true) }
+        do {
+            try firestore.saveRecurringIssue(issue, orgId: orgId)
+        } catch {
+            showToast("Failed to save issue", isError: true)
+        }
+    }
+
+    // MARK: - Pending Action Queue
+
+    private func queuePendingAction(_ type: PendingAction.ActionType, payload: String = "") {
+        let action = PendingAction(type: type, payload: payload)
+        pendingActions.append(action)
+        savePendingActionsToDisk()
+    }
+
+    private func savePendingActionsToDisk() {
+        guard let userId = authenticatedUserId else { return }
+        persistence.savePendingActions(pendingActions, for: userId)
+    }
+
+    private func clearPendingActions() {
+        pendingActions.removeAll()
+        guard let userId = authenticatedUserId else { return }
+        persistence.clearPendingActions(for: userId)
     }
 
     // MARK: - Notes
@@ -370,6 +413,7 @@ final class AppViewModel {
         shiftNotes.removeAll { $0.id == noteId }
         guard let orgId = organizationId else { return }
         firestore.deleteShiftNote(noteId, orgId: orgId)
+        if isOffline { queuePendingAction(.deleteNote, payload: noteId) }
     }
 
     func acknowledgeNote(_ noteId: String) {
@@ -377,6 +421,7 @@ final class AppViewModel {
         let ack = Acknowledgment(userId: currentUserId, userName: currentUserName)
         shiftNotes[index].acknowledgments.append(ack)
         shiftNotes[index].updatedAt = Date()
+        if isOffline { queuePendingAction(.acknowledgeNote, payload: noteId) }
         writeShiftNote(shiftNotes[index])
     }
 
@@ -563,7 +608,19 @@ final class AppViewModel {
         toastMessage = nil
     }
 
-    func handleNetworkReconnect() {}
+    func handleNetworkReconnect() {
+        guard let orgId = organizationId else { return }
+
+        if !pendingActions.isEmpty {
+            let count = pendingActions.count
+            clearPendingActions()
+            showToast("Back online — \(count) change\(count == 1 ? "" : "s") syncing", isError: false)
+        } else {
+            showToast("Back online", isError: false)
+        }
+
+        startListeners(orgId: orgId)
+    }
 
     func forceSync() {
         showToast("Data syncs automatically via Firestore", isError: false)
