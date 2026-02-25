@@ -51,6 +51,7 @@ struct SettingsView: View {
                     teamSection
                     subscriptionSection
                     aboutSection
+                    debugSection
                     signOutSection
                 }
                 .padding(.horizontal, 24)
@@ -578,6 +579,58 @@ struct SettingsView: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 14)
+            }
+            .background(SVTheme.cardBackground)
+            .clipShape(.rect(cornerRadius: 12))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(SVTheme.surfaceBorder, lineWidth: 1)
+            )
+        }
+    }
+
+    private var debugSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("DEBUG")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(SVTheme.textTertiary)
+                .tracking(0.5)
+
+            VStack(spacing: 0) {
+                Button {
+                    viewModel.loadDemoData()
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "square.and.arrow.down")
+                            .font(.subheadline)
+                            .foregroundStyle(SVTheme.accent)
+                            .frame(width: 28, height: 28)
+                            .background(SVTheme.accent.opacity(0.1))
+                            .clipShape(.rect(cornerRadius: 6))
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Load Demo Data")
+                                .font(.subheadline.weight(.medium))
+                                .foregroundStyle(SVTheme.textPrimary)
+                            Text("25 notes, 3 locations, 7 team members")
+                                .font(.caption)
+                                .foregroundStyle(SVTheme.textTertiary)
+                        }
+                        Spacer()
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                }
+
+                Rectangle().fill(SVTheme.divider).frame(height: 1).padding(.leading, 16)
+
+                settingsValueRow(title: "Notes", value: "\(viewModel.shiftNotes.count)")
+                Rectangle().fill(SVTheme.divider).frame(height: 1).padding(.leading, 16)
+                settingsValueRow(title: "Locations", value: "\(viewModel.locations.count)")
+                Rectangle().fill(SVTheme.divider).frame(height: 1).padding(.leading, 16)
+                settingsValueRow(title: "Team", value: "\(viewModel.teamMembers.count)")
+                Rectangle().fill(SVTheme.divider).frame(height: 1).padding(.leading, 16)
+                settingsValueRow(title: "Action Items", value: "\(viewModel.allActionItemsWithDate.count)")
             }
             .background(SVTheme.cardBackground)
             .clipShape(.rect(cornerRadius: 12))

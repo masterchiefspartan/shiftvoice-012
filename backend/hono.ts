@@ -172,6 +172,600 @@ function errorResponse(c: any, status: number, error: string, code?: string) {
   return c.json({ success: false, error, code: code || "ERROR" }, status);
 }
 
+// --- Seed Data ---
+
+function seedDemoData() {
+  const demoUserId = "demo_user_001";
+  const existing = storage.getAccountByEmail("demo@shiftvoice.app");
+  if (existing) return;
+
+  storage.createAccount({
+    userId: demoUserId,
+    email: "demo@shiftvoice.app",
+    name: "Marcus Rivera",
+    passwordHash: hashPassword("demo1234"),
+    authMethod: "email",
+    createdAt: new Date().toISOString(),
+  });
+
+  const locIds = ["loc_001", "loc_002", "loc_003"];
+  const locNames = ["The Ember Room", "Saltwater Kitchen", "Rooftop Social"];
+  const locAddresses = ["234 W 4th St, New York, NY", "89 Ocean Ave, Brooklyn, NY", "1200 Broadway, New York, NY"];
+
+  const teamData = [
+    { id: "user_001", name: "Marcus Rivera", email: "marcus@riverahg.com", role: "Owner", initials: "MR", locs: locIds },
+    { id: "user_002", name: "Sarah Chen", email: "sarah@riverahg.com", role: "General Manager", initials: "SC", locs: ["loc_001"] },
+    { id: "user_003", name: "Devon Williams", email: "devon@riverahg.com", role: "Manager", initials: "DW", locs: ["loc_001"] },
+    { id: "user_004", name: "Ava Torres", email: "ava@riverahg.com", role: "Shift Lead", initials: "AT", locs: ["loc_001"] },
+    { id: "user_005", name: "James Park", email: "james@riverahg.com", role: "General Manager", initials: "JP", locs: ["loc_002"] },
+    { id: "user_006", name: "Nia Johnson", email: "nia@riverahg.com", role: "Manager", initials: "NJ", locs: ["loc_002"] },
+    { id: "user_007", name: "Carlos Mendez", email: "carlos@riverahg.com", role: "Manager", initials: "CM", locs: ["loc_003"] },
+  ];
+
+  storage.upsertOrganization({
+    id: "org_001",
+    ownerId: demoUserId,
+    name: "Rivera Hospitality Group",
+    plan: "Professional",
+    industryType: "Restaurant",
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  });
+
+  for (let i = 0; i < locIds.length; i++) {
+    storage.upsertLocation({
+      id: locIds[i],
+      ownerId: demoUserId,
+      name: locNames[i],
+      address: locAddresses[i],
+      timezone: "America/New_York",
+      openingTime: "06:00",
+      midTime: "14:00",
+      closingTime: "22:00",
+      managerIds: teamData.filter((t) => t.locs.includes(locIds[i])).map((t) => t.id),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+  }
+
+  for (const t of teamData) {
+    storage.upsertTeamMember({
+      id: t.id,
+      ownerId: demoUserId,
+      name: t.name,
+      email: t.email,
+      role: t.role,
+      roleTemplateId: null,
+      locationIds: t.locs,
+      inviteStatus: "Accepted",
+      avatarInitials: t.initials,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+  }
+
+  const now = Date.now();
+  const h = (hours: number) => new Date(now - hours * 3600_000).toISOString();
+
+  const notes: Array<{
+    id: string; author: typeof teamData[0]; loc: number; shift: string; hours: number;
+    transcript: string; duration: number; summary: string;
+    items: Array<{ cat: string; content: string; urgency: string }>;
+    actions: Array<{ task: string; cat: string; urgency: string; status?: string; assignee?: string }>;
+    acks?: Array<{ userId: string; userName: string; hoursAgo: number }>;
+    replies?: Array<{ authorId: string; authorName: string; text: string; hoursAgo: number }>;
+  }> = [
+    {
+      id: "note_001", author: teamData[2], loc: 0, shift: "Closing", hours: 3, duration: 47,
+      transcript: "Alright closing notes for tonight. We 86'd the salmon around 8pm, supplier shorted us again. Walk-in compressor is making that noise again, third time this week. Had a comp on table 14, guest found hair in their pasta, comped the whole table's entrees. Big night though, 247 covers. Also the POS terminal at station 3 is frozen again, needs a full restart. Oh and heads up, we have a 20-top VIP coming in tomorrow at 7, it's the Brennan anniversary party, they want the private dining room set with candles and the special menu.",
+      summary: "Busy closing with 247 covers. Salmon 86'd due to supplier shortage. Walk-in compressor issue recurring (3rd time). Comped table 14 for hair in pasta. POS station 3 frozen. VIP 20-top Brennan party tomorrow at 7pm.",
+      items: [
+        { cat: "86'd Items", content: "Salmon — supplier shorted delivery, 86'd at 8pm", urgency: "Next Shift" },
+        { cat: "Equipment", content: "Walk-in compressor making noise again — 3rd time this week", urgency: "Immediate" },
+        { cat: "Equipment", content: "POS terminal station 3 frozen, needs full restart", urgency: "Next Shift" },
+        { cat: "Guest Issues", content: "Table 14 — hair in pasta, comped all entrees", urgency: "FYI" },
+        { cat: "Reservations/VIP", content: "Brennan anniversary party — 20-top VIP, tomorrow 7pm, private dining room", urgency: "Immediate" },
+      ],
+      actions: [
+        { task: "Call seafood supplier re: salmon shortage", cat: "86'd Items", urgency: "Next Shift", assignee: "Sarah Chen" },
+        { task: "Schedule walk-in compressor repair — recurring issue", cat: "Equipment", urgency: "Immediate" },
+        { task: "Restart POS terminal station 3", cat: "Equipment", urgency: "Next Shift" },
+        { task: "Set up private dining room for Brennan party — candles, special menu", cat: "Reservations/VIP", urgency: "Immediate" },
+      ],
+      acks: [{ userId: "user_002", userName: "Sarah Chen", hoursAgo: 1 }],
+    },
+    {
+      id: "note_002", author: teamData[1], loc: 0, shift: "Mid", hours: 8, duration: 32,
+      transcript: "Mid shift update. Lunch was solid, 89 covers. The new server Kayla is doing great, really picking up the floor fast. FYI the ice machine is leaking again by the service station, put a bucket under it for now. Health inspector is scheduled for next Tuesday, need to make sure all temp logs are current. Also restocked the bar with the wine delivery that came in.",
+      summary: "Solid lunch with 89 covers. New server Kayla performing well. Ice machine leaking at service station. Health inspector Tuesday — ensure temp logs current. Wine delivery restocked.",
+      items: [
+        { cat: "Staff Notes", content: "New server Kayla doing great, picking up the floor quickly", urgency: "FYI" },
+        { cat: "Maintenance", content: "Ice machine leaking at service station — bucket placed temporarily", urgency: "This Week" },
+        { cat: "Health & Safety", content: "Health inspector scheduled next Tuesday — temp logs must be current", urgency: "This Week" },
+        { cat: "Inventory", content: "Wine delivery received and restocked at bar", urgency: "FYI" },
+      ],
+      actions: [
+        { task: "Fix ice machine leak at service station", cat: "Maintenance", urgency: "This Week" },
+        { task: "Verify all temperature logs are current before Tuesday inspection", cat: "Health & Safety", urgency: "This Week", status: "In Progress", assignee: "Devon Williams" },
+      ],
+      acks: [
+        { userId: "user_003", userName: "Devon Williams", hoursAgo: 5 },
+        { userId: "user_004", userName: "Ava Torres", hoursAgo: 4 },
+      ],
+    },
+    {
+      id: "note_003", author: teamData[3], loc: 0, shift: "Opening", hours: 14, duration: 28,
+      transcript: "Opening notes. Everything looks good from last night's close, Devon did a great job. Fryer oil in station 2 needs to be changed, it's getting dark. We're low on to-go containers, the medium ones. Produce delivery came in fine, everything looks fresh. Reminder that the Brennan party is tonight so we need all hands on deck.",
+      summary: "Clean open after last night. Fryer oil station 2 needs changing. Low on medium to-go containers. Produce delivery good. Brennan VIP party tonight.",
+      items: [
+        { cat: "Equipment", content: "Fryer oil station 2 getting dark — needs changing", urgency: "Next Shift" },
+        { cat: "Inventory", content: "Low on medium to-go containers", urgency: "This Week" },
+        { cat: "General", content: "Produce delivery received, all fresh", urgency: "FYI" },
+        { cat: "Reservations/VIP", content: "Brennan VIP party tonight — all hands on deck", urgency: "Immediate" },
+      ],
+      actions: [
+        { task: "Change fryer oil at station 2", cat: "Equipment", urgency: "Next Shift" },
+        { task: "Order medium to-go containers", cat: "Inventory", urgency: "This Week" },
+      ],
+    },
+    {
+      id: "note_004", author: teamData[4], loc: 1, shift: "Closing", hours: 2, duration: 41,
+      transcript: "Closing at Saltwater. Wild night, 198 covers for a Wednesday. We ran out of the lobster bisque by 7:30, had to 86 it. Two comps tonight, table 6 had an undercooked steak sent back twice, table 22 birthday dessert was forgotten. Dishwasher running slow, drain may need cleaning. Back door lock sticking again.",
+      summary: "Busy Wednesday with 198 covers. Lobster bisque 86'd at 7:30. Two comps (undercooked steak, missed birthday). Dishwasher slow. Back door lock sticking.",
+      items: [
+        { cat: "86'd Items", content: "Lobster bisque ran out by 7:30pm", urgency: "Next Shift" },
+        { cat: "Guest Issues", content: "Table 6 — undercooked steak sent back twice, comped meals", urgency: "FYI" },
+        { cat: "Guest Issues", content: "Table 22 — forgot birthday dessert, comped champagne", urgency: "FYI" },
+        { cat: "Equipment", content: "Dishwasher running slow — drain may need cleaning", urgency: "This Week" },
+        { cat: "Maintenance", content: "Back door lock sticking again", urgency: "This Week" },
+      ],
+      actions: [
+        { task: "Prep extra lobster bisque for tomorrow", cat: "86'd Items", urgency: "Next Shift" },
+        { task: "Clean dishwasher drain", cat: "Equipment", urgency: "This Week" },
+        { task: "Fix back door lock", cat: "Maintenance", urgency: "This Week" },
+      ],
+    },
+    {
+      id: "note_005", author: teamData[6], loc: 2, shift: "Closing", hours: 1, duration: 25,
+      transcript: "Rooftop closing notes. Slow night due to rain, only 67 covers. Outdoor heaters on the east side are out. Beer delivery was short, missing the IPA kegs. Had to cut Happy Hour early, out of well tequila. Clean close otherwise.",
+      summary: "Slow rainy night, 67 covers. Two east-side heaters out. Missing IPA kegs. Well tequila ran out early.",
+      items: [
+        { cat: "Equipment", content: "Two outdoor heaters (east side) won't ignite", urgency: "Next Shift" },
+        { cat: "Inventory", content: "Beer delivery short — missing IPA kegs", urgency: "Next Shift" },
+        { cat: "86'd Items", content: "Well tequila ran out, cut Happy Hour early", urgency: "Next Shift" },
+      ],
+      actions: [
+        { task: "Service east-side outdoor heaters", cat: "Equipment", urgency: "Next Shift" },
+        { task: "Follow up with beer distributor re: missing IPA kegs", cat: "Inventory", urgency: "Next Shift" },
+        { task: "Restock well tequila", cat: "Inventory", urgency: "Next Shift" },
+      ],
+    },
+    {
+      id: "note_006", author: teamData[2], loc: 0, shift: "Closing", hours: 27, duration: 38,
+      transcript: "Another solid closing tonight. 212 covers, good energy. The flat top on station 1 has a hot spot on the left side, burns anything you put there. Server Marco called out sick for tomorrow morning, need someone to cover. The draft system on tap 4 is pouring foamy, needs to be rebalanced. Also we got a 5-star review from the couple on table 9, they loved the tasting menu.",
+      summary: "212 covers. Flat top station 1 has hot spot. Marco out tomorrow AM — need cover. Tap 4 draft foamy. 5-star review from tasting menu couple.",
+      items: [
+        { cat: "Equipment", content: "Flat top station 1 has a hot spot on left side — burning food", urgency: "Immediate" },
+        { cat: "Staff Notes", content: "Server Marco called out sick tomorrow AM — need coverage", urgency: "Immediate" },
+        { cat: "Equipment", content: "Draft tap 4 pouring foamy — needs rebalancing", urgency: "Next Shift" },
+        { cat: "General", content: "5-star review from table 9 couple — loved tasting menu", urgency: "FYI" },
+      ],
+      actions: [
+        { task: "Get flat top station 1 inspected — hot spot issue", cat: "Equipment", urgency: "Immediate" },
+        { task: "Find AM coverage for Marco's shift tomorrow", cat: "Staff Notes", urgency: "Immediate" },
+        { task: "Rebalance draft system on tap 4", cat: "Equipment", urgency: "Next Shift" },
+      ],
+      acks: [{ userId: "user_002", userName: "Sarah Chen", hoursAgo: 25 }],
+    },
+    {
+      id: "note_007", author: teamData[1], loc: 0, shift: "Opening", hours: 38, duration: 22,
+      transcript: "Morning update. Walk-in temp was at 41 degrees when I checked, should be 38. Moved it down. Bread delivery came in short — only got 40 baguettes instead of 60. Prepped extra risotto base since we ran out last Friday. New host training starts at 11.",
+      summary: "Walk-in temp high (41°F, adjusted). Bread delivery short by 20 baguettes. Extra risotto base prepped. New host training at 11.",
+      items: [
+        { cat: "Health & Safety", content: "Walk-in temperature at 41°F — adjusted to 38°F target", urgency: "Immediate" },
+        { cat: "Inventory", content: "Bread delivery short — 40 baguettes instead of 60", urgency: "Next Shift" },
+        { cat: "General", content: "Extra risotto base prepped after last Friday's shortage", urgency: "FYI" },
+        { cat: "Staff Notes", content: "New host training starts at 11am", urgency: "FYI" },
+      ],
+      actions: [
+        { task: "Monitor walk-in temperature — log readings every 2 hours", cat: "Health & Safety", urgency: "Immediate" },
+        { task: "Contact bakery about bread shortage", cat: "Inventory", urgency: "Next Shift" },
+      ],
+      acks: [
+        { userId: "user_003", userName: "Devon Williams", hoursAgo: 36 },
+        { userId: "user_004", userName: "Ava Torres", hoursAgo: 35 },
+      ],
+    },
+    {
+      id: "note_008", author: teamData[3], loc: 0, shift: "Mid", hours: 32, duration: 19,
+      transcript: "Quick mid update. We're running low on gluten-free pasta, maybe 6 portions left. The espresso machine pressure is dropping, might need descaling. Had a walkout on table 3, party of 4, no payment. Got their faces on camera though.",
+      summary: "Low on GF pasta (6 portions). Espresso machine pressure dropping. Walkout table 3 party of 4 — on camera.",
+      items: [
+        { cat: "Inventory", content: "Gluten-free pasta running low — ~6 portions remaining", urgency: "Next Shift" },
+        { cat: "Equipment", content: "Espresso machine pressure dropping — may need descaling", urgency: "This Week" },
+        { cat: "Incident Report", content: "Walkout on table 3, party of 4 — captured on security camera", urgency: "Immediate" },
+      ],
+      actions: [
+        { task: "Order gluten-free pasta — emergency restock", cat: "Inventory", urgency: "Next Shift" },
+        { task: "Schedule espresso machine descaling", cat: "Equipment", urgency: "This Week" },
+        { task: "File incident report for table 3 walkout — pull camera footage", cat: "Incident Report", urgency: "Immediate", status: "In Progress", assignee: "Devon Williams" },
+      ],
+    },
+    {
+      id: "note_009", author: teamData[5], loc: 1, shift: "Mid", hours: 10, duration: 35,
+      transcript: "Saltwater mid shift. Lunch patio was packed, 94 covers before 2pm. The oyster delivery came in and 2 dozen were already dead, sent them back. Line cook Ricky cut his finger, minor, first aid applied and he's back on the line. The hood vent over station 3 isn't pulling well, getting smoky. We need to reprint the dessert menus, several are stained.",
+      summary: "Packed patio lunch, 94 covers. Bad oysters returned (2 dozen). Minor cut for Ricky — first aid done. Hood vent station 3 weak. Dessert menus need reprinting.",
+      items: [
+        { cat: "Inventory", content: "2 dozen dead oysters in delivery — sent back to supplier", urgency: "Next Shift" },
+        { cat: "Health & Safety", content: "Line cook Ricky minor finger cut — first aid applied, back on line", urgency: "FYI" },
+        { cat: "Equipment", content: "Hood vent station 3 not pulling properly — getting smoky", urgency: "This Week" },
+        { cat: "General", content: "Dessert menus stained — need reprinting", urgency: "This Week" },
+      ],
+      actions: [
+        { task: "File complaint with oyster supplier — 2 dozen dead on arrival", cat: "Inventory", urgency: "Next Shift" },
+        { task: "Schedule hood vent cleaning/inspection for station 3", cat: "Equipment", urgency: "This Week" },
+        { task: "Reprint dessert menus", cat: "General", urgency: "This Week" },
+      ],
+    },
+    {
+      id: "note_010", author: teamData[4], loc: 1, shift: "Opening", hours: 56, duration: 20,
+      transcript: "Saltwater opening. Floors were sticky near the bar, closing crew didn't mop properly. Dairy delivery is late, still waiting. The outdoor umbrellas need new fabric, two are torn. Reservation system shows we're booked solid for Saturday brunch, 120 covers expected.",
+      summary: "Sticky floors near bar (closing crew). Dairy delivery late. Two outdoor umbrellas torn. Saturday brunch booked solid — 120 covers.",
+      items: [
+        { cat: "General", content: "Floors sticky near bar — closing crew didn't mop properly", urgency: "Next Shift" },
+        { cat: "Inventory", content: "Dairy delivery late — still waiting", urgency: "Immediate" },
+        { cat: "Maintenance", content: "Two outdoor umbrellas have torn fabric", urgency: "This Week" },
+        { cat: "Reservations/VIP", content: "Saturday brunch booked solid — 120 covers expected", urgency: "Next Shift" },
+      ],
+      actions: [
+        { task: "Follow up on dairy delivery status", cat: "Inventory", urgency: "Immediate", status: "Resolved" },
+        { task: "Order replacement umbrella fabric", cat: "Maintenance", urgency: "This Week" },
+        { task: "Prep extra brunch items for Saturday's 120-cover booking", cat: "Reservations/VIP", urgency: "Next Shift" },
+      ],
+    },
+    {
+      id: "note_011", author: teamData[6], loc: 2, shift: "Opening", hours: 50, duration: 18,
+      transcript: "Rooftop opening. Sound system speaker on the west side is blown. Need to order new cocktail napkins with the updated logo. The elevator inspection certificate expired last week, need to get that renewed ASAP. Otherwise clean open.",
+      summary: "West speaker blown. Need new logo cocktail napkins. Elevator inspection certificate expired — renew urgently.",
+      items: [
+        { cat: "Equipment", content: "Sound system speaker (west side) blown out", urgency: "Next Shift" },
+        { cat: "Inventory", content: "Need new cocktail napkins with updated logo", urgency: "This Week" },
+        { cat: "Health & Safety", content: "Elevator inspection certificate expired last week", urgency: "Immediate" },
+      ],
+      actions: [
+        { task: "Replace west-side speaker", cat: "Equipment", urgency: "Next Shift" },
+        { task: "Order cocktail napkins with new logo", cat: "Inventory", urgency: "This Week" },
+        { task: "Schedule elevator inspection renewal — certificate expired", cat: "Health & Safety", urgency: "Immediate" },
+      ],
+    },
+    {
+      id: "note_012", author: teamData[2], loc: 0, shift: "Mid", hours: 56, duration: 26,
+      transcript: "Mid shift. Slow lunch, only 52 covers but we made up for it with high ticket averages. The exhaust fan in the prep area is vibrating badly. Catering order for the Thompson wedding Saturday is confirmed — 150 guests, need to start prep Thursday. Bartender Lisa wants to introduce a new fall cocktail menu, she's got some great ideas.",
+      summary: "Slow lunch, 52 covers but high averages. Prep area exhaust fan vibrating. Thompson wedding catering Saturday (150 guests). Lisa proposing fall cocktail menu.",
+      items: [
+        { cat: "Equipment", content: "Prep area exhaust fan vibrating badly", urgency: "This Week" },
+        { cat: "Reservations/VIP", content: "Thompson wedding catering Saturday — 150 guests, start prep Thursday", urgency: "Next Shift" },
+        { cat: "Staff Notes", content: "Bartender Lisa wants to introduce fall cocktail menu — has ideas ready", urgency: "FYI" },
+      ],
+      actions: [
+        { task: "Get exhaust fan in prep area inspected", cat: "Equipment", urgency: "This Week" },
+        { task: "Begin Thompson wedding prep Thursday — 150 guests", cat: "Reservations/VIP", urgency: "Next Shift" },
+        { task: "Schedule tasting session for Lisa's fall cocktail menu", cat: "Staff Notes", urgency: "This Week" },
+      ],
+    },
+    {
+      id: "note_013", author: teamData[3], loc: 0, shift: "Closing", hours: 51, duration: 44,
+      transcript: "Big closing tonight. 278 covers, new record for a Thursday. We ran through all the ribeye by 8:45, also low on the duck confit. Bathroom on the second floor has a running toilet, super loud. Two servers got into an argument during service, pulled them aside after — it's handled but worth noting. Celebrity diner tonight, won't say who but they requested total privacy and tipped 40 percent.",
+      summary: "Record Thursday: 278 covers. Ribeye sold out 8:45pm, duck confit low. 2nd floor toilet running. Server conflict handled. Celebrity diner — privacy, 40% tip.",
+      items: [
+        { cat: "86'd Items", content: "Ribeye sold out by 8:45pm — 278-cover night", urgency: "Next Shift" },
+        { cat: "86'd Items", content: "Duck confit running very low", urgency: "Next Shift" },
+        { cat: "Maintenance", content: "Second floor bathroom toilet running — very loud", urgency: "This Week" },
+        { cat: "Staff Notes", content: "Two servers had argument during service — pulled aside, resolved", urgency: "FYI" },
+        { cat: "Reservations/VIP", content: "Celebrity diner requested total privacy — 40% tip", urgency: "FYI" },
+      ],
+      actions: [
+        { task: "Order extra ribeye for weekend — Thursday sold out", cat: "86'd Items", urgency: "Next Shift" },
+        { task: "Prep additional duck confit", cat: "86'd Items", urgency: "Next Shift" },
+        { task: "Fix running toilet — 2nd floor bathroom", cat: "Maintenance", urgency: "This Week", assignee: "Devon Williams" },
+      ],
+      acks: [
+        { userId: "user_001", userName: "Marcus Rivera", hoursAgo: 49 },
+        { userId: "user_002", userName: "Sarah Chen", hoursAgo: 48 },
+      ],
+    },
+    {
+      id: "note_014", author: teamData[4], loc: 1, shift: "Closing", hours: 26, duration: 30,
+      transcript: "Saltwater closing. 156 covers, solid Tuesday. The raw bar display fridge temp is fluctuating between 36 and 42, not consistent. Manager special board is running low on dry erase markers. Server Taylor's last day is Friday, we should do something. Had a dine-and-dash attempt but the hostess caught them at the door.",
+      summary: "156 covers. Raw bar fridge temp fluctuating (36-42°F). Dry erase markers low. Taylor's last day Friday. Dine-and-dash attempt caught.",
+      items: [
+        { cat: "Equipment", content: "Raw bar display fridge temp fluctuating 36-42°F — inconsistent", urgency: "Immediate" },
+        { cat: "Inventory", content: "Specials board running low on dry erase markers", urgency: "This Week" },
+        { cat: "Staff Notes", content: "Server Taylor's last day is Friday — plan something", urgency: "This Week" },
+        { cat: "Incident Report", content: "Dine-and-dash attempt — hostess caught them at door", urgency: "FYI" },
+      ],
+      actions: [
+        { task: "Get raw bar fridge serviced — temp fluctuating dangerously", cat: "Equipment", urgency: "Immediate" },
+        { task: "Order dry erase markers", cat: "Inventory", urgency: "This Week", status: "Resolved" },
+        { task: "Plan farewell for Taylor — last day Friday", cat: "Staff Notes", urgency: "This Week" },
+      ],
+    },
+    {
+      id: "note_015", author: teamData[5], loc: 1, shift: "Opening", hours: 80, duration: 15,
+      transcript: "Quick opening notes. Everything looked clean. The fish delivery is coming at 10 instead of 8 today. We're out of lemons completely. New table numbers arrived, need to swap them out before lunch.",
+      summary: "Clean open. Fish delivery delayed to 10am. Out of lemons. New table numbers arrived.",
+      items: [
+        { cat: "Inventory", content: "Fish delivery delayed — coming at 10am instead of 8am", urgency: "Next Shift" },
+        { cat: "Inventory", content: "Completely out of lemons", urgency: "Immediate" },
+        { cat: "General", content: "New table numbers arrived — need to swap before lunch", urgency: "Next Shift" },
+      ],
+      actions: [
+        { task: "Emergency lemon run — we're completely out", cat: "Inventory", urgency: "Immediate", status: "Resolved" },
+        { task: "Swap out old table numbers before lunch service", cat: "General", urgency: "Next Shift", status: "Resolved" },
+      ],
+    },
+    {
+      id: "note_016", author: teamData[6], loc: 2, shift: "Closing", hours: 25, duration: 52,
+      transcript: "Long closing at Rooftop. 189 covers, great night. We had a large bachelorette party, 16 people, they were loud but tipped well. The rooftop railing on the north side has a loose bolt, safety concern. Restroom soap dispensers are both empty downstairs. The DJ equipment needs a new cable, the left channel is cutting out. Closing inventory shows we're critically low on vodka and gin.",
+      summary: "189 covers, great night. Bachelorette party of 16. North railing loose bolt (safety). Soap dispensers empty. DJ left channel cutting out. Low on vodka and gin.",
+      items: [
+        { cat: "Reservations/VIP", content: "Bachelorette party of 16 — loud but great tips", urgency: "FYI" },
+        { cat: "Health & Safety", content: "North side rooftop railing has a loose bolt — safety hazard", urgency: "Immediate" },
+        { cat: "Maintenance", content: "Downstairs restroom soap dispensers both empty", urgency: "Next Shift" },
+        { cat: "Equipment", content: "DJ equipment left channel cutting out — needs new cable", urgency: "This Week" },
+        { cat: "Inventory", content: "Critically low on vodka and gin", urgency: "Immediate" },
+      ],
+      actions: [
+        { task: "Fix loose bolt on north railing ASAP — safety issue", cat: "Health & Safety", urgency: "Immediate" },
+        { task: "Refill soap dispensers in downstairs restrooms", cat: "Maintenance", urgency: "Next Shift" },
+        { task: "Order replacement DJ cable", cat: "Equipment", urgency: "This Week" },
+        { task: "Emergency spirits order — vodka and gin critically low", cat: "Inventory", urgency: "Immediate" },
+      ],
+      replies: [
+        { authorId: "user_001", authorName: "Marcus Rivera", text: "I'll call the contractor about the railing first thing tomorrow. Don't let anyone lean on that section tonight.", hoursAgo: 24 },
+      ],
+    },
+    {
+      id: "note_017", author: teamData[1], loc: 0, shift: "Closing", hours: 75, duration: 33,
+      transcript: "Closing update. 185 covers. The pasta maker is jamming on the linguine setting, works fine for everything else. We're almost out of truffle oil, maybe 2 services worth. Got a complaint from the building about our dumpster area, says it's attracting rats. Need to address that. The new menu cards look great, customers are responding well.",
+      summary: "185 covers. Pasta maker jamming on linguine. Low truffle oil (2 services). Building complaint about dumpster/rats. New menu cards well received.",
+      items: [
+        { cat: "Equipment", content: "Pasta maker jamming on linguine setting — other settings fine", urgency: "This Week" },
+        { cat: "Inventory", content: "Truffle oil nearly out — ~2 services remaining", urgency: "Next Shift" },
+        { cat: "Health & Safety", content: "Building management complaint: dumpster area attracting rats", urgency: "Immediate" },
+        { cat: "General", content: "New menu cards getting positive customer feedback", urgency: "FYI" },
+      ],
+      actions: [
+        { task: "Service pasta maker — linguine setting jamming", cat: "Equipment", urgency: "This Week" },
+        { task: "Order truffle oil — 2 services left", cat: "Inventory", urgency: "Next Shift", assignee: "Ava Torres" },
+        { task: "Clean dumpster area and schedule pest control", cat: "Health & Safety", urgency: "Immediate" },
+      ],
+      acks: [{ userId: "user_003", userName: "Devon Williams", hoursAgo: 73 }],
+    },
+    {
+      id: "note_018", author: teamData[2], loc: 0, shift: "Opening", hours: 62, duration: 24,
+      transcript: "Opening. Everything's prepped well from last night. The CO2 tank for the soda system is getting low, probably one more day. Two reservations cancelled for tonight's chef's table. The AC unit in the private dining room is blowing warm air. Also reminder: staff meeting Monday at 3pm.",
+      summary: "Good prep from last night. CO2 tank low (1 day). Two chef's table cancellations. PDR AC blowing warm. Staff meeting Monday 3pm.",
+      items: [
+        { cat: "Inventory", content: "CO2 tank for soda system getting low — ~1 day remaining", urgency: "Next Shift" },
+        { cat: "Reservations/VIP", content: "Two chef's table reservations cancelled for tonight", urgency: "FYI" },
+        { cat: "Equipment", content: "Private dining room AC blowing warm air", urgency: "Immediate" },
+        { cat: "Staff Notes", content: "Staff meeting Monday at 3pm", urgency: "FYI" },
+      ],
+      actions: [
+        { task: "Order CO2 tank replacement — 1 day left on soda system", cat: "Inventory", urgency: "Next Shift" },
+        { task: "Fix AC in private dining room — blowing warm", cat: "Equipment", urgency: "Immediate" },
+      ],
+    },
+    {
+      id: "note_019", author: teamData[4], loc: 1, shift: "Mid", hours: 34, duration: 29,
+      transcript: "Saltwater mid update. Brunch was insane, 142 covers. Bottomless mimosa promo is too popular, we went through 9 cases of prosecco. The patio awning is stuck halfway, can't retract fully. One of the bartenders dropped a full bottle of Hendrick's, that's 80 bucks gone. Server scheduling for next week needs attention, we're understaffed Saturday.",
+      summary: "Insane brunch, 142 covers. Mimosa promo used 9 cases prosecco. Patio awning stuck. Dropped Hendrick's bottle ($80). Saturday understaffed.",
+      items: [
+        { cat: "Inventory", content: "Bottomless mimosa promo burned through 9 cases of prosecco", urgency: "Next Shift" },
+        { cat: "Maintenance", content: "Patio awning stuck halfway — can't fully retract", urgency: "This Week" },
+        { cat: "Incident Report", content: "Bartender dropped full Hendrick's bottle — $80 loss", urgency: "FYI" },
+        { cat: "Staff Notes", content: "Saturday schedule understaffed — need more coverage", urgency: "Immediate" },
+      ],
+      actions: [
+        { task: "Order extra prosecco for mimosa promo", cat: "Inventory", urgency: "Next Shift" },
+        { task: "Get patio awning mechanism serviced", cat: "Maintenance", urgency: "This Week" },
+        { task: "Fill Saturday schedule gaps — need 2 more servers", cat: "Staff Notes", urgency: "Immediate" },
+      ],
+    },
+    {
+      id: "note_020", author: teamData[3], loc: 0, shift: "Mid", hours: 8, duration: 21,
+      transcript: "Quick mid update Ember Room. Lunch was 76 covers. The reservation system went down for about 20 minutes around noon, we used the paper backup. All good now. Prep cook Miguel is requesting next Friday off. The wine by the glass Chardonnay is almost kicked.",
+      summary: "76 covers. Reservation system down 20 min (paper backup used). Miguel requesting Friday off. Chardonnay BTG almost out.",
+      items: [
+        { cat: "Equipment", content: "Reservation system went down ~20 min at noon — paper backup used", urgency: "This Week" },
+        { cat: "Staff Notes", content: "Prep cook Miguel requesting next Friday off", urgency: "This Week" },
+        { cat: "Inventory", content: "Chardonnay by-the-glass almost kicked", urgency: "Next Shift" },
+      ],
+      actions: [
+        { task: "Check reservation system stability — had 20-min outage", cat: "Equipment", urgency: "This Week" },
+        { task: "Process Miguel's Friday PTO request", cat: "Staff Notes", urgency: "This Week" },
+        { task: "Swap Chardonnay BTG keg — almost empty", cat: "Inventory", urgency: "Next Shift" },
+      ],
+    },
+    {
+      id: "note_021", author: teamData[5], loc: 1, shift: "Closing", hours: 50, duration: 37,
+      transcript: "Saltwater closing. 171 covers, strong Monday. The grease trap is backing up, starting to smell. We absolutely need to get that cleaned this week. Hostess stand iPad screen is cracked, still works but looks bad. Had two food allergy incidents tonight — both handled properly with the allergy protocol. Remind the team to ALWAYS ask about allergies.",
+      summary: "171 covers. Grease trap backing up/smelling. Hostess iPad cracked. Two allergy incidents — protocol followed.",
+      items: [
+        { cat: "Maintenance", content: "Grease trap backing up and starting to smell", urgency: "Immediate" },
+        { cat: "Equipment", content: "Hostess stand iPad screen cracked — functional but looks bad", urgency: "This Week" },
+        { cat: "Health & Safety", content: "Two food allergy incidents tonight — allergy protocol followed correctly", urgency: "FYI" },
+        { cat: "Staff Notes", content: "Remind team to ALWAYS ask about allergies upfront", urgency: "Next Shift" },
+      ],
+      actions: [
+        { task: "Schedule grease trap cleaning THIS WEEK — backing up", cat: "Maintenance", urgency: "Immediate" },
+        { task: "Replace hostess stand iPad or get screen fixed", cat: "Equipment", urgency: "This Week" },
+        { task: "Send allergy protocol reminder to all staff", cat: "Health & Safety", urgency: "Next Shift" },
+      ],
+    },
+    {
+      id: "note_022", author: teamData[6], loc: 2, shift: "Mid", hours: 73, duration: 15,
+      transcript: "Rooftop mid shift. Light crowd, 38 covers, typical weekday lunch. The water feature fountain pump died. Plants on the south terrace need watering badly. Otherwise quiet.",
+      summary: "Light lunch, 38 covers. Fountain pump died. South terrace plants need watering.",
+      items: [
+        { cat: "Maintenance", content: "Water feature fountain pump died", urgency: "This Week" },
+        { cat: "Maintenance", content: "South terrace plants wilting — need watering urgently", urgency: "Next Shift" },
+      ],
+      actions: [
+        { task: "Replace fountain pump", cat: "Maintenance", urgency: "This Week" },
+        { task: "Water south terrace plants — they're wilting", cat: "Maintenance", urgency: "Next Shift", status: "Resolved" },
+      ],
+    },
+    {
+      id: "note_023", author: teamData[1], loc: 0, shift: "Mid", hours: 56, duration: 42,
+      transcript: "Ember Room mid shift. 98 covers for lunch, above average. The hand dryer in the men's room stopped working. We received the new glassware shipment but 12 of the wine glasses arrived broken. Need to file a claim. Line cook position still open, we've had 3 interviews but no one's been right. The community board inspector stopped by and our permit is up to date, so that's good.",
+      summary: "98 covers lunch. Men's room hand dryer broken. 12 wine glasses arrived broken — file claim. Line cook position still open. Permit confirmed current.",
+      items: [
+        { cat: "Maintenance", content: "Men's room hand dryer stopped working", urgency: "This Week" },
+        { cat: "Inventory", content: "12 wine glasses from new shipment arrived broken — need claim", urgency: "Next Shift" },
+        { cat: "Staff Notes", content: "Line cook position open — 3 interviews done, no hire yet", urgency: "This Week" },
+        { cat: "General", content: "Community board inspector confirmed permit is current", urgency: "FYI" },
+      ],
+      actions: [
+        { task: "Fix men's room hand dryer", cat: "Maintenance", urgency: "This Week" },
+        { task: "File damage claim for 12 broken wine glasses", cat: "Inventory", urgency: "Next Shift" },
+        { task: "Schedule more line cook interviews — still need to fill position", cat: "Staff Notes", urgency: "This Week" },
+      ],
+    },
+    {
+      id: "note_024", author: teamData[2], loc: 0, shift: "Closing", hours: 99, duration: 31,
+      transcript: "Ember Room Friday closing. Incredible night, 301 covers. Set a new all-time record. Kitchen handled it like champs. We did run out of the chocolate lava cake and the sea bass. The printer at station 2 ran out of paper mid-rush, chaos for about 10 minutes. Grease on the floor near the fryer station, someone almost slipped. Cleaned it up immediately. Private event inquiry for December 15th, 80 guests.",
+      summary: "ALL-TIME RECORD: 301 covers! 86'd chocolate lava cake & sea bass. Station 2 printer out of paper mid-rush. Grease spill near fryer (cleaned). Dec 15 private event inquiry, 80 guests.",
+      items: [
+        { cat: "86'd Items", content: "Chocolate lava cake sold out — record 301-cover night", urgency: "Next Shift" },
+        { cat: "86'd Items", content: "Sea bass sold out", urgency: "Next Shift" },
+        { cat: "Equipment", content: "Station 2 printer ran out of paper mid-rush — 10 min disruption", urgency: "Next Shift" },
+        { cat: "Health & Safety", content: "Grease spill near fryer — someone nearly slipped, cleaned immediately", urgency: "FYI" },
+        { cat: "Reservations/VIP", content: "Private event inquiry: December 15th, 80 guests", urgency: "This Week" },
+      ],
+      actions: [
+        { task: "Double prep on chocolate lava cake and sea bass for next weekend", cat: "86'd Items", urgency: "Next Shift", status: "Resolved" },
+        { task: "Stock extra printer paper at all stations", cat: "Equipment", urgency: "Next Shift", status: "Resolved" },
+        { task: "Follow up on December 15th private event — 80 guests", cat: "Reservations/VIP", urgency: "This Week" },
+      ],
+      acks: [
+        { userId: "user_001", userName: "Marcus Rivera", hoursAgo: 97 },
+        { userId: "user_002", userName: "Sarah Chen", hoursAgo: 96 },
+        { userId: "user_004", userName: "Ava Torres", hoursAgo: 95 },
+      ],
+    },
+    {
+      id: "note_025", author: teamData[4], loc: 1, shift: "Closing", hours: 74, duration: 28,
+      transcript: "Saltwater Thursday closing. 167 covers. The clam chowder batch was off today, pulled it from the menu at 6pm. Wine fridge door seal is coming loose on the left side. The new cocktail menu is a hit, especially the smoked old fashioned. Server training session needed on the new POS update that's coming Monday.",
+      summary: "167 covers. Clam chowder pulled at 6pm (off batch). Wine fridge door seal loose. New cocktail menu popular. POS training needed for Monday update.",
+      items: [
+        { cat: "86'd Items", content: "Clam chowder pulled from menu at 6pm — off batch", urgency: "Next Shift" },
+        { cat: "Equipment", content: "Wine fridge left door seal coming loose", urgency: "This Week" },
+        { cat: "General", content: "New cocktail menu a hit — smoked old fashioned very popular", urgency: "FYI" },
+        { cat: "Staff Notes", content: "POS update Monday — staff needs training session", urgency: "Next Shift" },
+      ],
+      actions: [
+        { task: "Review clam chowder recipe/process — batch was off", cat: "86'd Items", urgency: "Next Shift" },
+        { task: "Fix wine fridge door seal — left side", cat: "Equipment", urgency: "This Week" },
+        { task: "Schedule POS update training before Monday", cat: "Staff Notes", urgency: "Next Shift" },
+      ],
+    },
+  ];
+
+  for (const n of notes) {
+    const noteTimestamp = h(n.hours);
+    storage.upsertShiftNote({
+      id: n.id,
+      ownerId: demoUserId,
+      authorId: n.author.id,
+      authorName: n.author.name,
+      authorInitials: n.author.initials,
+      locationId: locIds[n.loc],
+      shiftType: n.shift,
+      shiftTemplateId: null,
+      rawTranscript: n.transcript,
+      audioUrl: null,
+      audioDuration: n.duration,
+      summary: n.summary,
+      categorizedItems: n.items.map((item, idx) => ({
+        id: `${n.id}_ci_${idx}`,
+        category: item.cat,
+        categoryTemplateId: null,
+        content: item.content,
+        urgency: item.urgency,
+        isResolved: false,
+      })),
+      actionItems: n.actions.map((action, idx) => ({
+        id: `${n.id}_ai_${idx}`,
+        task: action.task,
+        category: action.cat,
+        categoryTemplateId: null,
+        urgency: action.urgency,
+        status: action.status || "Open",
+        assignee: action.assignee || null,
+        assigneeId: action.assignee ? teamData.find((t) => t.name === action.assignee)?.id || null : null,
+        updatedAt: noteTimestamp,
+        statusUpdatedAt: noteTimestamp,
+        assigneeUpdatedAt: noteTimestamp,
+        hasConflict: false,
+        conflictDescription: null,
+      })),
+      photoUrls: [],
+      acknowledgments: (n.acks || []).map((ack, idx) => ({
+        id: `${n.id}_ack_${idx}`,
+        userId: ack.userId,
+        userName: ack.userName,
+        timestamp: h(ack.hoursAgo),
+      })),
+      voiceReplies: (n.replies || []).map((reply, idx) => ({
+        id: `${n.id}_reply_${idx}`,
+        authorId: reply.authorId,
+        authorName: reply.authorName,
+        transcript: reply.text,
+        timestamp: h(reply.hoursAgo),
+        parentItemId: null,
+      })),
+      createdAt: noteTimestamp,
+      updatedAt: noteTimestamp,
+      isSynced: true,
+    });
+  }
+
+  const recurringIssuesData = [
+    { desc: "Walk-in compressor making noise", cat: "Equipment", locIdx: 0, mentions: 4, daysFirst: 12, hoursLast: 3 },
+    { desc: "Ice machine leaking at service station", cat: "Maintenance", locIdx: 0, mentions: 3, daysFirst: 9, hoursLast: 8 },
+    { desc: "Back door lock sticking", cat: "Maintenance", locIdx: 1, mentions: 3, daysFirst: 14, hoursLast: 2 },
+    { desc: "Outdoor heaters failing to ignite", cat: "Equipment", locIdx: 2, mentions: 2, daysFirst: 7, hoursLast: 1 },
+    { desc: "POS terminal station 3 freezing", cat: "Equipment", locIdx: 0, mentions: 5, daysFirst: 21, hoursLast: 3 },
+  ];
+
+  for (let i = 0; i < recurringIssuesData.length; i++) {
+    const ri = recurringIssuesData[i];
+    storage.upsertRecurringIssue({
+      id: `ri_${i + 1}`,
+      ownerId: demoUserId,
+      description: ri.desc,
+      category: ri.cat,
+      categoryTemplateId: null,
+      locationId: locIds[ri.locIdx],
+      locationName: locNames[ri.locIdx],
+      mentionCount: ri.mentions,
+      relatedNoteIds: [],
+      firstMentioned: new Date(now - ri.daysFirst * 86400_000).toISOString(),
+      lastMentioned: h(ri.hoursLast),
+      status: "Active",
+      createdAt: new Date(now - ri.daysFirst * 86400_000).toISOString(),
+      updatedAt: h(ri.hoursLast),
+    });
+  }
+
+  storage.setSelectedLocationId(demoUserId, "loc_001");
+  console.log("Seed data populated: 25 notes, 3 locations, 7 team members, 5 recurring issues");
+}
+
+seedDemoData();
+
 // --- Health ---
 
 app.get("/", (c) => {

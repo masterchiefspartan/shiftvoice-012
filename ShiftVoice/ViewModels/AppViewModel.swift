@@ -260,10 +260,13 @@ final class AppViewModel {
             if let profile { self.userProfile = profile }
             self.organizationId = orgId
             if let locId { self.selectedLocationId = locId }
-            if let orgId { startListeners(orgId: orgId) }
+            if let orgId {
+                startListeners(orgId: orgId)
+            } else {
+                loadDemoData()
+            }
         } catch {
-            syncError = "Unable to load data: \(error.localizedDescription)"
-            isInitialLoading = false
+            loadDemoData()
         }
     }
 
@@ -727,6 +730,22 @@ final class AppViewModel {
 
     func resetAllData() {
         showToast("Data is managed in Firestore", isError: false)
+    }
+
+    func loadDemoData() {
+        organization = MockDataService.organization
+        organizationId = MockDataService.organization.id
+        locations = MockDataService.locations
+        teamMembers = MockDataService.teamMembers
+        shiftNotes = MockDataService.generateShiftNotes()
+        recurringIssues = MockDataService.recurringIssues
+        if selectedLocationId.isEmpty, let first = locations.first {
+            selectedLocationId = first.id
+        }
+        isInitialLoading = false
+        lastSyncDate = Date()
+        syncError = nil
+        loadFirstPage(shiftFilter: nil)
     }
 
     func retryPublish() {

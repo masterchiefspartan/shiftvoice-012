@@ -444,29 +444,53 @@ struct DashboardView: View {
             }
 
             if showRecurringIssues {
-                VStack(spacing: 0) {
-                    ForEach(Array(viewModel.recurringIssues.enumerated()), id: \.element.id) { index, issue in
-                        RecurringIssueRow(
-                            issue: issue,
-                            onAcknowledge: { viewModel.acknowledgeRecurringIssue(issue.id) },
-                            onResolve: { viewModel.resolveRecurringIssue(issue.id) }
-                        )
+                if viewModel.recurringIssues.isEmpty {
+                    VStack(spacing: 8) {
+                        Image(systemName: "checkmark.seal")
+                            .font(.system(size: 24))
+                            .foregroundStyle(SVTheme.textTertiary)
+                        Text("No recurring issues")
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(SVTheme.textSecondary)
+                        Text("Issues mentioned across multiple shifts will appear here")
+                            .font(.caption)
+                            .foregroundStyle(SVTheme.textTertiary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 32)
+                    .background(SVTheme.cardBackground)
+                    .clipShape(.rect(cornerRadius: 12))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(SVTheme.surfaceBorder, lineWidth: 1)
+                    )
+                    .transition(.opacity)
+                } else {
+                    VStack(spacing: 0) {
+                        ForEach(Array(viewModel.recurringIssues.enumerated()), id: \.element.id) { index, issue in
+                            RecurringIssueRow(
+                                issue: issue,
+                                onAcknowledge: { viewModel.acknowledgeRecurringIssue(issue.id) },
+                                onResolve: { viewModel.resolveRecurringIssue(issue.id) }
+                            )
 
-                        if index < viewModel.recurringIssues.count - 1 {
-                            Rectangle()
-                                .fill(SVTheme.divider)
-                                .frame(height: 1)
-                                .padding(.leading, 16)
+                            if index < viewModel.recurringIssues.count - 1 {
+                                Rectangle()
+                                    .fill(SVTheme.divider)
+                                    .frame(height: 1)
+                                    .padding(.leading, 16)
+                            }
                         }
                     }
+                    .background(SVTheme.cardBackground)
+                    .clipShape(.rect(cornerRadius: 12))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(SVTheme.surfaceBorder, lineWidth: 1)
+                    )
+                    .transition(.opacity)
                 }
-                .background(SVTheme.cardBackground)
-                .clipShape(.rect(cornerRadius: 12))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(SVTheme.surfaceBorder, lineWidth: 1)
-                )
-                .transition(.opacity)
             }
         }
     }
