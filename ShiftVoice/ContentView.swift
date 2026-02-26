@@ -40,7 +40,7 @@ struct ContentView: View {
             }
 
             VStack(spacing: 0) {
-                if viewModel.isOffline {
+                if viewModel.featureFlags.syncBannersEnabled, viewModel.isOffline {
                     offlineBanner
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 }

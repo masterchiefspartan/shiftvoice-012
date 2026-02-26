@@ -24,7 +24,7 @@ struct ShiftFeedView: View {
                     if !isSearchActive {
                         filterBar
                     }
-                    if viewModel.hasActiveConflicts {
+                    if viewModel.featureFlags.conflictUIEnabled, viewModel.hasActiveConflicts {
                         conflictSummaryBanner
                             .padding(.horizontal, 24)
                     }
@@ -53,7 +53,7 @@ struct ShiftFeedView: View {
                 locationPickerSheet
             }
             .sheet(isPresented: $showConflictSheet) {
-                if let noteId = selectedConflictNoteId {
+                if viewModel.featureFlags.conflictUIEnabled, let noteId = selectedConflictNoteId {
                     ConflictDetailView(noteId: noteId, viewModel: viewModel)
                         .presentationDetents([.medium, .large])
                         .presentationDragIndicator(.visible)
@@ -248,11 +248,11 @@ struct ShiftFeedView: View {
                             ShiftNoteCardView(
                                 note: note,
                                 isAcknowledged: viewModel.isNoteAcknowledged(note),
-                                activeConflictCount: viewModel.activeConflictsForNote(note.id).count,
-                                onTapConflictBadge: {
+                                activeConflictCount: viewModel.featureFlags.conflictUIEnabled ? viewModel.activeConflictsForNote(note.id).count : 0,
+                                onTapConflictBadge: viewModel.featureFlags.conflictUIEnabled ? {
                                     selectedConflictNoteId = note.id
                                     showConflictSheet = true
-                                }
+                                } : nil
                             )
                         }
                         .buttonStyle(.plain)
@@ -330,11 +330,11 @@ struct ShiftFeedView: View {
                                 ShiftNoteCardView(
                                     note: note,
                                     isAcknowledged: viewModel.isNoteAcknowledged(note),
-                                    activeConflictCount: viewModel.activeConflictsForNote(note.id).count,
-                                    onTapConflictBadge: {
+                                    activeConflictCount: viewModel.featureFlags.conflictUIEnabled ? viewModel.activeConflictsForNote(note.id).count : 0,
+                                    onTapConflictBadge: viewModel.featureFlags.conflictUIEnabled ? {
                                         selectedConflictNoteId = note.id
                                         showConflictSheet = true
-                                    }
+                                    } : nil
                                 )
                             }
                             .buttonStyle(.plain)

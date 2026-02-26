@@ -67,6 +67,11 @@ final class EditBaselineStore {
         save()
     }
 
+    func clearAllBaselines() {
+        baselines = [:]
+        save()
+    }
+
     private func load() {
         let url = storageURL
         guard fileManager.fileExists(atPath: url.path) else {

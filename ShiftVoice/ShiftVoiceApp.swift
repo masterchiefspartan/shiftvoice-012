@@ -97,6 +97,7 @@ struct ShiftVoiceApp: App {
                     pushService.checkAuthorizationStatus()
                 }
                 authService.validateAndRefreshSession()
+                await FeatureFlagService.shared.refreshRemoteFlags()
             }
         }
     }

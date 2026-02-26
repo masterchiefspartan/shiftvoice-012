@@ -91,6 +91,7 @@ final class AppViewModel {
     private let conflictStore: ConflictStore
     private let editBaselineStore: EditBaselineStore
     private let syncEventLogger: SyncEventLogger
+    let featureFlags: FeatureFlagService
     private let conflictDetector: ConflictDetector
     private var recentlyClearedPendingNoteIds: Set<String> = []
     private var recentlyClearedPendingEdits: [String: PendingOp] = [:]
@@ -121,6 +122,7 @@ final class AppViewModel {
     private var pendingReconciliationTask: Task<Void, Never>?
     private var networkReconnectObserver: NSObjectProtocol?
     private var networkStatusObserver: NSObjectProtocol?
+    private var forcedSyncStateForDebug: SyncState?
 
     var currentUserId: String { authenticatedUserId ?? "" }
     var currentUserName: String { userProfile?.name ?? "" }
@@ -194,6 +196,7 @@ final class AppViewModel {
         self.conflictStore = conflictStore ?? ConflictStore()
         self.editBaselineStore = editBaselineStore ?? EditBaselineStore()
         self.syncEventLogger = .shared
+        self.featureFlags = .shared
         self.conflictDetector = ConflictDetector(conflictStore: self.conflictStore, syncEventLogger: self.syncEventLogger)
         networkReconnectObserver = NotificationCenter.default.addObserver(
             forName: .networkReconnected,
@@ -860,17 +863,21 @@ final class AppViewModel {
             snapshotFreshness = .none
         }
 
-        syncState = SyncStateReducer.reduce(
-            SyncStateInput(
-                isConnected: networkMonitor.isConnected,
-                snapshotFreshness: snapshotFreshness,
-                hasPendingWrites: hasPendingWrites,
-                hasServerSnapshotSinceReconnect: hasServerSnapshotSinceReconnect,
-                lastWriteError: lastWriteError,
-                pendingNoteCount: pendingNoteIds.count,
-                pendingDeleteCount: pendingOpsStore.summary().pendingDeleteCount
+        if let forcedSyncStateForDebug {
+            syncState = forcedSyncStateForDebug
+        } else {
+            syncState = SyncStateReducer.reduce(
+                SyncStateInput(
+                    isConnected: networkMonitor.isConnected,
+                    snapshotFreshness: snapshotFreshness,
+                    hasPendingWrites: hasPendingWrites,
+                    hasServerSnapshotSinceReconnect: hasServerSnapshotSinceReconnect,
+                    lastWriteError: lastWriteError,
+                    pendingNoteCount: pendingNoteIds.count,
+                    pendingDeleteCount: pendingOpsStore.summary().pendingDeleteCount
+                )
             )
-        )
+        }
 
         if oldState != syncState {
             syncEventLogger.stateTransition(from: oldState, to: syncState)
@@ -1463,6 +1470,38 @@ final class AppViewModel {
         case .error:
             return "Error"
         }
+    }
+
+    func setForcedSyncStateForDebug(_ state: SyncState?) {
+        forcedSyncStateForDebug = state
+        updateSyncState()
+    }
+
+    func resetSyncDataForDebug() {
+        pendingReconciliationTask?.cancel()
+        pendingSyncState = PendingSyncState()
+        pendingNoteIds = []
+        recentlyClearedPendingNoteIds = []
+        recentlyClearedPendingEdits = [:]
+        hasPendingWrites = false
+        hasServerSnapshotSinceReconnect = false
+        lastWriteError = nil
+        syncError = nil
+
+        if let userId = authenticatedUserId {
+            persistence.clearPendingSyncState(for: userId)
+            pendingOpsStore.clearCurrentUser()
+            pendingOpsStore.configure(userId: userId)
+            conflictStore.clearAllConflicts()
+            editBaselineStore.clearAllBaselines()
+        } else {
+            pendingOpsStore.clearCurrentUser()
+            conflictStore.clearCurrentUserContext()
+            editBaselineStore.clearCurrentUserContext()
+        }
+
+        updateSyncState()
+        showToast("Sync debug data reset", isError: false)
     }
 
     func diagnosticsReport() -> String {

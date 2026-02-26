@@ -101,6 +101,11 @@ final class ConflictStore {
         allConflicts.filter { $0.noteId == noteId }
     }
 
+    func clearAllConflicts() {
+        allConflicts = []
+        save()
+    }
+
     private func load() {
         let url = storageURL
         guard fileManager.fileExists(atPath: url.path) else {

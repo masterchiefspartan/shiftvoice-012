@@ -68,10 +68,12 @@ struct ShiftNoteDetailView: View {
             }
         }
         .sheet(isPresented: $showConflictSheet) {
-            ConflictDetailView(noteId: noteId, viewModel: viewModel)
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
-                .presentationContentInteraction(.scrolls)
+            if viewModel.featureFlags.conflictUIEnabled {
+                ConflictDetailView(noteId: noteId, viewModel: viewModel)
+                    .presentationDetents([.medium, .large])
+                    .presentationDragIndicator(.visible)
+                    .presentationContentInteraction(.scrolls)
+            }
         }
     }
 
@@ -79,7 +81,7 @@ struct ShiftNoteDetailView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 headerSection(note)
-                if !viewModel.activeConflictsForNote(note.id).isEmpty {
+                if viewModel.featureFlags.conflictUIEnabled, !viewModel.activeConflictsForNote(note.id).isEmpty {
                     conflictSection(note.id)
                 }
                 summarySection(note)

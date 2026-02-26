@@ -33,6 +33,7 @@ struct SettingsView: View {
     @State private var isPendingOpsExpanded: Bool = false
     @State private var isEventsExpanded: Bool = false
     @State private var isWriteFailuresExpanded: Bool = false
+    @State private var showDeveloperSection: Bool = false
 
     var body: some View {
         NavigationStack {
@@ -58,7 +59,9 @@ struct SettingsView: View {
                     subscriptionSection
                     aboutSection
                     #if DEBUG
-                    debugSection
+                    if showDeveloperSection {
+                        developerSection
+                    }
                     #endif
                     signOutSection
                 }
@@ -143,215 +146,183 @@ struct SettingsView: View {
                 .foregroundStyle(SVTheme.textTertiary)
                 .tracking(0.5)
 
-            VStack(spacing: 0) {
-                HStack {
-                    Image(systemName: "arrow.triangle.2.circlepath")
-                        .font(.system(size: 14))
-                        .foregroundStyle(SVTheme.accent)
-                        .frame(width: 28, height: 28)
-                        .background(SVTheme.accent.opacity(0.1))
-                        .clipShape(.rect(cornerRadius: 6))
+            if viewModel.featureFlags.diagnosticsEnabled {
+                diagnosticsSyncCard
+            } else {
+                basicSyncCard
+            }
+        }
+    }
 
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Cloud Sync")
-                            .font(.subheadline.weight(.medium))
-                            .foregroundStyle(SVTheme.textPrimary)
-                        if let lastSync = viewModel.lastSyncDate {
-                            Text("Last synced \(lastSync.formatted(.relative(presentation: .named)))")
-                                .font(.caption)
-                                .foregroundStyle(SVTheme.textTertiary)
-                        } else {
-                            Text(APIService.shared.isConfigured ? "Not yet synced" : "Backend not configured")
-                                .font(.caption)
-                                .foregroundStyle(SVTheme.textTertiary)
+    private var basicSyncCard: some View {
+        VStack(spacing: 0) {
+            syncSummaryRow
+        }
+        .background(SVTheme.cardBackground)
+        .clipShape(.rect(cornerRadius: 12))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(SVTheme.surfaceBorder, lineWidth: 1)
+        )
+    }
+
+    private var diagnosticsSyncCard: some View {
+        VStack(spacing: 0) {
+            syncSummaryRow
+
+            Rectangle().fill(SVTheme.divider).frame(height: 1).padding(.leading, 16)
+
+            HStack(spacing: 10) {
+                Circle()
+                    .fill(syncStateColor)
+                    .frame(width: 10, height: 10)
+                Text(viewModel.syncStateLabel())
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(SVTheme.textPrimary)
+                Spacer()
+                Text("Pending: \(viewModel.pendingOpsCountForDiagnostics)")
+                    .font(.caption)
+                    .foregroundStyle(SVTheme.textTertiary)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+
+            Rectangle().fill(SVTheme.divider).frame(height: 1).padding(.leading, 16)
+
+            HStack(spacing: 8) {
+                Label("Active Conflicts", systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(viewModel.activeConflictCount > 0 ? SVTheme.amber : SVTheme.textTertiary)
+                Spacer()
+                Text("\(viewModel.activeConflictCount)")
+                    .font(.caption.weight(.semibold).monospacedDigit())
+                    .foregroundStyle(SVTheme.textPrimary)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+
+            Rectangle().fill(SVTheme.divider).frame(height: 1).padding(.leading, 16)
+
+            DisclosureGroup(isExpanded: $isPendingOpsExpanded) {
+                VStack(alignment: .leading, spacing: 6) {
+                    if viewModel.pendingDocIdsForDiagnostics.isEmpty {
+                        Text("No pending documents")
+                            .font(.caption)
+                            .foregroundStyle(SVTheme.textTertiary)
+                    } else {
+                        ForEach(viewModel.pendingDocIdsForDiagnostics, id: \.self) { docId in
+                            Text(docId)
+                                .font(.caption.monospaced())
+                                .foregroundStyle(SVTheme.textSecondary)
+                                .lineLimit(1)
                         }
                     }
-
-                    Spacer()
-
-                    Button {
-                        viewModel.forceSync()
-                    } label: {
-                        Text("Sync Now")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .background(SVTheme.accent)
-                            .clipShape(Capsule())
-                    }
-                    .disabled(!APIService.shared.isConfigured)
                 }
-                .padding(16)
-
-                Rectangle().fill(SVTheme.divider).frame(height: 1).padding(.leading, 16)
-
-                HStack(spacing: 10) {
-                    Circle()
-                        .fill(syncStateColor)
-                        .frame(width: 10, height: 10)
-                    Text(viewModel.syncStateLabel())
-                        .font(.caption.weight(.semibold))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, 6)
+            } label: {
+                HStack {
+                    Text("Pending Doc IDs")
+                        .font(.caption.weight(.medium))
                         .foregroundStyle(SVTheme.textPrimary)
                     Spacer()
-                    Text("Pending: \(viewModel.pendingOpsCountForDiagnostics)")
-                        .font(.caption)
+                    Text("\(viewModel.pendingOpsCountForDiagnostics)")
+                        .font(.caption.monospacedDigit())
                         .foregroundStyle(SVTheme.textTertiary)
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
 
-                Rectangle().fill(SVTheme.divider).frame(height: 1).padding(.leading, 16)
+            Rectangle().fill(SVTheme.divider).frame(height: 1).padding(.leading, 16)
 
-                HStack(spacing: 8) {
-                    Label("Active Conflicts", systemImage: "exclamationmark.triangle.fill")
-                        .font(.caption)
-                        .foregroundStyle(viewModel.activeConflictCount > 0 ? SVTheme.amber : SVTheme.textTertiary)
-                    Spacer()
-                    Text("\(viewModel.activeConflictCount)")
-                        .font(.caption.weight(.semibold).monospacedDigit())
-                        .foregroundStyle(SVTheme.textPrimary)
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
-
-                Rectangle().fill(SVTheme.divider).frame(height: 1).padding(.leading, 16)
-
-                DisclosureGroup(isExpanded: $isPendingOpsExpanded) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        if viewModel.pendingDocIdsForDiagnostics.isEmpty {
-                            Text("No pending documents")
-                                .font(.caption)
+            DisclosureGroup(isExpanded: $isEventsExpanded) {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(viewModel.recentSyncEventsForDiagnostics) { event in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(event.timestamp.formatted(date: .omitted, time: .standard))
+                                .font(.caption2.monospacedDigit())
                                 .foregroundStyle(SVTheme.textTertiary)
-                        } else {
-                            ForEach(viewModel.pendingDocIdsForDiagnostics, id: \.self) { docId in
-                                Text(docId)
-                                    .font(.caption.monospaced())
-                                    .foregroundStyle(SVTheme.textSecondary)
-                                    .lineLimit(1)
-                            }
+                            Text(event.message)
+                                .font(.caption)
+                                .foregroundStyle(SVTheme.textSecondary)
                         }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.top, 6)
-                } label: {
-                    HStack {
-                        Text("Pending Doc IDs")
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(SVTheme.textPrimary)
-                        Spacer()
-                        Text("\(viewModel.pendingOpsCountForDiagnostics)")
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(SVTheme.textTertiary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, 6)
+            } label: {
+                HStack {
+                    Text("Recent Sync Events")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(SVTheme.textPrimary)
+                    Spacer()
+                    Text("10")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(SVTheme.textTertiary)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
 
-                Rectangle().fill(SVTheme.divider).frame(height: 1).padding(.leading, 16)
+            Rectangle().fill(SVTheme.divider).frame(height: 1).padding(.leading, 16)
 
-                DisclosureGroup(isExpanded: $isEventsExpanded) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        ForEach(viewModel.recentSyncEventsForDiagnostics) { event in
+            DisclosureGroup(isExpanded: $isWriteFailuresExpanded) {
+                VStack(alignment: .leading, spacing: 8) {
+                    if viewModel.recentWriteFailuresForDiagnostics.isEmpty {
+                        Text("No recent write failures")
+                            .font(.caption)
+                            .foregroundStyle(SVTheme.textTertiary)
+                    } else {
+                        ForEach(viewModel.recentWriteFailuresForDiagnostics) { event in
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(event.timestamp.formatted(date: .omitted, time: .standard))
                                     .font(.caption2.monospacedDigit())
                                     .foregroundStyle(SVTheme.textTertiary)
                                 Text(event.message)
                                     .font(.caption)
-                                    .foregroundStyle(SVTheme.textSecondary)
+                                    .foregroundStyle(SVTheme.amber)
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.top, 6)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, 6)
+            } label: {
+                HStack {
+                    Text("Write Failures")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(SVTheme.textPrimary)
+                    Spacer()
+                    Text("\(viewModel.writeFailureCountForDiagnostics)")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(SVTheme.textTertiary)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+
+            Rectangle().fill(SVTheme.divider).frame(height: 1).padding(.leading, 16)
+
+            HStack(spacing: 8) {
+                Button {
+                    UIPasteboard.general.string = viewModel.diagnosticsReport()
                 } label: {
-                    HStack {
-                        Text("Recent Sync Events")
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(SVTheme.textPrimary)
-                        Spacer()
-                        Text("10")
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(SVTheme.textTertiary)
-                    }
+                    Label("Copy Diagnostics", systemImage: "doc.on.doc")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(SVTheme.accent)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(SVTheme.accent.opacity(0.1))
+                        .clipShape(.rect(cornerRadius: 8))
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-
-                Rectangle().fill(SVTheme.divider).frame(height: 1).padding(.leading, 16)
-
-                DisclosureGroup(isExpanded: $isWriteFailuresExpanded) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        if viewModel.recentWriteFailuresForDiagnostics.isEmpty {
-                            Text("No recent write failures")
-                                .font(.caption)
-                                .foregroundStyle(SVTheme.textTertiary)
-                        } else {
-                            ForEach(viewModel.recentWriteFailuresForDiagnostics) { event in
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(event.timestamp.formatted(date: .omitted, time: .standard))
-                                        .font(.caption2.monospacedDigit())
-                                        .foregroundStyle(SVTheme.textTertiary)
-                                    Text(event.message)
-                                        .font(.caption)
-                                        .foregroundStyle(SVTheme.amber)
-                                }
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                            }
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.top, 6)
-                } label: {
-                    HStack {
-                        Text("Write Failures")
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(SVTheme.textPrimary)
-                        Spacer()
-                        Text("\(viewModel.writeFailureCountForDiagnostics)")
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(SVTheme.textTertiary)
-                    }
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-
-                Rectangle().fill(SVTheme.divider).frame(height: 1).padding(.leading, 16)
-
-                HStack(spacing: 8) {
-                    Button {
-                        UIPasteboard.general.string = viewModel.diagnosticsReport()
-                    } label: {
-                        Label("Copy Diagnostics", systemImage: "doc.on.doc")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(SVTheme.accent)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 10)
-                            .background(SVTheme.accent.opacity(0.1))
-                            .clipShape(.rect(cornerRadius: 8))
-                    }
-
-                    Button {
-                        viewModel.forceSyncListenerRestart()
-                    } label: {
-                        Label("Restart Listeners", systemImage: "arrow.clockwise")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(SVTheme.textSecondary)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 10)
-                            .background(SVTheme.iconBackground)
-                            .clipShape(.rect(cornerRadius: 8))
-                    }
-                }
-                .padding(.horizontal, 16)
-                .padding(.top, 10)
 
                 Button {
-                    viewModel.forceReconciliationFromDiagnostics()
+                    viewModel.forceSyncListenerRestart()
                 } label: {
-                    Label("Force Reconciliation", systemImage: "checkmark.arrow.trianglehead.counterclockwise")
+                    Label("Restart Listeners", systemImage: "arrow.clockwise")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(SVTheme.textSecondary)
                         .frame(maxWidth: .infinity)
@@ -359,30 +330,86 @@ struct SettingsView: View {
                         .background(SVTheme.iconBackground)
                         .clipShape(.rect(cornerRadius: 8))
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 10)
 
-                if let error = viewModel.syncError {
-                    Rectangle().fill(SVTheme.divider).frame(height: 1).padding(.leading, 16)
-                    HStack(spacing: 8) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.caption)
-                            .foregroundStyle(SVTheme.amber)
-                        Text(error)
-                            .font(.caption)
-                            .foregroundStyle(SVTheme.textSecondary)
-                            .lineLimit(2)
-                    }
-                    .padding(16)
+            Button {
+                viewModel.forceReconciliationFromDiagnostics()
+            } label: {
+                Label("Force Reconciliation", systemImage: "checkmark.arrow.trianglehead.counterclockwise")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(SVTheme.textSecondary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .background(SVTheme.iconBackground)
+                    .clipShape(.rect(cornerRadius: 8))
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+
+            if let error = viewModel.syncError {
+                Rectangle().fill(SVTheme.divider).frame(height: 1).padding(.leading, 16)
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(SVTheme.amber)
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(SVTheme.textSecondary)
+                        .lineLimit(2)
+                }
+                .padding(16)
+            }
+        }
+        .background(SVTheme.cardBackground)
+        .clipShape(.rect(cornerRadius: 12))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(SVTheme.surfaceBorder, lineWidth: 1)
+        )
+    }
+
+    private var syncSummaryRow: some View {
+        HStack {
+            Image(systemName: "arrow.triangle.2.circlepath")
+                .font(.system(size: 14))
+                .foregroundStyle(SVTheme.accent)
+                .frame(width: 28, height: 28)
+                .background(SVTheme.accent.opacity(0.1))
+                .clipShape(.rect(cornerRadius: 6))
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Cloud Sync")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(SVTheme.textPrimary)
+                if let lastSync = viewModel.lastSyncDate {
+                    Text("Last synced \(lastSync.formatted(.relative(presentation: .named)))")
+                        .font(.caption)
+                        .foregroundStyle(SVTheme.textTertiary)
+                } else {
+                    Text(APIService.shared.isConfigured ? "Not yet synced" : "Backend not configured")
+                        .font(.caption)
+                        .foregroundStyle(SVTheme.textTertiary)
                 }
             }
-            .background(SVTheme.cardBackground)
-            .clipShape(.rect(cornerRadius: 12))
-            .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(SVTheme.surfaceBorder, lineWidth: 1)
-            )
+
+            Spacer()
+
+            Button {
+                viewModel.forceSync()
+            } label: {
+                Text("Sync Now")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(SVTheme.accent)
+                    .clipShape(Capsule())
+            }
+            .disabled(!APIService.shared.isConfigured)
         }
+        .padding(16)
     }
 
     private var notificationSection: some View {
@@ -748,7 +775,20 @@ struct SettingsView: View {
                 .tracking(0.5)
 
             VStack(spacing: 0) {
-                settingsValueRow(title: "Version", value: "1.0.0")
+                HStack {
+                    Text("Version")
+                        .font(.subheadline)
+                        .foregroundStyle(SVTheme.textPrimary)
+                    Spacer()
+                    Text("1.0.0")
+                        .font(.subheadline)
+                        .foregroundStyle(SVTheme.textTertiary)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+                .onTapGesture(count: 3) {
+                    showDeveloperSection.toggle()
+                }
                 Rectangle().fill(SVTheme.divider).frame(height: 1).padding(.leading, 16)
                 settingsNavigationRow(title: "Privacy Policy") {
                     if let url = URL(string: "https://shiftvoice.app/privacy") {
@@ -784,33 +824,74 @@ struct SettingsView: View {
     }
 
     #if DEBUG
-    private var debugSection: some View {
+    private var developerSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("DEBUG")
+            Text("DEVELOPER")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(SVTheme.textTertiary)
                 .tracking(0.5)
 
             VStack(spacing: 0) {
-                Button {
-                    viewModel.loadDemoData()
-                } label: {
-                    HStack(spacing: 12) {
-                        Image(systemName: "square.and.arrow.down")
-                            .font(.subheadline)
-                            .foregroundStyle(SVTheme.accent)
-                            .frame(width: 28, height: 28)
-                            .background(SVTheme.accent.opacity(0.1))
-                            .clipShape(.rect(cornerRadius: 6))
+                settingsValueRow(title: "Sync State", value: viewModel.syncStateLabel())
+                Rectangle().fill(SVTheme.divider).frame(height: 1).padding(.leading, 16)
 
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Load Demo Data")
-                                .font(.subheadline.weight(.medium))
-                                .foregroundStyle(SVTheme.textPrimary)
-                            Text("25 notes, 3 locations, 7 team members")
-                                .font(.caption)
-                                .foregroundStyle(SVTheme.textTertiary)
-                        }
+                settingsToggleRow(
+                    title: "Conflict UI",
+                    isOn: Binding(
+                        get: { viewModel.featureFlags.conflictUIEnabled },
+                        set: { viewModel.featureFlags.conflictUIOverride = $0 }
+                    )
+                )
+                Rectangle().fill(SVTheme.divider).frame(height: 1).padding(.leading, 16)
+
+                settingsToggleRow(
+                    title: "Diagnostics",
+                    isOn: Binding(
+                        get: { viewModel.featureFlags.diagnosticsEnabled },
+                        set: { viewModel.featureFlags.diagnosticsOverride = $0 }
+                    )
+                )
+                Rectangle().fill(SVTheme.divider).frame(height: 1).padding(.leading, 16)
+
+                settingsToggleRow(
+                    title: "Sync Banners",
+                    isOn: Binding(
+                        get: { viewModel.featureFlags.syncBannersEnabled },
+                        set: { viewModel.featureFlags.syncBannersOverride = $0 }
+                    )
+                )
+                Rectangle().fill(SVTheme.divider).frame(height: 1).padding(.leading, 16)
+
+                Menu {
+                    Button("Use Live Reducer") { viewModel.setForcedSyncStateForDebug(nil) }
+                    Button("Offline") { viewModel.setForcedSyncStateForDebug(.offline) }
+                    Button("Online Cache") { viewModel.setForcedSyncStateForDebug(.onlineCache) }
+                    Button("Syncing") { viewModel.setForcedSyncStateForDebug(.syncing) }
+                    Button("Online Fresh") { viewModel.setForcedSyncStateForDebug(.onlineFresh) }
+                    Button("Error") { viewModel.setForcedSyncStateForDebug(.error) }
+                } label: {
+                    HStack {
+                        Text("Force Sync State")
+                            .font(.subheadline)
+                            .foregroundStyle(SVTheme.textPrimary)
+                        Spacer()
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.caption)
+                            .foregroundStyle(SVTheme.textTertiary)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                }
+
+                Rectangle().fill(SVTheme.divider).frame(height: 1).padding(.leading, 16)
+
+                Button {
+                    viewModel.featureFlags.clearAllOverrides()
+                } label: {
+                    HStack {
+                        Text("Reset Feature Flag Overrides")
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(SVTheme.textPrimary)
                         Spacer()
                     }
                     .padding(.horizontal, 16)
@@ -819,13 +900,18 @@ struct SettingsView: View {
 
                 Rectangle().fill(SVTheme.divider).frame(height: 1).padding(.leading, 16)
 
-                settingsValueRow(title: "Notes", value: "\(viewModel.shiftNotes.count)")
-                Rectangle().fill(SVTheme.divider).frame(height: 1).padding(.leading, 16)
-                settingsValueRow(title: "Locations", value: "\(viewModel.locations.count)")
-                Rectangle().fill(SVTheme.divider).frame(height: 1).padding(.leading, 16)
-                settingsValueRow(title: "Team", value: "\(viewModel.teamMembers.count)")
-                Rectangle().fill(SVTheme.divider).frame(height: 1).padding(.leading, 16)
-                settingsValueRow(title: "Action Items", value: "\(viewModel.allActionItemsWithDate.count)")
+                Button {
+                    viewModel.resetSyncDataForDebug()
+                } label: {
+                    HStack {
+                        Text("Reset All Sync Data")
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(SVTheme.urgentRed)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                }
             }
             .background(SVTheme.cardBackground)
             .clipShape(.rect(cornerRadius: 12))
