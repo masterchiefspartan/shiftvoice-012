@@ -56,27 +56,10 @@ struct ErrorHandlingTests {
         #expect(vm.toastMessage?.isError == false)
     }
 
-    // MARK: - Offline Pending Queue Tests
+    // MARK: - Offline State Tests
 
-    @Test func pendingOfflineCountInitiallyZero() {
+    @Test func pendingOfflineCountIsZeroAfterQueueRemoval() {
         let vm = AppViewModel()
-        #expect(vm.pendingOfflineCount == 0)
-    }
-
-    @Test func pendingOfflineCountAfterAddingActions() {
-        let vm = AppViewModel()
-        let action1 = PendingAction(type: .syncNotes, payload: "note_1")
-        let action2 = PendingAction(type: .syncNotes, payload: "note_2")
-        vm.pendingOfflineActions.append(action1)
-        vm.pendingOfflineActions.append(action2)
-        #expect(vm.pendingOfflineCount == 2)
-    }
-
-    @Test func pendingOfflineCountAfterClearing() {
-        let vm = AppViewModel()
-        vm.pendingOfflineActions.append(PendingAction(type: .syncNotes))
-        #expect(vm.pendingOfflineCount == 1)
-        vm.pendingOfflineActions.removeAll()
         #expect(vm.pendingOfflineCount == 0)
     }
 
@@ -120,40 +103,6 @@ struct ErrorHandlingTests {
         #expect(vm.syncError == "Network timeout")
     }
 
-    // MARK: - PendingAction Tests
-
-    @Test func pendingActionCreation() {
-        let action = PendingAction(type: .syncNotes, payload: "note_123")
-        #expect(action.type == .syncNotes)
-        #expect(action.payload == "note_123")
-        #expect(!action.id.isEmpty)
-    }
-
-    @Test func pendingActionDefaultPayload() {
-        let action = PendingAction(type: .sendInvite)
-        #expect(action.payload == "")
-    }
-
-    @Test func pendingActionTypes() {
-        let syncAction = PendingAction(type: .syncNotes)
-        let inviteAction = PendingAction(type: .sendInvite)
-        let profileAction = PendingAction(type: .updateProfile)
-
-        #expect(syncAction.type == .syncNotes)
-        #expect(inviteAction.type == .sendInvite)
-        #expect(profileAction.type == .updateProfile)
-    }
-
-    @Test func pendingActionCodable() throws {
-        let action = PendingAction(type: .syncNotes, payload: "test_note")
-        let data = try JSONEncoder().encode(action)
-        let decoded = try JSONDecoder().decode(PendingAction.self, from: data)
-
-        #expect(decoded.id == action.id)
-        #expect(decoded.type == action.type)
-        #expect(decoded.payload == action.payload)
-    }
-
     // MARK: - APIError Tests
 
     @Test func apiErrorDescriptions() {
@@ -194,23 +143,4 @@ struct ErrorHandlingTests {
         #expect(vm.networkMonitor === NetworkMonitor.shared)
     }
 
-    // MARK: - Integration: Error Flow Tests
-
-    @Test func offlinePublishAddsPendingAction() {
-        let vm = AppViewModel()
-        let initialCount = vm.pendingOfflineCount
-        let action = PendingAction(type: .syncNotes, payload: "test_note")
-        vm.pendingOfflineActions.append(action)
-        #expect(vm.pendingOfflineCount == initialCount + 1)
-    }
-
-    @Test func reconnectClearsPendingActions() {
-        let vm = AppViewModel()
-        vm.pendingOfflineActions.append(PendingAction(type: .syncNotes))
-        vm.pendingOfflineActions.append(PendingAction(type: .syncNotes))
-        #expect(vm.pendingOfflineCount == 2)
-
-        vm.pendingOfflineActions.removeAll()
-        #expect(vm.pendingOfflineCount == 0)
-    }
 }

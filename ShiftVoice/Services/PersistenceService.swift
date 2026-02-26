@@ -153,37 +153,6 @@ final class PersistenceService {
         }
     }
 
-    // MARK: - Pending Offline Queue (Persistent)
-
-    private func pendingQueueURL(for userId: String) -> URL {
-        userDirectory(for: userId).appendingPathComponent("pending_queue.json")
-    }
-
-    func savePendingActions(_ actions: [PendingAction], for userId: String) {
-        do {
-            let data = try encoder.encode(actions)
-            try data.write(to: pendingQueueURL(for: userId), options: .atomic)
-        } catch {
-            print("PersistenceService savePendingActions error: \(error)")
-        }
-    }
-
-    func loadPendingActions(for userId: String) -> [PendingAction] {
-        let url = pendingQueueURL(for: userId)
-        guard fileManager.fileExists(atPath: url.path) else { return [] }
-        do {
-            let data = try Data(contentsOf: url)
-            return try decoder.decode([PendingAction].self, from: data)
-        } catch {
-            print("PersistenceService loadPendingActions error: \(error)")
-            return []
-        }
-    }
-
-    func clearPendingActions(for userId: String) {
-        try? fileManager.removeItem(at: pendingQueueURL(for: userId))
-    }
-
     // MARK: - Sync Snapshot (for rollback)
 
     private func snapshotURL(for userId: String) -> URL {

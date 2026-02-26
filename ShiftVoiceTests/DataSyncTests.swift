@@ -242,55 +242,6 @@ struct DataSyncTests {
         #expect(item.conflictDescription == nil)
     }
 
-    // MARK: - Pending Action Queue
-
-    @Test func pendingActionPersistenceRoundTrip() {
-        let persistence = PersistenceService.shared
-        let testUserId = "test_sync_\(UUID().uuidString)"
-
-        let actions = [
-            PendingAction(type: .syncNotes, payload: "note_001"),
-            PendingAction(type: .updateActionItemStatus, payload: "note_001|action_001|Resolved"),
-            PendingAction(type: .acknowledgeNote, payload: "note_002|user_001|John Doe")
-        ]
-
-        persistence.savePendingActions(actions, for: testUserId)
-        let loaded = persistence.loadPendingActions(for: testUserId)
-
-        #expect(loaded.count == 3)
-        #expect(loaded[0].type == .syncNotes)
-        #expect(loaded[0].payload == "note_001")
-        #expect(loaded[1].type == .updateActionItemStatus)
-        #expect(loaded[1].payload == "note_001|action_001|Resolved")
-        #expect(loaded[2].type == .acknowledgeNote)
-
-        persistence.clearPendingActions(for: testUserId)
-        let cleared = persistence.loadPendingActions(for: testUserId)
-        #expect(cleared.isEmpty)
-
-        persistence.clearUserData(for: testUserId)
-    }
-
-    @Test func pendingActionRetryCountIncrements() {
-        let action = PendingAction(type: .syncNotes, payload: "note_001")
-        #expect(action.retryCount == 0)
-
-        let retried = action.withIncrementedRetry()
-        #expect(retried.retryCount == 1)
-        #expect(retried.id == action.id)
-        #expect(retried.type == action.type)
-
-        let retriedAgain = retried.withIncrementedRetry()
-        #expect(retriedAgain.retryCount == 2)
-    }
-
-    @Test func pendingActionEmptyQueueLoadsEmpty() {
-        let persistence = PersistenceService.shared
-        let testUserId = "test_empty_queue_\(UUID().uuidString)"
-        let loaded = persistence.loadPendingActions(for: testUserId)
-        #expect(loaded.isEmpty)
-    }
-
     // MARK: - Snapshot Persistence
 
     @Test func snapshotSaveAndLoadRoundTrip() {
