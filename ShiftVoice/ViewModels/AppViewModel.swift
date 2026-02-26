@@ -927,18 +927,39 @@ final class AppViewModel {
             do {
                 let serverState = try await firestore.fetchShiftNoteServerState(noteId: noteId, orgId: orgId)
 
-                if serverState.exists {
-                    if let note = serverState.note {
-                        reconcileOperationFromObservedServerNote(note)
-                    } else {
-                        pendingSyncState.pendingOperations.removeValue(forKey: noteId)
-                        pendingSyncState.pendingDeletes.removeValue(forKey: noteId)
-                        pendingNoteIds.remove(noteId)
+                if let deleteOperation = pendingSyncState.pendingDeletes[noteId] {
+                    if !serverState.exists {
+                        clearPendingOperation(noteId: deleteOperation.noteId)
                     }
-                } else {
+                    continue
+                }
+
+                guard let operation = pendingSyncState.pendingOperations[noteId] else {
+                    continue
+                }
+
+                guard serverState.exists, let note = serverState.note else {
                     pendingSyncState.pendingOperations.removeValue(forKey: noteId)
-                    pendingSyncState.pendingDeletes.removeValue(forKey: noteId)
                     pendingNoteIds.remove(noteId)
+                    lastWriteError = .rejectedTransaction
+                    syncError = userFacingSyncError(.rejectedTransaction)
+                    continue
+                }
+
+                pendingSyncState.noteLastSeenUpdatedAtServer[noteId] = note.updatedAt
+
+                switch operation.type {
+                case .create:
+                    pendingSyncState.pendingOperations.removeValue(forKey: noteId)
+                    pendingNoteIds.remove(noteId)
+                case .edit:
+                    if let expectedDate = operation.expectedUpdatedAtClient, note.updatedAt < expectedDate {
+                        continue
+                    }
+                    pendingSyncState.pendingOperations.removeValue(forKey: noteId)
+                    pendingNoteIds.remove(noteId)
+                case .delete:
+                    break
                 }
             } catch {
                 let syncError = SyncError(error: error)
