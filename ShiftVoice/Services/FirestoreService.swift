@@ -102,13 +102,30 @@ final class FirestoreService {
         db.collection("organizations").document(orgId).collection("shiftNotes").document(noteId).delete()
     }
 
-    func startShiftNotesListener(_ orgId: String, onChange: @escaping ([ShiftNote]) -> Void) {
+    func startShiftNotesListener(
+        _ orgId: String,
+        onChange: @escaping ([ShiftNote]) -> Void,
+        onMetadataChange: @escaping (_ hasPendingWrites: Bool, _ isFromCache: Bool) -> Void
+    ) {
+        let options = SnapshotListenOptions()
+            .withIncludeMetadataChanges(true)
         let reg = db.collection("organizations").document(orgId).collection("shiftNotes")
             .order(by: "createdAt", descending: true)
             .limit(to: 300)
-            .addSnapshotListener { snapshot, _ in
-                let items = snapshot?.documents.compactMap { try? $0.data(as: ShiftNote.self) } ?? []
+            .addSnapshotListener(options: options) { snapshot, _ in
+                guard let snapshot else {
+                    onChange([])
+                    onMetadataChange(false, true)
+                    return
+                }
+                let items = snapshot.documents.compactMap { document -> ShiftNote? in
+                    guard var note = try? document.data(as: ShiftNote.self) else { return nil }
+                    note.isSynced = !document.metadata.hasPendingWrites
+                    note.isDirty = document.metadata.hasPendingWrites
+                    return note
+                }
                 onChange(items)
+                onMetadataChange(snapshot.metadata.hasPendingWrites, snapshot.metadata.isFromCache)
             }
         activeListeners.append(reg)
     }

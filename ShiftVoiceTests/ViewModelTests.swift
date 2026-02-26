@@ -406,4 +406,33 @@ struct ViewModelTests {
         vm.organization = Organization(name: "Test", ownerId: "o1", industryType: .cafe)
         #expect(vm.organizationBusinessType == .cafe)
     }
+
+    // MARK: - Metadata Sync State Tests
+
+    @Test func pendingOfflineCountTracksDirtyNotes() {
+        let vm = AppViewModel()
+        vm.shiftNotes = [
+            ShiftNote(authorId: "u1", authorName: "A", authorInitials: "A", locationId: "loc1", shiftType: .opening, rawTranscript: "", summary: "", isSynced: true, isDirty: false),
+            ShiftNote(authorId: "u2", authorName: "B", authorInitials: "B", locationId: "loc1", shiftType: .closing, rawTranscript: "", summary: "", isSynced: false, isDirty: true)
+        ]
+
+        #expect(vm.pendingOfflineCount == 1)
+    }
+
+    @Test func hasPendingSyncIndicatorsReflectsAppAndNoteState() {
+        let vm = AppViewModel()
+        vm.hasPendingWrites = true
+        #expect(vm.hasPendingSyncIndicators)
+
+        vm.hasPendingWrites = false
+        vm.shiftNotes = [
+            ShiftNote(authorId: "u1", authorName: "A", authorInitials: "A", locationId: "loc1", shiftType: .opening, rawTranscript: "", summary: "", isSynced: false, isDirty: true)
+        ]
+        #expect(vm.hasPendingSyncIndicators)
+
+        vm.shiftNotes = [
+            ShiftNote(authorId: "u1", authorName: "A", authorInitials: "A", locationId: "loc1", shiftType: .opening, rawTranscript: "", summary: "", isSynced: true, isDirty: false)
+        ]
+        #expect(!vm.hasPendingSyncIndicators)
+    }
 }

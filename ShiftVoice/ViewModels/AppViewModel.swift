@@ -27,7 +27,9 @@ final class AppViewModel {
 
     let networkMonitor = NetworkMonitor.shared
     var isOffline: Bool { !networkMonitor.isConnected }
-    var pendingOfflineCount: Int { 0 }
+    var hasPendingWrites: Bool = false
+    var pendingOfflineCount: Int { shiftNotes.filter(\.isDirty).count }
+    var hasPendingSyncIndicators: Bool { hasPendingWrites || pendingOfflineCount > 0 }
 
     // MARK: - Cached Computed Properties
     private(set) var feedNotes: [ShiftNote] = []
@@ -283,6 +285,7 @@ final class AppViewModel {
         unacknowledgedCount = 0
         lastSyncDate = nil
         syncError = nil
+        hasPendingWrites = false
         isInitialLoading = true
     }
 
@@ -302,6 +305,18 @@ final class AppViewModel {
             syncError = "Could not load your data. Tap to retry."
             isInitialLoading = false
             loadDemoData()
+        }
+    }
+
+    private func applyShiftNotesSnapshot(_ notes: [ShiftNote]) {
+        shiftNotes = notes
+        isInitialLoading = false
+    }
+
+    private func applyShiftNotesMetadata(hasPendingWrites: Bool, isFromCache: Bool) {
+        self.hasPendingWrites = hasPendingWrites
+        if !hasPendingWrites && !isFromCache {
+            lastSyncDate = Date()
         }
     }
 
@@ -326,12 +341,17 @@ final class AppViewModel {
             self.teamMembers = members
         }
 
-        firestore.startShiftNotesListener(orgId) { [weak self] notes in
-            guard let self else { return }
-            self.shiftNotes = notes
-            self.isInitialLoading = false
-            self.lastSyncDate = Date()
-        }
+        firestore.startShiftNotesListener(
+            orgId,
+            onChange: { [weak self] notes in
+                guard let self else { return }
+                self.applyShiftNotesSnapshot(notes)
+            },
+            onMetadataChange: { [weak self] hasPendingWrites, isFromCache in
+                guard let self else { return }
+                self.applyShiftNotesMetadata(hasPendingWrites: hasPendingWrites, isFromCache: isFromCache)
+            }
+        )
 
         firestore.startRecurringIssuesListener(orgId) { [weak self] issues in
             guard let self else { return }
@@ -694,6 +714,7 @@ final class AppViewModel {
             selectedLocationId = first.id
         }
         isInitialLoading = false
+        hasPendingWrites = false
         lastSyncDate = Date()
         syncError = nil
         loadFirstPage(shiftFilter: nil)
