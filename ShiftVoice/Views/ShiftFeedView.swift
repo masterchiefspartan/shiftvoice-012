@@ -8,6 +8,9 @@ struct ShiftFeedView: View {
     @State private var searchText: String = ""
     @State private var isSearchActive: Bool = false
     @State private var searchDebounceTask: Task<Void, Never>? = nil
+    @State private var showOnlyConflictedNotes: Bool = false
+    @State private var selectedConflictNoteId: String?
+    @State private var showConflictSheet: Bool = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -20,6 +23,10 @@ struct ShiftFeedView: View {
                         .padding(.horizontal, 24)
                     if !isSearchActive {
                         filterBar
+                    }
+                    if viewModel.hasActiveConflicts {
+                        conflictSummaryBanner
+                            .padding(.horizontal, 24)
                     }
                     notesList
                         .padding(.horizontal, 24)
@@ -44,6 +51,14 @@ struct ShiftFeedView: View {
             }
             .sheet(isPresented: $showLocationPicker) {
                 locationPickerSheet
+            }
+            .sheet(isPresented: $showConflictSheet) {
+                if let noteId = selectedConflictNoteId {
+                    ConflictDetailView(noteId: noteId, viewModel: viewModel)
+                        .presentationDetents([.medium, .large])
+                        .presentationDragIndicator(.visible)
+                        .presentationContentInteraction(.scrolls)
+                }
             }
             .onAppear {
                 viewModel.loadFirstPage(shiftFilter: selectedShiftFilter?.id)
@@ -222,7 +237,7 @@ struct ShiftFeedView: View {
     }
 
     private var paginatedNotesList: some View {
-        let notes = viewModel.paginatedNotes
+        let notes = filteredPaginatedNotes
         return Group {
             if notes.isEmpty {
                 emptyState
@@ -232,7 +247,12 @@ struct ShiftFeedView: View {
                         NavigationLink(value: note.id) {
                             ShiftNoteCardView(
                                 note: note,
-                                isAcknowledged: viewModel.isNoteAcknowledged(note)
+                                isAcknowledged: viewModel.isNoteAcknowledged(note),
+                                activeConflictCount: viewModel.activeConflictsForNote(note.id).count,
+                                onTapConflictBadge: {
+                                    selectedConflictNoteId = note.id
+                                    showConflictSheet = true
+                                }
                             )
                         }
                         .buttonStyle(.plain)
@@ -309,7 +329,12 @@ struct ShiftFeedView: View {
                             NavigationLink(value: note.id) {
                                 ShiftNoteCardView(
                                     note: note,
-                                    isAcknowledged: viewModel.isNoteAcknowledged(note)
+                                    isAcknowledged: viewModel.isNoteAcknowledged(note),
+                                    activeConflictCount: viewModel.activeConflictsForNote(note.id).count,
+                                    onTapConflictBadge: {
+                                        selectedConflictNoteId = note.id
+                                        showConflictSheet = true
+                                    }
                                 )
                             }
                             .buttonStyle(.plain)
@@ -365,6 +390,45 @@ struct ShiftFeedView: View {
                 .multilineTextAlignment(.center)
         }
         .padding(.top, 60)
+    }
+
+    private var filteredPaginatedNotes: [ShiftNote] {
+        let notes = viewModel.paginatedNotes
+        guard showOnlyConflictedNotes else { return notes }
+        return notes.filter { !viewModel.activeConflictsForNote($0.id).isEmpty }
+    }
+
+    private var conflictSummaryBanner: some View {
+        Button {
+            showOnlyConflictedNotes.toggle()
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.subheadline)
+                    .foregroundStyle(.orange)
+
+                Text("\(viewModel.activeConflictCount) conflict\(viewModel.activeConflictCount == 1 ? "" : "s") need your attention")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(SVTheme.textPrimary)
+                    .multilineTextAlignment(.leading)
+
+                Spacer()
+
+                Text(showOnlyConflictedNotes ? "Showing" : "Show")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.orange)
+            }
+            .padding(12)
+            .background(SVTheme.amber.opacity(0.1))
+            .clipShape(.rect(cornerRadius: 10))
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(SVTheme.amber.opacity(0.25), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(viewModel.activeConflictCount) conflicts need attention")
+        .accessibilityHint(showOnlyConflictedNotes ? "Shows all notes" : "Filters notes to conflicted only")
     }
 
     private func lastSyncLabel(_ date: Date) -> String {

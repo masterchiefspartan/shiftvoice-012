@@ -101,6 +101,10 @@ final class AppViewModel {
         conflictStore.conflictsForNote(noteId)
     }
 
+    func activeConflictsForNote(_ noteId: String) -> [ConflictItem] {
+        conflictStore.conflictsForNote(noteId).filter { $0.state == .detected }
+    }
+
     private(set) var userProfile: UserProfile?
     private var authenticatedUserId: String?
     private var organizationId: String?
@@ -1269,6 +1273,95 @@ final class AppViewModel {
             serverTimestamp: serverDate
         )
         persistPendingSyncState()
+    }
+
+    func resolveConflict(id: String, resolution: ConflictResolution) {
+        guard let conflict = conflictStore.activeConflicts.first(where: { $0.id == id }) else { return }
+
+        switch resolution {
+        case .keptServer:
+            conflictStore.resolveConflict(id: id, resolution: .keptServer, userId: currentUserId)
+            clearConflictStateIfNoActiveConflicts(noteId: conflict.noteId)
+        case .appliedLocal:
+            applyLocalConflictUpdate(conflict)
+            conflictStore.resolveConflict(id: id, resolution: .appliedLocal, userId: currentUserId)
+            clearConflictStateIfNoActiveConflicts(noteId: conflict.noteId)
+        case .dismissed:
+            dismissConflict(id: id)
+        }
+    }
+
+    func dismissConflict(id: String) {
+        guard let conflict = conflictStore.activeConflicts.first(where: { $0.id == id }) else { return }
+        conflictStore.dismissConflict(id: id, userId: currentUserId)
+        clearConflictStateIfNoActiveConflicts(noteId: conflict.noteId)
+    }
+
+    private func applyLocalConflictUpdate(_ conflict: ConflictItem) {
+        guard let noteIndex = shiftNotes.firstIndex(where: { $0.id == conflict.noteId }) else { return }
+        guard let actionItemIndex = shiftNotes[noteIndex].actionItems.indices.max(by: {
+            shiftNotes[noteIndex].actionItems[$0].updatedAt < shiftNotes[noteIndex].actionItems[$1].updatedAt
+        }) else { return }
+
+        let actionItemId = shiftNotes[noteIndex].actionItems[actionItemIndex].id
+
+        switch conflict.fieldName {
+        case "status":
+            guard let status = ActionItemStatus(rawValue: conflict.localIntendedValue) else { return }
+            updateActionItemStatus(noteId: conflict.noteId, actionItemId: actionItemId, newStatus: status)
+        case "assigneeId":
+            let assigneeId = conflict.localIntendedValue.isEmpty ? nil : conflict.localIntendedValue
+            let assigneeName = teamMembers.first(where: { $0.id == assigneeId })?.name
+            updateActionItemAssignee(noteId: conflict.noteId, actionItemId: actionItemId, assignee: assigneeName, assigneeId: assigneeId)
+        case "priority":
+            guard let urgency = UrgencyLevel(rawValue: conflict.localIntendedValue) else { return }
+            updateActionItemPriority(noteId: conflict.noteId, actionItemId: actionItemId, newUrgency: urgency)
+        default:
+            return
+        }
+    }
+
+    private func updateActionItemPriority(noteId: String, actionItemId: String, newUrgency: UrgencyLevel) {
+        beginEditingNote(noteId)
+        guard let noteIndex = shiftNotes.firstIndex(where: { $0.id == noteId }),
+              let itemIndex = shiftNotes[noteIndex].actionItems.firstIndex(where: { $0.id == actionItemId }) else { return }
+
+        let existingItem = shiftNotes[noteIndex].actionItems[itemIndex]
+        guard existingItem.urgency != newUrgency else { return }
+
+        let now = Date()
+        let updatedItem = ActionItem(
+            id: existingItem.id,
+            task: existingItem.task,
+            category: existingItem.category,
+            categoryTemplateId: existingItem.categoryTemplateId,
+            urgency: newUrgency,
+            status: existingItem.status,
+            assignee: existingItem.assignee,
+            assigneeId: existingItem.assigneeId,
+            updatedAt: now,
+            statusUpdatedAt: existingItem.statusUpdatedAt,
+            statusUpdatedAtServer: existingItem.statusUpdatedAtServer,
+            statusUpdatedByUserId: existingItem.statusUpdatedByUserId,
+            assigneeUpdatedAt: existingItem.assigneeUpdatedAt,
+            assigneeUpdatedAtServer: existingItem.assigneeUpdatedAtServer,
+            assigneeUpdatedByUserId: existingItem.assigneeUpdatedByUserId,
+            hasConflict: existingItem.hasConflict,
+            conflictDescription: existingItem.conflictDescription
+        )
+
+        shiftNotes[noteIndex].actionItems[itemIndex] = updatedItem
+        shiftNotes[noteIndex].updatedAt = now
+        shiftNotes[noteIndex].updatedAtClient = now
+        writeShiftNote(shiftNotes[noteIndex], operation: .edit)
+    }
+
+    private func clearConflictStateIfNoActiveConflicts(noteId: String) {
+        guard activeConflictsForNote(noteId).isEmpty else { return }
+        guard let orgId = organizationId else { return }
+        Task {
+            try? await firestore.clearNoteConflictState(noteId: noteId, orgId: orgId)
+        }
     }
 
     private func collaborativeFields(from note: ShiftNote) -> [String: String] {

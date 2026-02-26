@@ -14,6 +14,7 @@ struct ShiftNoteDetailView: View {
     @State private var audioPlayer: AVAudioPlayer?
     @State private var progressTimer: Timer?
     @State private var isAcknowledging: Bool = false
+    @State private var showConflictSheet: Bool = false
 
     private var note: ShiftNote? {
         viewModel.shiftNotes.first { $0.id == noteId }
@@ -66,12 +67,21 @@ struct ShiftNoteDetailView: View {
                 .presentationDragIndicator(.visible)
             }
         }
+        .sheet(isPresented: $showConflictSheet) {
+            ConflictDetailView(noteId: noteId, viewModel: viewModel)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+                .presentationContentInteraction(.scrolls)
+        }
     }
 
     private func noteContent(_ note: ShiftNote) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 headerSection(note)
+                if !viewModel.activeConflictsForNote(note.id).isEmpty {
+                    conflictSection(note.id)
+                }
                 summarySection(note)
                 if note.audioDuration > 0 {
                     audioPlayerSection(note)
@@ -124,6 +134,47 @@ struct ShiftNoteDetailView: View {
 
             UrgencyBadge(urgency: note.highestUrgency)
         }
+    }
+
+    private func conflictSection(_ noteId: String) -> some View {
+        Button {
+            showConflictSheet = true
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.subheadline)
+                    .foregroundStyle(.orange)
+                    .frame(width: 32, height: 32)
+                    .background(SVTheme.amber.opacity(0.12))
+                    .clipShape(Circle())
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Conflict detected")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(SVTheme.textPrimary)
+                    Text("\(viewModel.activeConflictsForNote(noteId).count) field\(viewModel.activeConflictsForNote(noteId).count == 1 ? "" : "s") need review")
+                        .font(.caption)
+                        .foregroundStyle(SVTheme.textSecondary)
+                }
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(SVTheme.textTertiary)
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(SVTheme.amber.opacity(0.1))
+            .clipShape(.rect(cornerRadius: 12))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(SVTheme.amber.opacity(0.25), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Conflict detected")
+        .accessibilityHint("Open conflict details")
     }
 
     private func summarySection(_ note: ShiftNote) -> some View {

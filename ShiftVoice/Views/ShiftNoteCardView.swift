@@ -3,6 +3,16 @@ import SwiftUI
 struct ShiftNoteCardView: View {
     let note: ShiftNote
     let isAcknowledged: Bool
+    let activeConflictCount: Int
+    let onTapConflictBadge: (() -> Void)?
+
+    private var hasConflicts: Bool {
+        activeConflictCount > 0
+    }
+
+    private var isPendingSync: Bool {
+        !note.isSynced
+    }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -30,7 +40,10 @@ struct ShiftNoteCardView: View {
 
                     Spacer()
 
-                    ShiftTypeBadge(info: note.shiftDisplayInfo)
+                    HStack(spacing: 8) {
+                        statusBadge
+                        ShiftTypeBadge(info: note.shiftDisplayInfo)
+                    }
                 }
 
                 Text(note.summary)
@@ -80,18 +93,36 @@ struct ShiftNoteCardView: View {
                         .foregroundStyle(SVTheme.textTertiary)
                     }
 
-                    if !note.isSynced {
-                        HStack(spacing: 4) {
-                            Image(systemName: "arrow.triangle.2.circlepath")
-                                .font(.caption2)
-                            Text("Syncing")
-                                .font(.caption2)
-                        }
-                        .foregroundStyle(SVTheme.amber)
-                    }
                 }
             }
             .padding(16)
+        }
+    }
+
+    @ViewBuilder
+    private var statusBadge: some View {
+        if hasConflicts {
+            Button {
+                onTapConflictBadge?()
+            } label: {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.orange)
+                    .frame(width: 28, height: 28)
+                    .background(SVTheme.amber.opacity(0.12))
+                    .clipShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Conflict detected")
+            .accessibilityHint("Open conflict details")
+        } else if isPendingSync {
+            Image(systemName: "icloud.and.arrow.up.fill")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(SVTheme.amber)
+                .frame(width: 28, height: 28)
+                .background(SVTheme.amber.opacity(0.12))
+                .clipShape(Circle())
+                .accessibilityLabel("Pending sync")
         }
     }
 
