@@ -88,6 +88,14 @@ final class AppViewModel {
     private let persistence = PersistenceService.shared
     private let pendingOpsStore: PendingOpsStoreProtocol
     private let confirmationReconciler: PendingOpReconciling
+    private let conflictStore: ConflictStore
+
+    var hasActiveConflicts: Bool { !conflictStore.activeConflicts.isEmpty }
+    var activeConflictCount: Int { conflictStore.activeConflicts.count }
+
+    func conflictsForNote(_ noteId: String) -> [ConflictItem] {
+        conflictStore.conflictsForNote(noteId)
+    }
 
     private(set) var userProfile: UserProfile?
     private var authenticatedUserId: String?
@@ -159,7 +167,8 @@ final class AppViewModel {
 
     init(
         pendingOpsStore: PendingOpsStoreProtocol? = nil,
-        confirmationReconciler: PendingOpReconciling? = nil
+        confirmationReconciler: PendingOpReconciling? = nil,
+        conflictStore: ConflictStore? = nil
     ) {
         let resolvedPendingOpsStore = pendingOpsStore ?? PendingOpsStore(persistence: PersistenceService.shared)
         self.pendingOpsStore = resolvedPendingOpsStore
@@ -167,6 +176,7 @@ final class AppViewModel {
             pendingOpsStore: resolvedPendingOpsStore,
             documentFetcher: FirestoreService.shared
         )
+        self.conflictStore = conflictStore ?? ConflictStore()
         networkReconnectObserver = NotificationCenter.default.addObserver(
             forName: .networkReconnected,
             object: nil,
@@ -328,6 +338,7 @@ final class AppViewModel {
         if let userId = authenticatedUserId {
             persistence.clearPendingSyncState(for: userId)
             pendingOpsStore.clearCurrentUser()
+            conflictStore.clearCurrentUserContext()
         }
         authenticatedUserId = nil
         organizationId = nil
@@ -361,6 +372,7 @@ final class AppViewModel {
             }
 
             pendingOpsStore.configure(userId: userId)
+            conflictStore.configure(userId: userId)
             normalizePendingStateFromPersistence()
 
             let (profile, orgId, locId) = try await firestore.fetchUserData(userId)

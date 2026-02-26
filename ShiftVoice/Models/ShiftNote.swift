@@ -107,11 +107,33 @@ nonisolated struct ActionItem: Identifiable, Codable, Sendable {
     var assigneeId: String?
     var updatedAt: Date
     var statusUpdatedAt: Date
+    var statusUpdatedAtServer: Date?
+    var statusUpdatedByUserId: String?
     var assigneeUpdatedAt: Date
+    var assigneeUpdatedAtServer: Date?
+    var assigneeUpdatedByUserId: String?
     var hasConflict: Bool
     var conflictDescription: String?
 
-    init(id: String = UUID().uuidString, task: String, category: NoteCategory, categoryTemplateId: String? = nil, urgency: UrgencyLevel, status: ActionItemStatus = .open, assignee: String? = nil, assigneeId: String? = nil, updatedAt: Date = Date(), statusUpdatedAt: Date? = nil, assigneeUpdatedAt: Date? = nil, hasConflict: Bool = false, conflictDescription: String? = nil) {
+    init(
+        id: String = UUID().uuidString,
+        task: String,
+        category: NoteCategory,
+        categoryTemplateId: String? = nil,
+        urgency: UrgencyLevel,
+        status: ActionItemStatus = .open,
+        assignee: String? = nil,
+        assigneeId: String? = nil,
+        updatedAt: Date = Date(),
+        statusUpdatedAt: Date? = nil,
+        statusUpdatedAtServer: Date? = nil,
+        statusUpdatedByUserId: String? = nil,
+        assigneeUpdatedAt: Date? = nil,
+        assigneeUpdatedAtServer: Date? = nil,
+        assigneeUpdatedByUserId: String? = nil,
+        hasConflict: Bool = false,
+        conflictDescription: String? = nil
+    ) {
         self.id = id
         self.task = task
         self.category = category
@@ -122,7 +144,11 @@ nonisolated struct ActionItem: Identifiable, Codable, Sendable {
         self.assigneeId = assigneeId
         self.updatedAt = updatedAt
         self.statusUpdatedAt = statusUpdatedAt ?? updatedAt
+        self.statusUpdatedAtServer = statusUpdatedAtServer
+        self.statusUpdatedByUserId = statusUpdatedByUserId
         self.assigneeUpdatedAt = assigneeUpdatedAt ?? updatedAt
+        self.assigneeUpdatedAtServer = assigneeUpdatedAtServer
+        self.assigneeUpdatedByUserId = assigneeUpdatedByUserId
         self.hasConflict = hasConflict
         self.conflictDescription = conflictDescription
     }
@@ -189,7 +215,10 @@ nonisolated struct ShiftNote: Identifiable, Codable, Sendable {
     var updatedAt: Date
     var updatedAtClient: Date?
     var updatedAtServer: Date?
+    var updatedByUserId: String?
     var lastClientMutationId: String?
+    var conflictState: String?
+    var conflictSummary: String?
     var isSynced: Bool
     var isDirty: Bool
 
@@ -214,7 +243,10 @@ nonisolated struct ShiftNote: Identifiable, Codable, Sendable {
         updatedAt: Date? = nil,
         updatedAtClient: Date? = nil,
         updatedAtServer: Date? = nil,
+        updatedByUserId: String? = nil,
         lastClientMutationId: String? = nil,
+        conflictState: String? = nil,
+        conflictSummary: String? = nil,
         isSynced: Bool = true,
         isDirty: Bool = false
     ) {
@@ -239,7 +271,10 @@ nonisolated struct ShiftNote: Identifiable, Codable, Sendable {
         self.updatedAt = resolvedUpdatedAt
         self.updatedAtClient = updatedAtClient ?? resolvedUpdatedAt
         self.updatedAtServer = updatedAtServer
+        self.updatedByUserId = updatedByUserId
         self.lastClientMutationId = lastClientMutationId
+        self.conflictState = conflictState
+        self.conflictSummary = conflictSummary
         self.isSynced = isSynced
         self.isDirty = isDirty
     }
