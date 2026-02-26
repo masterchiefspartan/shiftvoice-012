@@ -90,28 +90,82 @@ nonisolated struct PendingSyncState: Codable, Sendable {
     }
 }
 
+nonisolated enum SnapshotFreshness: String, Codable, Sendable {
+    case none
+    case cache
+    case server
+}
+
 nonisolated struct SyncStateInput: Sendable {
     let isConnected: Bool
+    let snapshotFreshness: SnapshotFreshness
     let hasPendingWrites: Bool
     let hasServerSnapshotSinceReconnect: Bool
     let lastWriteError: SyncError?
+    let pendingNoteCount: Int
+    let pendingDeleteCount: Int
+
+    var hasAnyPendingOperations: Bool {
+        hasPendingWrites || pendingNoteCount > 0 || pendingDeleteCount > 0
+    }
+
+    init(
+        isConnected: Bool,
+        snapshotFreshness: SnapshotFreshness = .none,
+        hasPendingWrites: Bool,
+        hasServerSnapshotSinceReconnect: Bool,
+        lastWriteError: SyncError?,
+        pendingNoteCount: Int = 0,
+        pendingDeleteCount: Int = 0
+    ) {
+        self.isConnected = isConnected
+        self.snapshotFreshness = snapshotFreshness
+        self.hasPendingWrites = hasPendingWrites
+        self.hasServerSnapshotSinceReconnect = hasServerSnapshotSinceReconnect
+        self.lastWriteError = lastWriteError
+        self.pendingNoteCount = pendingNoteCount
+        self.pendingDeleteCount = pendingDeleteCount
+    }
 }
 
 nonisolated enum SyncStateReducer {
     static func reduce(_ input: SyncStateInput) -> SyncState {
-        if !input.isConnected {
+        guard input.isConnected else {
             return .offline
         }
+
         if input.lastWriteError != nil {
             return .error
         }
-        if input.hasPendingWrites {
+
+        if input.hasAnyPendingOperations {
             return .syncing
         }
-        if input.hasServerSnapshotSinceReconnect {
+
+        if input.hasServerSnapshotSinceReconnect || input.snapshotFreshness == .server {
             return .onlineFresh
         }
+
         return .onlineCache
+    }
+
+    static func bannerCopy(for state: SyncState) -> String {
+        switch state {
+        case .offline:
+            return "You're offline. Changes will sync when connection is restored."
+        case .onlineCache:
+            return "Connected. Waiting for fresh server data."
+        case .syncing:
+            return "Syncing changes…"
+        case .onlineFresh:
+            return "All changes synced."
+        case .error:
+            return "Sync failed. Resolve the error to continue syncing."
+        }
+    }
+
+    static func canClaimAllChangesSynced(for input: SyncStateInput) -> Bool {
+        reduce(input) == .onlineFresh
     }
 }
 

@@ -764,12 +764,24 @@ final class AppViewModel {
     }
 
     private func updateSyncState() {
+        let snapshotFreshness: SnapshotFreshness
+        if hasServerSnapshotSinceReconnect {
+            snapshotFreshness = .server
+        } else if isDataFromCache {
+            snapshotFreshness = .cache
+        } else {
+            snapshotFreshness = .none
+        }
+
         syncState = SyncStateReducer.reduce(
             SyncStateInput(
                 isConnected: networkMonitor.isConnected,
-                hasPendingWrites: hasPendingWrites || !pendingNoteIds.isEmpty,
+                snapshotFreshness: snapshotFreshness,
+                hasPendingWrites: hasPendingWrites,
                 hasServerSnapshotSinceReconnect: hasServerSnapshotSinceReconnect,
-                lastWriteError: lastWriteError
+                lastWriteError: lastWriteError,
+                pendingNoteCount: pendingNoteIds.count,
+                pendingDeleteCount: pendingSyncState.pendingDeletes.count
             )
         )
     }
