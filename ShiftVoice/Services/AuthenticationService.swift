@@ -394,7 +394,7 @@ final class AuthenticationService {
                 self.authMethod = nil
                 UserDefaults.standard.removeObject(forKey: "sv_auth_method")
                 KeychainService.clearBackendToken()
-                FirestoreService.shared.deleteUserData(userId)
+                try await FirestoreService.shared.deleteUserData(userId)
             } catch let error as NSError {
                 let code = AuthErrorCode(rawValue: error.code)
                 if code == .wrongPassword || code == .invalidCredential {
@@ -552,7 +552,9 @@ final class AuthenticationService {
             initials: initials,
             profileImageURL: user.photoURL?.absoluteString
         )
-        FirestoreService.shared.saveUserProfile(profile)
+        Task {
+            try? await FirestoreService.shared.saveUserProfile(profile)
+        }
     }
 
     private func handleFirebaseAuthError(_ error: NSError) {

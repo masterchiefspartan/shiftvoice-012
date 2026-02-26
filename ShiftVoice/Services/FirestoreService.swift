@@ -5,11 +5,49 @@ import FirebaseFirestore
 final class FirestoreService: PendingOpsDocumentFetching {
     static let shared = FirestoreService()
     private lazy var db = Firestore.firestore()
+    private lazy var writeFailureStore = WriteFailureStore()
+    private lazy var writeClient: FirestoreWriteClient = DefaultFirestoreWriteClient(
+        db: db,
+        failureStore: writeFailureStore,
+        restartListenersHook: { [weak self] in
+            self?.stopAllListeners()
+        }
+    )
     private var activeListeners: [ListenerRegistration] = []
+
+    var lastWriteFailure: WriteFailure? {
+        writeFailureStore.lastWriteError
+    }
+
+    var shouldPromptReauth: Bool {
+        writeFailureStore.shouldPromptReauth
+    }
+
+    var shouldRecommendRetry: Bool {
+        writeFailureStore.shouldRecommendRetry
+    }
+
+    var triggerReauthFlag: Bool {
+        writeFailureStore.triggerReauthFlag
+    }
+
+    func clearWriteFailure() {
+        writeFailureStore.clearFailure()
+    }
+
+    func retryLastSafeWrite() async {
+        guard let client = writeClient as? DefaultFirestoreWriteClient else { return }
+        await client.retryLastSafeWrite()
+    }
+
+    func restartListenersFromWriteRecovery() {
+        guard let client = writeClient as? DefaultFirestoreWriteClient else { return }
+        client.restartListeners()
+    }
 
     // MARK: - User Profile
 
-    func saveUserProfile(_ profile: UserProfile) {
+    func saveUserProfile(_ profile: UserProfile) async throws {
         var data: [String: Any] = [
             "name": profile.name,
             "email": profile.email,
@@ -18,7 +56,11 @@ final class FirestoreService: PendingOpsDocumentFetching {
         if let url = profile.profileImageURL {
             data["profileImageURL"] = url
         }
-        db.collection("users").document(profile.id).setData(data, merge: true)
+        try await writeClient.setData(
+            data,
+            to: db.collection("users").document(profile.id),
+            merge: true
+        )
     }
 
     func fetchUserData(_ userId: String) async throws -> (profile: UserProfile?, organizationId: String?, selectedLocationId: String?) {
@@ -34,18 +76,26 @@ final class FirestoreService: PendingOpsDocumentFetching {
         return (profile, data["organizationId"] as? String, data["selectedLocationId"] as? String)
     }
 
-    func updateUserPreferences(userId: String, organizationId: String? = nil, selectedLocationId: String? = nil) {
+    func updateUserPreferences(userId: String, organizationId: String? = nil, selectedLocationId: String? = nil) async throws {
         var data: [String: Any] = [:]
         if let orgId = organizationId { data["organizationId"] = orgId }
         if let locId = selectedLocationId { data["selectedLocationId"] = locId }
         guard !data.isEmpty else { return }
-        db.collection("users").document(userId).setData(data, merge: true)
+        try await writeClient.setData(
+            data,
+            to: db.collection("users").document(userId),
+            merge: true
+        )
     }
 
     // MARK: - Organization
 
-    func saveOrganization(_ org: Organization) throws {
-        try db.collection("organizations").document(org.id).setData(from: org)
+    func saveOrganization(_ org: Organization) async throws {
+        try await writeClient.setData(
+            encodeEncodable(org),
+            to: db.collection("organizations").document(org.id),
+            merge: false
+        )
     }
 
     func startOrganizationListener(_ orgId: String, onChange: @escaping (Organization?) -> Void) {
@@ -58,12 +108,18 @@ final class FirestoreService: PendingOpsDocumentFetching {
 
     // MARK: - Locations
 
-    func saveLocation(_ location: Location, orgId: String) throws {
-        try db.collection("organizations").document(orgId).collection("locations").document(location.id).setData(from: location)
+    func saveLocation(_ location: Location, orgId: String) async throws {
+        try await writeClient.setData(
+            encodeEncodable(location),
+            to: db.collection("organizations").document(orgId).collection("locations").document(location.id),
+            merge: false
+        )
     }
 
-    func deleteLocation(_ locationId: String, orgId: String) {
-        db.collection("organizations").document(orgId).collection("locations").document(locationId).delete()
+    func deleteLocation(_ locationId: String, orgId: String) async throws {
+        try await writeClient.delete(
+            db.collection("organizations").document(orgId).collection("locations").document(locationId)
+        )
     }
 
     func startLocationsListener(_ orgId: String, onChange: @escaping ([Location]) -> Void) {
@@ -76,12 +132,18 @@ final class FirestoreService: PendingOpsDocumentFetching {
 
     // MARK: - Team Members
 
-    func saveTeamMember(_ member: TeamMember, orgId: String) throws {
-        try db.collection("organizations").document(orgId).collection("teamMembers").document(member.id).setData(from: member)
+    func saveTeamMember(_ member: TeamMember, orgId: String) async throws {
+        try await writeClient.setData(
+            encodeEncodable(member),
+            to: db.collection("organizations").document(orgId).collection("teamMembers").document(member.id),
+            merge: false
+        )
     }
 
-    func deleteTeamMember(_ memberId: String, orgId: String) {
-        db.collection("organizations").document(orgId).collection("teamMembers").document(memberId).delete()
+    func deleteTeamMember(_ memberId: String, orgId: String) async throws {
+        try await writeClient.delete(
+            db.collection("organizations").document(orgId).collection("teamMembers").document(memberId)
+        )
     }
 
     func startTeamMembersListener(_ orgId: String, onChange: @escaping ([TeamMember]) -> Void) {
@@ -102,29 +164,26 @@ final class FirestoreService: PendingOpsDocumentFetching {
         updatedAtClient: Date,
         updatedByUserId: String,
         completion: ((Result<Void, SyncError>) -> Void)? = nil
-    ) throws -> String {
+    ) -> String {
         let reference = db.collection("organizations").document(orgId).collection("shiftNotes").document(note.id)
         var mutableNote = note
         mutableNote.lastClientMutationId = mutationId
         mutableNote.updatedAtClient = updatedAtClient
 
-        try reference.setData(from: mutableNote) { error in
-            if let error {
-                completion?(.failure(SyncError(error: error)))
-                return
-            }
+        let encoded = encodeShiftNote(mutableNote)
+        var payload = encoded
+        payload["lastClientMutationId"] = mutationId
+        payload["updatedAtClient"] = Timestamp(date: updatedAtClient)
+        payload["updatedAtServer"] = FieldValue.serverTimestamp()
+        payload["updatedByUserId"] = updatedByUserId
 
-            reference.updateData([
-                "lastClientMutationId": mutationId,
-                "updatedAtClient": Timestamp(date: updatedAtClient),
-                "updatedAtServer": FieldValue.serverTimestamp(),
-                "updatedByUserId": updatedByUserId
-            ]) { updateError in
-                if let updateError {
-                    completion?(.failure(SyncError(error: updateError)))
-                    return
-                }
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await self.writeClient.setData(payload, to: reference, merge: true)
                 completion?(.success(()))
+            } catch {
+                completion?(.failure(SyncError(error: error)))
             }
         }
 
@@ -138,12 +197,15 @@ final class FirestoreService: PendingOpsDocumentFetching {
         mutationId: String,
         completion: ((Result<Void, SyncError>) -> Void)? = nil
     ) -> String {
-        db.collection("organizations").document(orgId).collection("shiftNotes").document(noteId).delete { error in
-            if let error {
+        let docRef = db.collection("organizations").document(orgId).collection("shiftNotes").document(noteId)
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await self.writeClient.delete(docRef)
+                completion?(.success(()))
+            } catch {
                 completion?(.failure(SyncError(error: error)))
-                return
             }
-            completion?(.success(()))
         }
         return mutationId
     }
@@ -237,12 +299,18 @@ final class FirestoreService: PendingOpsDocumentFetching {
 
     // MARK: - Recurring Issues
 
-    func saveRecurringIssue(_ issue: RecurringIssue, orgId: String) throws {
-        try db.collection("organizations").document(orgId).collection("recurringIssues").document(issue.id).setData(from: issue)
+    func saveRecurringIssue(_ issue: RecurringIssue, orgId: String) async throws {
+        try await writeClient.setData(
+            encodeEncodable(issue),
+            to: db.collection("organizations").document(orgId).collection("recurringIssues").document(issue.id),
+            merge: false
+        )
     }
 
-    func deleteRecurringIssue(_ issueId: String, orgId: String) {
-        db.collection("organizations").document(orgId).collection("recurringIssues").document(issueId).delete()
+    func deleteRecurringIssue(_ issueId: String, orgId: String) async throws {
+        try await writeClient.delete(
+            db.collection("organizations").document(orgId).collection("recurringIssues").document(issueId)
+        )
     }
 
     func startRecurringIssuesListener(_ orgId: String, onChange: @escaping ([RecurringIssue]) -> Void) {
@@ -258,15 +326,15 @@ final class FirestoreService: PendingOpsDocumentFetching {
     func deleteLocationNotes(locationId: String, orgId: String) async throws {
         let snapshot = try await db.collection("organizations").document(orgId).collection("shiftNotes")
             .whereField("locationId", isEqualTo: locationId).getDocuments()
-        let batch = db.batch()
-        for doc in snapshot.documents {
-            batch.deleteDocument(doc.reference)
+        try await writeClient.commitBatch { batch in
+            for doc in snapshot.documents {
+                batch.deleteDocument(doc.reference)
+            }
         }
-        try await batch.commit()
     }
 
-    func deleteUserData(_ userId: String) {
-        db.collection("users").document(userId).delete()
+    func deleteUserData(_ userId: String) async throws {
+        try await writeClient.delete(db.collection("users").document(userId))
     }
 
     // MARK: - Listener Management
@@ -274,6 +342,21 @@ final class FirestoreService: PendingOpsDocumentFetching {
     func stopAllListeners() {
         activeListeners.forEach { $0.remove() }
         activeListeners.removeAll()
+    }
+
+    private func encodeShiftNote(_ note: ShiftNote) -> [String: Any] {
+        encodeEncodable(note)
+    }
+
+    private func encodeEncodable<T: Encodable>(_ value: T) -> [String: Any] {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        guard let data = try? encoder.encode(value),
+              let object = try? JSONSerialization.jsonObject(with: data),
+              let dictionary = object as? [String: Any] else {
+            return [:]
+        }
+        return dictionary
     }
 }
 

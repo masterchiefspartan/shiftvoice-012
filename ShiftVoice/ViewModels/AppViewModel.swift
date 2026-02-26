@@ -34,6 +34,7 @@ final class AppViewModel {
     var lastSyncedFromServer: Date?
     var lastWriteError: SyncError?
     var syncState: SyncState = .onlineCache
+    private var hasBlockingWriteFailure: Bool = false
     var pendingOfflineCount: Int { pendingNoteIds.count }
     var hasPendingSyncIndicators: Bool { hasPendingWrites || !pendingNoteIds.isEmpty }
 
@@ -450,6 +451,7 @@ final class AppViewModel {
             onError: { [weak self] error in
                 guard let self else { return }
                 self.lastWriteError = error
+                self.syncError = self.userFacingSyncError(error)
                 self.updateSyncState()
             }
         )
@@ -479,7 +481,7 @@ final class AppViewModel {
         trackPendingOperation(note: note, type: operation, mutationId: mutationId)
 
         do {
-            _ = try firestore.saveShiftNote(
+            _ = firestore.saveShiftNote(
                 note,
                 orgId: orgId,
                 mutationId: mutationId,
@@ -487,18 +489,11 @@ final class AppViewModel {
                 updatedByUserId: currentUserId
             ) { [weak self] result in
                 guard let self else { return }
-                if case .failure(let error) = result {
-                    self.lastWriteError = error
-                    self.syncError = self.userFacingSyncError(error)
+                if case .failure(let fallbackError) = result {
+                    self.consumeWriteFailureFromStore(fallback: fallbackError)
                     self.updateSyncState()
                 }
             }
-        } catch {
-            let mappedError = SyncError(error: error)
-            lastWriteError = mappedError
-            syncError = userFacingSyncError(mappedError)
-            updateSyncState()
-            showToast("Failed to save note", isError: true)
         }
     }
 
@@ -507,10 +502,12 @@ final class AppViewModel {
             showToast("No organization found — please complete setup", isError: true)
             return
         }
-        do {
-            try firestore.saveLocation(location, orgId: orgId)
-        } catch {
-            showToast("Failed to save location", isError: true)
+        Task {
+            do {
+                try await firestore.saveLocation(location, orgId: orgId)
+            } catch {
+                showToast("Failed to save location", isError: true)
+            }
         }
     }
 
@@ -519,27 +516,33 @@ final class AppViewModel {
             showToast("No organization found — please complete setup", isError: true)
             return
         }
-        do {
-            try firestore.saveTeamMember(member, orgId: orgId)
-        } catch {
-            showToast("Failed to save team member", isError: true)
+        Task {
+            do {
+                try await firestore.saveTeamMember(member, orgId: orgId)
+            } catch {
+                showToast("Failed to save team member", isError: true)
+            }
         }
     }
 
     private func writeOrganization(_ org: Organization) {
-        do {
-            try firestore.saveOrganization(org)
-        } catch {
-            showToast("Failed to save organization", isError: true)
+        Task {
+            do {
+                try await firestore.saveOrganization(org)
+            } catch {
+                showToast("Failed to save organization", isError: true)
+            }
         }
     }
 
     private func writeRecurringIssue(_ issue: RecurringIssue) {
         guard let orgId = organizationId else { return }
-        do {
-            try firestore.saveRecurringIssue(issue, orgId: orgId)
-        } catch {
-            showToast("Failed to save issue", isError: true)
+        Task {
+            do {
+                try await firestore.saveRecurringIssue(issue, orgId: orgId)
+            } catch {
+                showToast("Failed to save issue", isError: true)
+            }
         }
     }
 
@@ -585,9 +588,8 @@ final class AppViewModel {
         trackDeleteTombstone(noteId: noteId, lastSeenUpdatedAtServer: removedNote.updatedAtServer, mutationId: mutationId)
         _ = firestore.deleteShiftNote(noteId, orgId: orgId, mutationId: mutationId) { [weak self] result in
             guard let self else { return }
-            if case .failure(let error) = result {
-                self.lastWriteError = error
-                self.syncError = self.userFacingSyncError(error)
+            if case .failure(let fallbackError) = result {
+                self.consumeWriteFailureFromStore(fallback: fallbackError)
                 self.updateSyncState()
             }
         }
@@ -675,8 +677,14 @@ final class AppViewModel {
             selectedLocationId = locations.first?.id ?? ""
         }
         guard let orgId = organizationId else { return }
-        firestore.deleteLocation(locationId, orgId: orgId)
-        Task { try? await firestore.deleteLocationNotes(locationId: locationId, orgId: orgId) }
+        Task {
+            do {
+                try await firestore.deleteLocation(locationId, orgId: orgId)
+                try await firestore.deleteLocationNotes(locationId: locationId, orgId: orgId)
+            } catch {
+                showToast("Failed to remove location", isError: true)
+            }
+        }
         showToast("Location removed", isError: false)
     }
 
@@ -701,7 +709,13 @@ final class AppViewModel {
     func removeTeamMember(_ memberId: String) {
         teamMembers.removeAll { $0.id == memberId }
         guard let orgId = organizationId else { return }
-        firestore.deleteTeamMember(memberId, orgId: orgId)
+        Task {
+            do {
+                try await firestore.deleteTeamMember(memberId, orgId: orgId)
+            } catch {
+                showToast("Failed to remove team member", isError: true)
+            }
+        }
         showToast("Team member removed", isError: false)
     }
 
@@ -724,7 +738,9 @@ final class AppViewModel {
     func updateSelectedLocation(_ locationId: String) {
         selectedLocationId = locationId
         guard let userId = authenticatedUserId else { return }
-        firestore.updateUserPreferences(userId: userId, selectedLocationId: locationId)
+        Task {
+            try? await firestore.updateUserPreferences(userId: userId, selectedLocationId: locationId)
+        }
     }
 
     // MARK: - Onboarding
@@ -787,15 +803,19 @@ final class AppViewModel {
         writeOrganization(org)
         writeLocation(newLocation)
         for member in members { writeTeamMember(member) }
-        firestore.updateUserPreferences(
-            userId: currentUserId,
-            organizationId: org.id,
-            selectedLocationId: newLocation.id
-        )
+        Task {
+            try? await firestore.updateUserPreferences(
+                userId: currentUserId,
+                organizationId: org.id,
+                selectedLocationId: newLocation.id
+            )
+        }
         startListeners(orgId: org.id)
     }
 
     private func updateSyncState() {
+        refreshWriteFailureState()
+
         let snapshotFreshness: SnapshotFreshness
         if hasServerSnapshotSinceReconnect {
             snapshotFreshness = .server
@@ -1006,6 +1026,91 @@ final class AppViewModel {
         updateSyncState()
     }
 
+    private func consumeWriteFailureFromStore(fallback: SyncError) {
+        if let failure = firestore.lastWriteFailure {
+            if shouldPromoteToBlockingError(category: failure.category) {
+                let mapped = mapWriteFailureToSyncError(failure)
+                lastWriteError = mapped
+                syncError = userFacingSyncError(mapped)
+                hasBlockingWriteFailure = true
+            } else {
+                syncError = failure.message ?? userFacingSyncError(fallback)
+            }
+            if firestore.triggerReauthFlag {
+                Task { [weak self] in
+                    await self?.triggerReauthenticationForSyncFailure()
+                }
+            }
+            return
+        }
+
+        lastWriteError = fallback
+        syncError = userFacingSyncError(fallback)
+    }
+
+    private func refreshWriteFailureState() {
+        guard let failure = firestore.lastWriteFailure else {
+            if hasBlockingWriteFailure {
+                lastWriteError = nil
+                syncError = nil
+                hasBlockingWriteFailure = false
+            }
+            return
+        }
+
+        if shouldPromoteToBlockingError(category: failure.category) {
+            let mapped = mapWriteFailureToSyncError(failure)
+            lastWriteError = mapped
+            syncError = userFacingSyncError(mapped)
+            hasBlockingWriteFailure = true
+        } else if hasBlockingWriteFailure {
+            lastWriteError = nil
+            syncError = nil
+            hasBlockingWriteFailure = false
+        }
+
+        if firestore.triggerReauthFlag {
+            Task { [weak self] in
+                await self?.triggerReauthenticationForSyncFailure()
+            }
+        }
+    }
+
+    private func shouldPromoteToBlockingError(category: WriteErrorCategory) -> Bool {
+        category == .unauthenticated
+            || category == .permissionDenied
+            || category == .failedPrecondition
+            || category == .invalidArgument
+    }
+
+    private func mapWriteFailureToSyncError(_ failure: WriteFailure) -> SyncError {
+        switch failure.category {
+        case .permissionDenied:
+            return .permissionDenied
+        case .unauthenticated:
+            return .authExpired
+        case .invalidArgument:
+            return .invalidData
+        case .failedPrecondition:
+            return .rejectedTransaction
+        case .resourceExhausted, .unavailable, .notFound, .unknown:
+            return .unknown(code: failure.underlyingCode ?? -1, message: failure.message ?? "Unknown write error")
+        }
+    }
+
+    func restartListenersAfterWriteFailure() {
+        guard let orgId = organizationId else { return }
+        firestore.restartListenersFromWriteRecovery()
+        hasServerSnapshotSinceReconnect = false
+        startListeners(orgId: orgId)
+    }
+
+    func retryLastSafeWrite() {
+        Task {
+            await firestore.retryLastSafeWrite()
+        }
+    }
+
     private func userFacingSyncError(_ error: SyncError) -> String {
         switch error {
         case .permissionDenied:
@@ -1049,9 +1154,8 @@ final class AppViewModel {
             let mutationId = UUID().uuidString
             _ = firestore.deleteShiftNote(deleteOperation.noteId, orgId: orgId, mutationId: mutationId) { [weak self] result in
                 guard let self else { return }
-                if case .failure(let error) = result {
-                    self.lastWriteError = error
-                    self.syncError = self.userFacingSyncError(error)
+                if case .failure(let fallbackError) = result {
+                    self.consumeWriteFailureFromStore(fallback: fallbackError)
                     self.updateSyncState()
                 }
             }
