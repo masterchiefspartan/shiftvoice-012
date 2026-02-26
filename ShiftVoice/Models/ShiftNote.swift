@@ -189,6 +189,7 @@ nonisolated struct ShiftNote: Identifiable, Codable, Sendable {
     var updatedAt: Date
     var updatedAtClient: Date?
     var updatedAtServer: Date?
+    var lastClientMutationId: String?
     var isSynced: Bool
     var isDirty: Bool
 
@@ -213,6 +214,7 @@ nonisolated struct ShiftNote: Identifiable, Codable, Sendable {
         updatedAt: Date? = nil,
         updatedAtClient: Date? = nil,
         updatedAtServer: Date? = nil,
+        lastClientMutationId: String? = nil,
         isSynced: Bool = true,
         isDirty: Bool = false
     ) {
@@ -237,6 +239,7 @@ nonisolated struct ShiftNote: Identifiable, Codable, Sendable {
         self.updatedAt = resolvedUpdatedAt
         self.updatedAtClient = updatedAtClient ?? resolvedUpdatedAt
         self.updatedAtServer = updatedAtServer
+        self.lastClientMutationId = lastClientMutationId
         self.isSynced = isSynced
         self.isDirty = isDirty
     }

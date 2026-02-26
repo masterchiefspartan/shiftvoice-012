@@ -2,7 +2,7 @@ import Foundation
 import FirebaseFirestore
 
 @MainActor
-final class FirestoreService {
+final class FirestoreService: PendingOpsDocumentFetching {
     static let shared = FirestoreService()
     private lazy var db = Firestore.firestore()
     private var activeListeners: [ListenerRegistration] = []
@@ -94,25 +94,50 @@ final class FirestoreService {
 
     // MARK: - Shift Notes
 
+    @discardableResult
     func saveShiftNote(
         _ note: ShiftNote,
         orgId: String,
+        mutationId: String,
+        updatedAtClient: Date,
+        updatedByUserId: String,
         completion: ((Result<Void, SyncError>) -> Void)? = nil
-    ) throws {
-        try db.collection("organizations").document(orgId).collection("shiftNotes").document(note.id).setData(from: note) { error in
+    ) throws -> String {
+        let reference = db.collection("organizations").document(orgId).collection("shiftNotes").document(note.id)
+        var mutableNote = note
+        mutableNote.lastClientMutationId = mutationId
+        mutableNote.updatedAtClient = updatedAtClient
+
+        try reference.setData(from: mutableNote) { error in
             if let error {
                 completion?(.failure(SyncError(error: error)))
                 return
             }
-            completion?(.success(()))
+
+            reference.updateData([
+                "lastClientMutationId": mutationId,
+                "updatedAtClient": Timestamp(date: updatedAtClient),
+                "updatedAtServer": FieldValue.serverTimestamp(),
+                "updatedByUserId": updatedByUserId
+            ]) { updateError in
+                if let updateError {
+                    completion?(.failure(SyncError(error: updateError)))
+                    return
+                }
+                completion?(.success(()))
+            }
         }
+
+        return mutationId
     }
 
+    @discardableResult
     func deleteShiftNote(
         _ noteId: String,
         orgId: String,
+        mutationId: String,
         completion: ((Result<Void, SyncError>) -> Void)? = nil
-    ) {
+    ) -> String {
         db.collection("organizations").document(orgId).collection("shiftNotes").document(noteId).delete { error in
             if let error {
                 completion?(.failure(SyncError(error: error)))
@@ -120,6 +145,7 @@ final class FirestoreService {
             }
             completion?(.success(()))
         }
+        return mutationId
     }
 
     func startShiftNotesListener(
@@ -201,11 +227,12 @@ final class FirestoreService {
             .getDocument(source: .server)
 
         guard snapshot.exists else {
-            return ShiftNoteServerState(noteId: noteId, exists: false, note: nil)
+            return ShiftNoteServerState(noteId: noteId, exists: false, note: nil, lastClientMutationId: nil)
         }
 
         let note = try? snapshot.data(as: ShiftNote.self)
-        return ShiftNoteServerState(noteId: noteId, exists: true, note: note)
+        let lastClientMutationId = snapshot.data()?["lastClientMutationId"] as? String
+        return ShiftNoteServerState(noteId: noteId, exists: true, note: note, lastClientMutationId: lastClientMutationId)
     }
 
     // MARK: - Recurring Issues
@@ -254,4 +281,5 @@ nonisolated struct ShiftNoteServerState: Sendable {
     let noteId: String
     let exists: Bool
     let note: ShiftNote?
+    let lastClientMutationId: String?
 }

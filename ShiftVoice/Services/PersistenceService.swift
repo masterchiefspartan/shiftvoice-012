@@ -21,7 +21,7 @@ nonisolated struct AppData: Codable, Sendable {
     var selectedShiftTemplateIds: [String]?
 }
 
-final class PersistenceService {
+final class PersistenceService: PendingOpsPersisting {
     static let shared = PersistenceService()
 
     private let fileManager = FileManager.default
@@ -163,6 +163,10 @@ final class PersistenceService {
         userDirectory(for: userId).appendingPathComponent("pending_sync_state.json")
     }
 
+    private func pendingOpsURL(for userId: String) -> URL {
+        userDirectory(for: userId).appendingPathComponent("pending_ops.json")
+    }
+
     func saveSnapshot(_ data: AppData, for userId: String) {
         do {
             let jsonData = try encoder.encode(data)
@@ -210,6 +214,31 @@ final class PersistenceService {
 
     func clearPendingSyncState(for userId: String) {
         try? fileManager.removeItem(at: pendingSyncStateURL(for: userId))
+    }
+
+    func savePendingOpsSnapshot(_ snapshot: PendingOpsSnapshot, for userId: String) {
+        do {
+            let data = try encoder.encode(snapshot)
+            try data.write(to: pendingOpsURL(for: userId), options: .atomic)
+        } catch {
+            print("PersistenceService savePendingOpsSnapshot error: \(error)")
+        }
+    }
+
+    func loadPendingOpsSnapshot(for userId: String) -> PendingOpsSnapshot? {
+        let url = pendingOpsURL(for: userId)
+        guard fileManager.fileExists(atPath: url.path) else { return nil }
+        do {
+            let data = try Data(contentsOf: url)
+            return try decoder.decode(PendingOpsSnapshot.self, from: data)
+        } catch {
+            print("PersistenceService loadPendingOpsSnapshot error: \(error)")
+            return nil
+        }
+    }
+
+    func clearPendingOpsSnapshot(for userId: String) {
+        try? fileManager.removeItem(at: pendingOpsURL(for: userId))
     }
 
     // MARK: - Clear User Data

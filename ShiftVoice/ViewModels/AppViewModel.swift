@@ -85,6 +85,8 @@ final class AppViewModel {
     private let firestore = FirestoreService.shared
     private let api = APIService.shared
     private let persistence = PersistenceService.shared
+    private let pendingOpsStore: PendingOpsStoreProtocol
+    private let confirmationReconciler: PendingOpReconciling
 
     private(set) var userProfile: UserProfile?
     private var authenticatedUserId: String?
@@ -154,7 +156,16 @@ final class AppViewModel {
         conflictedActionItemsCache
     }
 
-    init() {
+    init(
+        pendingOpsStore: PendingOpsStoreProtocol? = nil,
+        confirmationReconciler: PendingOpReconciling? = nil
+    ) {
+        let resolvedPendingOpsStore = pendingOpsStore ?? PendingOpsStore(persistence: PersistenceService.shared)
+        self.pendingOpsStore = resolvedPendingOpsStore
+        self.confirmationReconciler = confirmationReconciler ?? ConfirmationReconciler(
+            pendingOpsStore: resolvedPendingOpsStore,
+            documentFetcher: FirestoreService.shared
+        )
         networkReconnectObserver = NotificationCenter.default.addObserver(
             forName: .networkReconnected,
             object: nil,
@@ -315,6 +326,7 @@ final class AppViewModel {
         firestore.stopAllListeners()
         if let userId = authenticatedUserId {
             persistence.clearPendingSyncState(for: userId)
+            pendingOpsStore.clearCurrentUser()
         }
         authenticatedUserId = nil
         organizationId = nil
@@ -332,6 +344,7 @@ final class AppViewModel {
         hasPendingWrites = false
         pendingNoteIds = []
         pendingSyncState = PendingSyncState()
+        pendingOpsStore.clearCurrentUser()
         hasServerSnapshotSinceReconnect = false
         lastWriteError = nil
         isDataFromCache = true
@@ -346,6 +359,7 @@ final class AppViewModel {
                 pendingNoteIds = persistedPending.pendingNoteIds
             }
 
+            pendingOpsStore.configure(userId: userId)
             normalizePendingStateFromPersistence()
 
             let (profile, orgId, locId) = try await firestore.fetchUserData(userId)
@@ -369,6 +383,7 @@ final class AppViewModel {
         hasPendingWrites = event.hasPendingWrites
         isDataFromCache = event.isFromCache
 
+        let isFirstServerSnapshotAfterReconnect = !event.isFromCache && !hasServerSnapshotSinceReconnect
         if !event.isFromCache {
             hasServerSnapshotSinceReconnect = true
             let now = Date()
@@ -396,7 +411,7 @@ final class AppViewModel {
         persistPendingSyncState()
         updateSyncState()
 
-        if !event.isFromCache {
+        if isFirstServerSnapshotAfterReconnect {
             schedulePendingReconciliation(reason: "server_snapshot")
         }
     }
@@ -459,10 +474,18 @@ final class AppViewModel {
             return
         }
 
-        trackPendingOperation(note: note, type: operation)
+        let mutationId = UUID().uuidString
+        let now = Date()
+        trackPendingOperation(note: note, type: operation, mutationId: mutationId)
 
         do {
-            try firestore.saveShiftNote(note, orgId: orgId) { [weak self] result in
+            _ = try firestore.saveShiftNote(
+                note,
+                orgId: orgId,
+                mutationId: mutationId,
+                updatedAtClient: now,
+                updatedByUserId: currentUserId
+            ) { [weak self] result in
                 guard let self else { return }
                 if case .failure(let error) = result {
                     self.lastWriteError = error
@@ -558,8 +581,9 @@ final class AppViewModel {
         shiftNotes.removeAll { $0.id == noteId }
 
         guard let orgId = organizationId else { return }
-        trackDeleteTombstone(noteId: noteId, lastSeenUpdatedAtServer: removedNote.updatedAtServer)
-        firestore.deleteShiftNote(noteId, orgId: orgId) { [weak self] result in
+        let mutationId = UUID().uuidString
+        trackDeleteTombstone(noteId: noteId, lastSeenUpdatedAtServer: removedNote.updatedAtServer, mutationId: mutationId)
+        _ = firestore.deleteShiftNote(noteId, orgId: orgId, mutationId: mutationId) { [weak self] result in
             guard let self else { return }
             if case .failure(let error) = result {
                 self.lastWriteError = error
@@ -789,7 +813,7 @@ final class AppViewModel {
                 hasServerSnapshotSinceReconnect: hasServerSnapshotSinceReconnect,
                 lastWriteError: lastWriteError,
                 pendingNoteCount: pendingNoteIds.count,
-                pendingDeleteCount: pendingSyncState.pendingDeletes.count
+                pendingDeleteCount: pendingOpsStore.summary().pendingDeleteCount
             )
         )
     }
@@ -813,7 +837,7 @@ final class AppViewModel {
         }
     }
 
-    private func trackPendingOperation(note: ShiftNote, type: PendingNoteOperationType) {
+    private func trackPendingOperation(note: ShiftNote, type: PendingNoteOperationType, mutationId: String) {
         let operation = PendingNoteOperation(
             noteId: note.id,
             type: type,
@@ -821,6 +845,8 @@ final class AppViewModel {
             lastSeenUpdatedAtServer: pendingSyncState.noteLastSeenUpdatedAtServer[note.id]
         )
         pendingSyncState.pendingOperations[note.id] = operation
+        let pendingOp = PendingOp(docId: note.id, type: .upsert, mutationId: mutationId)
+        pendingOpsStore.upsert(pendingOp)
         pendingNoteIds.insert(note.id)
 
         if type == .edit,
@@ -832,7 +858,7 @@ final class AppViewModel {
         updateSyncState()
     }
 
-    private func trackDeleteTombstone(noteId: String, lastSeenUpdatedAtServer: Date?) {
+    private func trackDeleteTombstone(noteId: String, lastSeenUpdatedAtServer: Date?, mutationId: String) {
         let tombstone = PendingNoteOperation(
             noteId: noteId,
             type: .delete,
@@ -840,6 +866,8 @@ final class AppViewModel {
             lastSeenUpdatedAtServer: lastSeenUpdatedAtServer
         )
         pendingSyncState.pendingDeletes[noteId] = tombstone
+        let pendingOp = PendingOp(docId: noteId, type: .delete, mutationId: mutationId)
+        pendingOpsStore.upsert(pendingOp)
         pendingNoteIds.insert(noteId)
         persistPendingSyncState()
         updateSyncState()
@@ -849,6 +877,7 @@ final class AppViewModel {
         pendingSyncState.pendingOperations.removeValue(forKey: noteId)
         pendingSyncState.pendingDeletes.removeValue(forKey: noteId)
         pendingSyncState.noteEditBases.removeValue(forKey: noteId)
+        pendingOpsStore.remove(docId: noteId)
         pendingNoteIds.remove(noteId)
         persistPendingSyncState()
         updateSyncState()
@@ -857,7 +886,8 @@ final class AppViewModel {
     private func normalizePendingStateFromPersistence() {
         let operationIDs = Set(pendingSyncState.pendingOperations.keys)
         let deleteIDs = Set(pendingSyncState.pendingDeletes.keys)
-        pendingNoteIds = operationIDs.union(deleteIDs)
+        let persistedPendingIDs = pendingOpsStore.summary().pendingDocIds
+        pendingNoteIds = operationIDs.union(deleteIDs).union(persistedPendingIDs)
         pendingSyncState.pendingNoteIds = pendingNoteIds
         persistPendingSyncState()
 
@@ -869,7 +899,7 @@ final class AppViewModel {
     private func schedulePendingReconciliation(reason: String) {
         guard networkMonitor.isConnected else { return }
         guard organizationId != nil else { return }
-        guard !pendingNoteIds.isEmpty else { return }
+        guard !pendingOpsStore.all().isEmpty || !pendingNoteIds.isEmpty else { return }
 
         pendingReconciliationTask?.cancel()
         pendingReconciliationTask = Task { [weak self] in
@@ -893,17 +923,14 @@ final class AppViewModel {
 
         switch operation.type {
         case .create:
-            pendingSyncState.pendingOperations.removeValue(forKey: noteId)
-            pendingNoteIds.remove(noteId)
+            clearPendingOperation(noteId: noteId)
         case .edit:
             if let expectedDate = operation.expectedUpdatedAtClient {
                 if note.updatedAt >= expectedDate {
-                    pendingSyncState.pendingOperations.removeValue(forKey: noteId)
-                    pendingNoteIds.remove(noteId)
+                    clearPendingOperation(noteId: noteId)
                 }
             } else {
-                pendingSyncState.pendingOperations.removeValue(forKey: noteId)
-                pendingNoteIds.remove(noteId)
+                clearPendingOperation(noteId: noteId)
             }
         case .delete:
             break
@@ -914,62 +941,33 @@ final class AppViewModel {
         guard networkMonitor.isConnected else { return }
         guard let orgId = organizationId else { return }
 
-        let operationIDs = Set(pendingSyncState.pendingOperations.keys)
-        let deleteIDs = Set(pendingSyncState.pendingDeletes.keys)
-        let candidateIDs = operationIDs.union(deleteIDs)
-        guard !candidateIDs.isEmpty else { return }
+        let result = await confirmationReconciler.reconcile(orgId: orgId)
 
-        for noteId in candidateIDs {
-            if Task.isCancelled {
-                return
+        if let encounteredError = result.encounteredError {
+            lastWriteError = encounteredError
+            syncError = userFacingSyncError(encounteredError)
+            if encounteredError == .authExpired {
+                await triggerReauthenticationForSyncFailure()
             }
-
-            do {
-                let serverState = try await firestore.fetchShiftNoteServerState(noteId: noteId, orgId: orgId)
-
-                if let deleteOperation = pendingSyncState.pendingDeletes[noteId] {
-                    if !serverState.exists {
-                        clearPendingOperation(noteId: deleteOperation.noteId)
-                    }
-                    continue
-                }
-
-                guard let operation = pendingSyncState.pendingOperations[noteId] else {
-                    continue
-                }
-
-                guard serverState.exists, let note = serverState.note else {
-                    pendingSyncState.pendingOperations.removeValue(forKey: noteId)
-                    pendingNoteIds.remove(noteId)
-                    lastWriteError = .rejectedTransaction
-                    syncError = userFacingSyncError(.rejectedTransaction)
-                    continue
-                }
-
-                pendingSyncState.noteLastSeenUpdatedAtServer[noteId] = note.updatedAt
-
-                switch operation.type {
-                case .create:
-                    pendingSyncState.pendingOperations.removeValue(forKey: noteId)
-                    pendingNoteIds.remove(noteId)
-                case .edit:
-                    if let expectedDate = operation.expectedUpdatedAtClient, note.updatedAt < expectedDate {
-                        continue
-                    }
-                    pendingSyncState.pendingOperations.removeValue(forKey: noteId)
-                    pendingNoteIds.remove(noteId)
-                case .delete:
-                    break
-                }
-            } catch {
-                let syncError = SyncError(error: error)
-                lastWriteError = syncError
-                syncError == .authExpired ? await triggerReauthenticationForSyncFailure() : ()
-                self.syncError = userFacingSyncError(syncError)
-            }
+            updateSyncState()
+            _ = reason
+            return
         }
 
+        for noteId in result.clearedDocIds {
+            pendingSyncState.pendingOperations.removeValue(forKey: noteId)
+            pendingSyncState.pendingDeletes.removeValue(forKey: noteId)
+            pendingSyncState.noteEditBases.removeValue(forKey: noteId)
+        }
+
+        let summary = pendingOpsStore.summary()
+        pendingNoteIds = summary.pendingDocIds
         pendingSyncState.pendingNoteIds = pendingNoteIds
+
+        if !result.mismatchDocIds.isEmpty {
+            pendingSyncState.conflictCandidateNoteIds.formUnion(result.mismatchDocIds)
+        }
+
         persistPendingSyncState()
         updateSyncState()
         _ = reason
@@ -983,10 +981,11 @@ final class AppViewModel {
         }
 
         for noteId in Array(pendingSyncState.pendingDeletes.keys) where event.documentIDs.contains(noteId) {
-            pendingSyncState.pendingDeletes.removeValue(forKey: noteId)
-            pendingNoteIds.remove(noteId)
+            clearPendingOperation(noteId: noteId)
         }
 
+        pendingNoteIds.formUnion(pendingOpsStore.summary().pendingDocIds)
+        pendingSyncState.pendingNoteIds = pendingNoteIds
         persistPendingSyncState()
         updateSyncState()
     }
@@ -996,13 +995,13 @@ final class AppViewModel {
 
         if event.exists, let note = event.note {
             reconcileOperationFromObservedServerNote(note)
-            pendingSyncState.pendingDeletes.removeValue(forKey: event.noteId)
-            pendingNoteIds.remove(event.noteId)
+            clearPendingOperation(noteId: event.noteId)
         } else if pendingSyncState.pendingDeletes[event.noteId] != nil {
-            pendingSyncState.pendingDeletes.removeValue(forKey: event.noteId)
-            pendingNoteIds.remove(event.noteId)
+            clearPendingOperation(noteId: event.noteId)
         }
 
+        pendingNoteIds.formUnion(pendingOpsStore.summary().pendingDocIds)
+        pendingSyncState.pendingNoteIds = pendingNoteIds
         persistPendingSyncState()
         updateSyncState()
     }
@@ -1047,7 +1046,8 @@ final class AppViewModel {
 
         for deleteOperation in pendingSyncState.pendingDeletes.values {
             guard let orgId = organizationId else { continue }
-            firestore.deleteShiftNote(deleteOperation.noteId, orgId: orgId) { [weak self] result in
+            let mutationId = UUID().uuidString
+            _ = firestore.deleteShiftNote(deleteOperation.noteId, orgId: orgId, mutationId: mutationId) { [weak self] result in
                 guard let self else { return }
                 if case .failure(let error) = result {
                     self.lastWriteError = error

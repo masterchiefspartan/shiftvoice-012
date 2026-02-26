@@ -14,6 +14,88 @@ nonisolated enum PendingNoteOperationType: String, Codable, Sendable {
     case delete
 }
 
+nonisolated enum PendingOpType: String, Codable, Sendable {
+    case upsert
+    case delete
+}
+
+nonisolated struct PendingOp: Codable, Equatable, Sendable {
+    let docId: String
+    let type: PendingOpType
+    let mutationId: String
+    let createdAtClient: Date
+    var lastAttemptAt: Date?
+    var attemptCount: Int
+
+    init(
+        docId: String,
+        type: PendingOpType,
+        mutationId: String,
+        createdAtClient: Date = Date(),
+        lastAttemptAt: Date? = nil,
+        attemptCount: Int = 0
+    ) {
+        self.docId = docId
+        self.type = type
+        self.mutationId = mutationId
+        self.createdAtClient = createdAtClient
+        self.lastAttemptAt = lastAttemptAt
+        self.attemptCount = attemptCount
+    }
+}
+
+nonisolated struct PendingOpsSnapshot: Codable, Equatable, Sendable {
+    var pendingOps: [String: PendingOp]
+
+    init(pendingOps: [String: PendingOp] = [:]) {
+        self.pendingOps = pendingOps
+    }
+}
+
+nonisolated struct PendingOpReconcileMismatch: Equatable, Sendable {
+    let docId: String
+    let expectedMutationId: String
+    let serverMutationId: String?
+}
+
+nonisolated struct PendingOpReconcileResult: Sendable {
+    let remainingOps: [PendingOp]
+    let clearedDocIds: Set<String>
+    let mismatchDocIds: Set<String>
+    let mismatches: [PendingOpReconcileMismatch]
+    let encounteredError: SyncError?
+}
+
+nonisolated struct PendingOpsSummary: Sendable {
+    let pendingDocIds: Set<String>
+    let pendingDeleteCount: Int
+}
+
+protocol PendingOpsPersisting: AnyObject {
+    func savePendingOpsSnapshot(_ snapshot: PendingOpsSnapshot, for userId: String)
+    func loadPendingOpsSnapshot(for userId: String) -> PendingOpsSnapshot?
+    func clearPendingOpsSnapshot(for userId: String)
+}
+
+protocol PendingOpsStoreProtocol: AnyObject {
+    var pendingOps: [String: PendingOp] { get }
+    func configure(userId: String)
+    func clearCurrentUser()
+    func all() -> [PendingOp]
+    func summary() -> PendingOpsSummary
+    func upsert(_ operation: PendingOp)
+    func remove(docId: String)
+    func markAttempt(docId: String, at date: Date)
+}
+
+protocol PendingOpsDocumentFetching: AnyObject {
+    func fetchShiftNoteServerState(noteId: String, orgId: String) async throws -> ShiftNoteServerState
+}
+
+protocol PendingOpReconciling: AnyObject {
+    func reconcile(orgId: String) async -> PendingOpReconcileResult
+}
+
 nonisolated enum SyncError: Error, Codable, Sendable, Equatable {
     case permissionDenied
     case authExpired
