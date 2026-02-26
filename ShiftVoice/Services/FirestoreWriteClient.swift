@@ -14,16 +14,19 @@ final class DefaultFirestoreWriteClient: FirestoreWriteClient {
     private let db: Firestore
     private let failureStore: WriteFailureStore
     private let restartListenersHook: (() -> Void)?
+    private let syncEventLogger: SyncEventLogger
     private var retryClosure: (() async -> Void)?
 
     init(
         db: Firestore = Firestore.firestore(),
         failureStore: WriteFailureStore,
-        restartListenersHook: (() -> Void)? = nil
+        restartListenersHook: (() -> Void)? = nil,
+        syncEventLogger: SyncEventLogger = .shared
     ) {
         self.db = db
         self.failureStore = failureStore
         self.restartListenersHook = restartListenersHook
+        self.syncEventLogger = syncEventLogger
     }
 
     var triggerReauthFlag: Bool {
@@ -31,6 +34,7 @@ final class DefaultFirestoreWriteClient: FirestoreWriteClient {
     }
 
     func restartListeners() {
+        syncEventLogger.listenerRestarted(reason: "write_recovery")
         restartListenersHook?()
     }
 
@@ -154,6 +158,7 @@ final class DefaultFirestoreWriteClient: FirestoreWriteClient {
             message: (error as NSError).localizedDescription
         )
         failureStore.setFailure(failure)
+        syncEventLogger.writeFailure(category: category, operation: operation, docPath: documentPath)
 
         if isSafeToRetry(op: operation, data: data), let documentPath {
             retryClosure = { [weak self] in

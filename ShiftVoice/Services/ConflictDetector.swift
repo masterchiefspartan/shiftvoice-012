@@ -4,9 +4,11 @@ import Foundation
 final class ConflictDetector {
     private let trackedFields: [String] = ["status", "assigneeId", "priority"]
     let conflictStore: ConflictStore
+    private let syncEventLogger: SyncEventLogger
 
-    init(conflictStore: ConflictStore) {
+    init(conflictStore: ConflictStore, syncEventLogger: SyncEventLogger = .shared) {
         self.conflictStore = conflictStore
+        self.syncEventLogger = syncEventLogger
     }
 
     func evaluateSnapshot(
@@ -47,17 +49,17 @@ final class ConflictDetector {
                 continue
             }
 
-            conflicts.append(
-                ConflictItem(
-                    noteId: serverNote.id,
-                    fieldName: field,
-                    localIntendedValue: localIntendedValue,
-                    serverCurrentValue: serverCurrentValue,
-                    serverUpdatedBy: serverUpdatedByUserId,
-                    serverUpdatedAt: serverTimestamp,
-                    localEditStartedAt: editBaseline.updatedAtServer
-                )
+            let conflict = ConflictItem(
+                noteId: serverNote.id,
+                fieldName: field,
+                localIntendedValue: localIntendedValue,
+                serverCurrentValue: serverCurrentValue,
+                serverUpdatedBy: serverUpdatedByUserId,
+                serverUpdatedAt: serverTimestamp,
+                localEditStartedAt: editBaseline.updatedAtServer
             )
+            conflicts.append(conflict)
+            syncEventLogger.conflictDetected(noteId: conflict.noteId, field: conflict.fieldName)
         }
 
         return conflicts

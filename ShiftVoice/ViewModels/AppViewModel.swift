@@ -90,12 +90,18 @@ final class AppViewModel {
     private let confirmationReconciler: PendingOpReconciling
     private let conflictStore: ConflictStore
     private let editBaselineStore: EditBaselineStore
+    private let syncEventLogger: SyncEventLogger
     private let conflictDetector: ConflictDetector
     private var recentlyClearedPendingNoteIds: Set<String> = []
     private var recentlyClearedPendingEdits: [String: PendingOp] = [:]
 
     var hasActiveConflicts: Bool { !conflictStore.activeConflicts.isEmpty }
     var activeConflictCount: Int { conflictStore.activeConflicts.count }
+    var pendingDocIdsForDiagnostics: [String] { pendingOpsStore.all().map(\.docId).sorted() }
+    var pendingOpsCountForDiagnostics: Int { pendingOpsStore.all().count }
+    var recentSyncEventsForDiagnostics: [SyncEventRecord] { syncEventLogger.recentEvents(limit: 10) }
+    var recentWriteFailuresForDiagnostics: [SyncEventRecord] { syncEventLogger.recentWriteFailures(limit: 5) }
+    var writeFailureCountForDiagnostics: Int { syncEventLogger.writeFailureEventCount }
 
     func conflictsForNote(_ noteId: String) -> [ConflictItem] {
         conflictStore.conflictsForNote(noteId)
@@ -187,7 +193,8 @@ final class AppViewModel {
         )
         self.conflictStore = conflictStore ?? ConflictStore()
         self.editBaselineStore = editBaselineStore ?? EditBaselineStore()
-        self.conflictDetector = ConflictDetector(conflictStore: self.conflictStore)
+        self.syncEventLogger = .shared
+        self.conflictDetector = ConflictDetector(conflictStore: self.conflictStore, syncEventLogger: self.syncEventLogger)
         networkReconnectObserver = NotificationCenter.default.addObserver(
             forName: .networkReconnected,
             object: nil,
@@ -841,6 +848,7 @@ final class AppViewModel {
     }
 
     private func updateSyncState() {
+        let oldState = syncState
         refreshWriteFailureState()
 
         let snapshotFreshness: SnapshotFreshness
@@ -863,6 +871,10 @@ final class AppViewModel {
                 pendingDeleteCount: pendingOpsStore.summary().pendingDeleteCount
             )
         )
+
+        if oldState != syncState {
+            syncEventLogger.stateTransition(from: oldState, to: syncState)
+        }
     }
 
     private func persistPendingSyncState() {
@@ -901,6 +913,7 @@ final class AppViewModel {
             intendedFields: intendedFields
         )
         pendingOpsStore.upsert(pendingOp)
+        syncEventLogger.pendingOpAdded(docId: note.id, type: .upsert)
         pendingNoteIds.insert(note.id)
 
         if type == .edit,
@@ -928,17 +941,27 @@ final class AppViewModel {
         pendingSyncState.pendingDeletes[noteId] = tombstone
         let pendingOp = PendingOp(docId: noteId, type: .delete, mutationId: mutationId)
         pendingOpsStore.upsert(pendingOp)
+        syncEventLogger.pendingOpAdded(docId: noteId, type: .delete)
         pendingNoteIds.insert(noteId)
         persistPendingSyncState()
         updateSyncState()
     }
 
     private func clearPendingOperation(noteId: String) {
+        let pendingOp = pendingOpsStore.pendingOps[noteId]
         pendingSyncState.pendingOperations.removeValue(forKey: noteId)
         pendingSyncState.pendingDeletes.removeValue(forKey: noteId)
         pendingSyncState.noteEditBases.removeValue(forKey: noteId)
         pendingOpsStore.remove(docId: noteId)
         pendingNoteIds.remove(noteId)
+
+        if let pendingOp {
+            syncEventLogger.pendingOpConfirmed(
+                docId: noteId,
+                type: pendingOp.type,
+                durationSeconds: Date().timeIntervalSince(pendingOp.createdAtClient)
+            )
+        }
 
         let hasDetectedConflict = conflictStore.activeConflicts.contains { $0.noteId == noteId }
         if !hasDetectedConflict {
@@ -1200,6 +1223,7 @@ final class AppViewModel {
 
     func restartListenersAfterWriteFailure() {
         guard let orgId = organizationId else { return }
+        syncEventLogger.listenerRestarted(reason: "write_failure_recovery")
         firestore.restartListenersFromWriteRecovery()
         hasServerSnapshotSinceReconnect = false
         startListeners(orgId: orgId)
@@ -1230,10 +1254,15 @@ final class AppViewModel {
 
     func forceSyncListenerRestart() {
         guard let orgId = organizationId else { return }
+        syncEventLogger.listenerRestarted(reason: "manual_settings_restart")
         firestore.stopAllListeners()
         hasServerSnapshotSinceReconnect = false
         updateSyncState()
         startListeners(orgId: orgId)
+    }
+
+    func forceReconciliationFromDiagnostics() {
+        schedulePendingReconciliation(reason: "manual_force_reconciliation")
     }
 
     func triggerReauthenticationForSyncFailure() async {
@@ -1278,6 +1307,8 @@ final class AppViewModel {
     func resolveConflict(id: String, resolution: ConflictResolution) {
         guard let conflict = conflictStore.activeConflicts.first(where: { $0.id == id }) else { return }
 
+        syncEventLogger.conflictResolved(noteId: conflict.noteId, field: conflict.fieldName, resolution: resolution)
+
         switch resolution {
         case .keptServer:
             conflictStore.resolveConflict(id: id, resolution: .keptServer, userId: currentUserId)
@@ -1293,6 +1324,7 @@ final class AppViewModel {
 
     func dismissConflict(id: String) {
         guard let conflict = conflictStore.activeConflicts.first(where: { $0.id == id }) else { return }
+        syncEventLogger.conflictResolved(noteId: conflict.noteId, field: conflict.fieldName, resolution: .dismissed)
         conflictStore.dismissConflict(id: id, userId: currentUserId)
         clearConflictStateIfNoActiveConflicts(noteId: conflict.noteId)
     }
@@ -1416,6 +1448,52 @@ final class AppViewModel {
             industryType: organization.industryType
         )
         writeOrganization(organization)
+    }
+
+    func syncStateLabel() -> String {
+        switch syncState {
+        case .offline:
+            return "Offline"
+        case .onlineCache:
+            return "Online (Cache)"
+        case .syncing:
+            return "Syncing"
+        case .onlineFresh:
+            return "Synced"
+        case .error:
+            return "Error"
+        }
+    }
+
+    func diagnosticsReport() -> String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .medium
+        let generated = formatter.string(from: Date())
+        let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "Unknown"
+        let buildNumber = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "Unknown"
+        let lastServerSync = lastSyncedFromServer.map { formatter.string(from: $0) } ?? "Never"
+        let pendingDocIds = pendingDocIdsForDiagnostics
+        let pendingSummary = pendingDocIds.isEmpty ? "none" : pendingDocIds.joined(separator: ",")
+
+        var lines: [String] = []
+        lines.append("---")
+        lines.append("ShiftVoice Sync Diagnostics")
+        lines.append("Generated: \(generated)")
+        lines.append("App Version: \(appVersion) (\(buildNumber))")
+        lines.append("SyncState: \(syncState.rawValue)")
+        lines.append("Pending Ops: \(pendingOpsCountForDiagnostics) (\(pendingSummary))")
+        lines.append("Active Conflicts: \(activeConflictCount)")
+        lines.append("Last Server Sync: \(lastServerSync)")
+        lines.append("Write Errors: \(writeFailureCountForDiagnostics)")
+        lines.append("Recent Events:")
+
+        for event in recentSyncEventsForDiagnostics {
+            lines.append("[\(formatter.string(from: event.timestamp))] \(event.message)")
+        }
+
+        lines.append("---")
+        return lines.joined(separator: "\n")
     }
 
     func deltaSyncFromBackend() {}
