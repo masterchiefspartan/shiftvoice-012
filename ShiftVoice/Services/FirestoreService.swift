@@ -193,6 +193,21 @@ final class FirestoreService {
         activeListeners.append(documentReg)
     }
 
+    func fetchShiftNoteServerState(noteId: String, orgId: String) async throws -> ShiftNoteServerState {
+        let snapshot = try await db.collection("organizations")
+            .document(orgId)
+            .collection("shiftNotes")
+            .document(noteId)
+            .getDocument(source: .server)
+
+        guard snapshot.exists else {
+            return ShiftNoteServerState(noteId: noteId, exists: false, note: nil)
+        }
+
+        let note = try? snapshot.data(as: ShiftNote.self)
+        return ShiftNoteServerState(noteId: noteId, exists: true, note: note)
+    }
+
     // MARK: - Recurring Issues
 
     func saveRecurringIssue(_ issue: RecurringIssue, orgId: String) throws {
@@ -233,4 +248,10 @@ final class FirestoreService {
         activeListeners.forEach { $0.remove() }
         activeListeners.removeAll()
     }
+}
+
+nonisolated struct ShiftNoteServerState: Sendable {
+    let noteId: String
+    let exists: Bool
+    let note: ShiftNote?
 }
