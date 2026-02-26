@@ -55,7 +55,27 @@ final class ConflictStore {
     }
 
     func addConflict(_ conflict: ConflictItem) {
-        allConflicts.append(conflict)
+        if let existingIndex = allConflicts.firstIndex(where: {
+            $0.noteId == conflict.noteId &&
+            $0.fieldName == conflict.fieldName &&
+            $0.state == .detected
+        }) {
+            let existing = allConflicts[existingIndex]
+            allConflicts[existingIndex] = ConflictItem(
+                id: existing.id,
+                noteId: conflict.noteId,
+                fieldName: conflict.fieldName,
+                localIntendedValue: conflict.localIntendedValue,
+                serverCurrentValue: conflict.serverCurrentValue,
+                serverUpdatedBy: conflict.serverUpdatedBy,
+                serverUpdatedAt: conflict.serverUpdatedAt,
+                localEditStartedAt: conflict.localEditStartedAt,
+                detectedAt: conflict.detectedAt,
+                state: .detected
+            )
+        } else {
+            allConflicts.append(conflict)
+        }
         save()
     }
 
