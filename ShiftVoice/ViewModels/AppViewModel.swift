@@ -89,6 +89,10 @@ final class AppViewModel {
     private let pendingOpsStore: PendingOpsStoreProtocol
     private let confirmationReconciler: PendingOpReconciling
     private let conflictStore: ConflictStore
+    private let editBaselineStore: EditBaselineStore
+    private let conflictDetector: ConflictDetector
+    private var recentlyClearedPendingNoteIds: Set<String> = []
+    private var recentlyClearedPendingEdits: [String: PendingOp] = [:]
 
     var hasActiveConflicts: Bool { !conflictStore.activeConflicts.isEmpty }
     var activeConflictCount: Int { conflictStore.activeConflicts.count }
@@ -168,7 +172,8 @@ final class AppViewModel {
     init(
         pendingOpsStore: PendingOpsStoreProtocol? = nil,
         confirmationReconciler: PendingOpReconciling? = nil,
-        conflictStore: ConflictStore? = nil
+        conflictStore: ConflictStore? = nil,
+        editBaselineStore: EditBaselineStore? = nil
     ) {
         let resolvedPendingOpsStore = pendingOpsStore ?? PendingOpsStore(persistence: PersistenceService.shared)
         self.pendingOpsStore = resolvedPendingOpsStore
@@ -177,6 +182,8 @@ final class AppViewModel {
             documentFetcher: FirestoreService.shared
         )
         self.conflictStore = conflictStore ?? ConflictStore()
+        self.editBaselineStore = editBaselineStore ?? EditBaselineStore()
+        self.conflictDetector = ConflictDetector(conflictStore: self.conflictStore)
         networkReconnectObserver = NotificationCenter.default.addObserver(
             forName: .networkReconnected,
             object: nil,
@@ -339,6 +346,7 @@ final class AppViewModel {
             persistence.clearPendingSyncState(for: userId)
             pendingOpsStore.clearCurrentUser()
             conflictStore.clearCurrentUserContext()
+            editBaselineStore.clearCurrentUserContext()
         }
         authenticatedUserId = nil
         organizationId = nil
@@ -373,6 +381,7 @@ final class AppViewModel {
 
             pendingOpsStore.configure(userId: userId)
             conflictStore.configure(userId: userId)
+            editBaselineStore.configure(userId: userId)
             normalizePendingStateFromPersistence()
 
             let (profile, orgId, locId) = try await firestore.fetchUserData(userId)
@@ -631,6 +640,7 @@ final class AppViewModel {
     // MARK: - Action Items
 
     func updateActionItemStatus(noteId: String, actionItemId: String, newStatus: ActionItemStatus) {
+        beginEditingNote(noteId)
         guard let noteIndex = shiftNotes.firstIndex(where: { $0.id == noteId }),
               let itemIndex = shiftNotes[noteIndex].actionItems.firstIndex(where: { $0.id == actionItemId }) else { return }
         let oldStatus = shiftNotes[noteIndex].actionItems[itemIndex].status
@@ -645,6 +655,7 @@ final class AppViewModel {
     }
 
     func updateActionItemAssignee(noteId: String, actionItemId: String, assignee: String?, assigneeId: String? = nil) {
+        beginEditingNote(noteId)
         guard let noteIndex = shiftNotes.firstIndex(where: { $0.id == noteId }),
               let itemIndex = shiftNotes[noteIndex].actionItems.firstIndex(where: { $0.id == actionItemId }) else { return }
         let now = Date()
@@ -877,13 +888,26 @@ final class AppViewModel {
             lastSeenUpdatedAtServer: pendingSyncState.noteLastSeenUpdatedAtServer[note.id]
         )
         pendingSyncState.pendingOperations[note.id] = operation
-        let pendingOp = PendingOp(docId: note.id, type: .upsert, mutationId: mutationId)
+
+        let intendedFields: [String: String]? = type == .edit ? collaborativeFields(from: note) : nil
+        let pendingOp = PendingOp(
+            docId: note.id,
+            type: .upsert,
+            mutationId: mutationId,
+            intendedFields: intendedFields
+        )
         pendingOpsStore.upsert(pendingOp)
         pendingNoteIds.insert(note.id)
 
         if type == .edit,
+           editBaselineStore.getBaseline(for: note.id) == nil,
            let baseServerDate = pendingSyncState.noteLastSeenUpdatedAtServer[note.id] {
             pendingSyncState.noteEditBases[note.id] = baseServerDate
+            editBaselineStore.setBaseline(
+                for: note.id,
+                fields: collaborativeFields(from: note),
+                serverTimestamp: baseServerDate
+            )
         }
 
         persistPendingSyncState()
@@ -911,6 +935,12 @@ final class AppViewModel {
         pendingSyncState.noteEditBases.removeValue(forKey: noteId)
         pendingOpsStore.remove(docId: noteId)
         pendingNoteIds.remove(noteId)
+
+        let hasDetectedConflict = conflictStore.activeConflicts.contains { $0.noteId == noteId }
+        if !hasDetectedConflict {
+            editBaselineStore.clearBaseline(for: noteId)
+        }
+
         persistPendingSyncState()
         updateSyncState()
     }
@@ -937,6 +967,44 @@ final class AppViewModel {
         pendingReconciliationTask = Task { [weak self] in
             guard let self else { return }
             await self.reconcilePendingOperationsWithServer(reason: reason)
+        }
+    }
+
+    private func evaluateConflictsForServerNote(_ note: ShiftNote, isFromCache: Bool) {
+        guard !isFromCache else { return }
+
+        let noteId = note.id
+        let hasPendingEdit = pendingSyncState.pendingOperations[noteId]?.type == .edit
+        let wasJustCleared = recentlyClearedPendingNoteIds.contains(noteId)
+        guard hasPendingEdit || wasJustCleared || editBaselineStore.getBaseline(for: noteId) != nil else { return }
+
+        let pendingEdit = pendingOpsStore.pendingOps[noteId] ?? recentlyClearedPendingEdits[noteId]
+        let baseline = editBaselineStore.getBaseline(for: noteId)
+        let conflicts = conflictDetector.evaluateSnapshot(
+            serverNote: note,
+            localPendingEdit: pendingEdit,
+            editBaseline: baseline,
+            isFromCache: isFromCache
+        )
+
+        guard !conflicts.isEmpty else {
+            if pendingSyncState.pendingOperations[noteId] == nil {
+                editBaselineStore.clearBaseline(for: noteId)
+            }
+            return
+        }
+
+        for conflict in conflicts {
+            conflictStore.addConflict(conflict)
+        }
+
+        Task {
+            guard let orgId = organizationId else { return }
+            try? await firestore.markNoteConflictDetected(
+                noteId: noteId,
+                orgId: orgId,
+                summary: conflicts.map(\.fieldName).joined(separator: ",")
+            )
         }
     }
 
@@ -973,6 +1041,7 @@ final class AppViewModel {
         guard networkMonitor.isConnected else { return }
         guard let orgId = organizationId else { return }
 
+        let pendingOpsBeforeReconcile = pendingOpsStore.pendingOps
         let result = await confirmationReconciler.reconcile(orgId: orgId)
 
         if let encounteredError = result.encounteredError {
@@ -984,6 +1053,13 @@ final class AppViewModel {
             updateSyncState()
             _ = reason
             return
+        }
+
+        recentlyClearedPendingNoteIds.formUnion(result.clearedDocIds)
+        for noteId in result.clearedDocIds {
+            if let pendingOp = pendingOpsBeforeReconcile[noteId], pendingOp.type == .upsert {
+                recentlyClearedPendingEdits[noteId] = pendingOp
+            }
         }
 
         for noteId in result.clearedDocIds {
@@ -1009,6 +1085,7 @@ final class AppViewModel {
         guard !event.isFromCache else { return }
 
         for note in shiftNotes {
+            evaluateConflictsForServerNote(note, isFromCache: event.isFromCache)
             reconcileOperationFromObservedServerNote(note)
         }
 
@@ -1020,14 +1097,19 @@ final class AppViewModel {
         pendingSyncState.pendingNoteIds = pendingNoteIds
         persistPendingSyncState()
         updateSyncState()
+        recentlyClearedPendingNoteIds.removeAll()
+        recentlyClearedPendingEdits.removeAll()
     }
 
     private func handleShiftNoteDocumentEvent(_ event: ShiftNoteDocumentEvent) {
         guard !event.isFromCache else { return }
 
         if event.exists, let note = event.note {
+            evaluateConflictsForServerNote(note, isFromCache: event.isFromCache)
             reconcileOperationFromObservedServerNote(note)
-            clearPendingOperation(noteId: event.noteId)
+            if pendingSyncState.pendingOperations[event.noteId] != nil || pendingSyncState.pendingDeletes[event.noteId] != nil {
+                clearPendingOperation(noteId: event.noteId)
+            }
         } else if pendingSyncState.pendingDeletes[event.noteId] != nil {
             clearPendingOperation(noteId: event.noteId)
         }
@@ -1036,6 +1118,8 @@ final class AppViewModel {
         pendingSyncState.pendingNoteIds = pendingNoteIds
         persistPendingSyncState()
         updateSyncState()
+        recentlyClearedPendingNoteIds.remove(event.noteId)
+        recentlyClearedPendingEdits.removeValue(forKey: event.noteId)
     }
 
     private func consumeWriteFailureFromStore(fallback: SyncError) {
@@ -1175,10 +1259,25 @@ final class AppViewModel {
     }
 
     func beginEditingNote(_ noteId: String) {
-        if let serverDate = pendingSyncState.noteLastSeenUpdatedAtServer[noteId] {
-            pendingSyncState.noteEditBases[noteId] = serverDate
-            persistPendingSyncState()
-        }
+        guard let note = shiftNotes.first(where: { $0.id == noteId }) else { return }
+        guard let serverDate = pendingSyncState.noteLastSeenUpdatedAtServer[noteId] ?? note.updatedAtServer else { return }
+
+        pendingSyncState.noteEditBases[noteId] = serverDate
+        editBaselineStore.setBaseline(
+            for: noteId,
+            fields: collaborativeFields(from: note),
+            serverTimestamp: serverDate
+        )
+        persistPendingSyncState()
+    }
+
+    private func collaborativeFields(from note: ShiftNote) -> [String: String] {
+        let prioritizedActionItem = note.actionItems.max(by: { $0.updatedAt < $1.updatedAt })
+        return [
+            "status": prioritizedActionItem?.status.rawValue ?? "",
+            "assigneeId": prioritizedActionItem?.assigneeId ?? "",
+            "priority": prioritizedActionItem?.urgency.rawValue ?? ""
+        ]
     }
 
     // MARK: - UI State

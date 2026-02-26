@@ -297,6 +297,22 @@ final class FirestoreService: PendingOpsDocumentFetching {
         return ShiftNoteServerState(noteId: noteId, exists: true, note: note, lastClientMutationId: lastClientMutationId)
     }
 
+    func markNoteConflictDetected(noteId: String, orgId: String, summary: String) async throws {
+        let reference = db.collection("organizations")
+            .document(orgId)
+            .collection("shiftNotes")
+            .document(noteId)
+
+        try await writeClient.updateData(
+            [
+                "conflictState": "detected",
+                "conflictSummary": summary,
+                "updatedAtServer": FieldValue.serverTimestamp()
+            ],
+            in: reference
+        )
+    }
+
     // MARK: - Recurring Issues
 
     func saveRecurringIssue(_ issue: RecurringIssue, orgId: String) async throws {

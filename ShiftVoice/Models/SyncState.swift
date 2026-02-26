@@ -24,6 +24,7 @@ nonisolated struct PendingOp: Codable, Equatable, Sendable {
     let type: PendingOpType
     let mutationId: String
     let createdAtClient: Date
+    let intendedFields: [String: String]?
     var lastAttemptAt: Date?
     var attemptCount: Int
 
@@ -32,6 +33,7 @@ nonisolated struct PendingOp: Codable, Equatable, Sendable {
         type: PendingOpType,
         mutationId: String,
         createdAtClient: Date = Date(),
+        intendedFields: [String: String]? = nil,
         lastAttemptAt: Date? = nil,
         attemptCount: Int = 0
     ) {
@@ -39,6 +41,7 @@ nonisolated struct PendingOp: Codable, Equatable, Sendable {
         self.type = type
         self.mutationId = mutationId
         self.createdAtClient = createdAtClient
+        self.intendedFields = intendedFields
         self.lastAttemptAt = lastAttemptAt
         self.attemptCount = attemptCount
     }
