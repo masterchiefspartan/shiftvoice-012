@@ -187,6 +187,8 @@ nonisolated struct ShiftNote: Identifiable, Codable, Sendable {
     var voiceReplies: [VoiceReply]
     let createdAt: Date
     var updatedAt: Date
+    var updatedAtClient: Date?
+    var updatedAtServer: Date?
     var isSynced: Bool
     var isDirty: Bool
 
@@ -209,6 +211,8 @@ nonisolated struct ShiftNote: Identifiable, Codable, Sendable {
         voiceReplies: [VoiceReply] = [],
         createdAt: Date = Date(),
         updatedAt: Date? = nil,
+        updatedAtClient: Date? = nil,
+        updatedAtServer: Date? = nil,
         isSynced: Bool = true,
         isDirty: Bool = false
     ) {
@@ -229,7 +233,10 @@ nonisolated struct ShiftNote: Identifiable, Codable, Sendable {
         self.acknowledgments = acknowledgments
         self.voiceReplies = voiceReplies
         self.createdAt = createdAt
-        self.updatedAt = updatedAt ?? createdAt
+        let resolvedUpdatedAt = updatedAt ?? createdAt
+        self.updatedAt = resolvedUpdatedAt
+        self.updatedAtClient = updatedAtClient ?? resolvedUpdatedAt
+        self.updatedAtServer = updatedAtServer
         self.isSynced = isSynced
         self.isDirty = isDirty
     }
@@ -263,5 +270,12 @@ nonisolated struct ShiftNote: Identifiable, Codable, Sendable {
             return ShiftDisplayInfo(from: template)
         }
         return ShiftDisplayInfo(from: shiftType)
+    }
+
+    var syncOrderingDate: Date {
+        if isDirty {
+            return updatedAtClient ?? updatedAt
+        }
+        return updatedAtServer ?? updatedAt
     }
 }

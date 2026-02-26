@@ -42,6 +42,7 @@ final class NetworkMonitor {
                 if !wasConnected && self.isConnected {
                     NotificationCenter.default.post(name: .networkReconnected, object: nil)
                 }
+                NotificationCenter.default.post(name: .networkStatusChanged, object: nil)
             }
         }
         monitor.start(queue: queue)
@@ -54,4 +55,5 @@ final class NetworkMonitor {
 
 extension Notification.Name {
     static let networkReconnected = Notification.Name("com.shiftvoice.networkReconnected")
+    static let networkStatusChanged = Notification.Name("com.shiftvoice.networkStatusChanged")
 }

@@ -1,4 +1,5 @@
 import SwiftUI
+import FirebaseAuth
 
 @Observable
 final class AppViewModel {
@@ -27,9 +28,14 @@ final class AppViewModel {
 
     let networkMonitor = NetworkMonitor.shared
     var isOffline: Bool { !networkMonitor.isConnected }
+    var isDataFromCache: Bool = true
     var hasPendingWrites: Bool = false
-    var pendingOfflineCount: Int { shiftNotes.filter(\.isDirty).count }
-    var hasPendingSyncIndicators: Bool { hasPendingWrites || pendingOfflineCount > 0 }
+    var pendingNoteIds: Set<String> = []
+    var lastSyncedFromServer: Date?
+    var lastWriteError: SyncError?
+    var syncState: SyncState = .onlineCache
+    var pendingOfflineCount: Int { pendingNoteIds.count }
+    var hasPendingSyncIndicators: Bool { hasPendingWrites || !pendingNoteIds.isEmpty }
 
     // MARK: - Cached Computed Properties
     private(set) var feedNotes: [ShiftNote] = []
@@ -78,12 +84,17 @@ final class AppViewModel {
     let recording = RecordingViewModel()
     private let firestore = FirestoreService.shared
     private let api = APIService.shared
+    private let persistence = PersistenceService.shared
 
     private(set) var userProfile: UserProfile?
     private var authenticatedUserId: String?
     private var organizationId: String?
     var lastSyncDate: Date?
     var syncError: String?
+    private var hasServerSnapshotSinceReconnect: Bool = false
+    private var pendingSyncState: PendingSyncState = PendingSyncState()
+    private var networkReconnectObserver: NSObjectProtocol?
+    private var networkStatusObserver: NSObjectProtocol?
 
     var currentUserId: String { authenticatedUserId ?? "" }
     var currentUserName: String { userProfile?.name ?? "" }
@@ -142,14 +153,41 @@ final class AppViewModel {
         conflictedActionItemsCache
     }
 
-    init() {}
+    init() {
+        networkReconnectObserver = NotificationCenter.default.addObserver(
+            forName: .networkReconnected,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            self.handleReconnectTransition()
+        }
+        networkStatusObserver = NotificationCenter.default.addObserver(
+            forName: .networkStatusChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            self.updateSyncState()
+        }
+        updateSyncState()
+    }
+
+    deinit {
+        if let networkReconnectObserver {
+            NotificationCenter.default.removeObserver(networkReconnectObserver)
+        }
+        if let networkStatusObserver {
+            NotificationCenter.default.removeObserver(networkStatusObserver)
+        }
+    }
 
     // MARK: - Cache Invalidation
 
     private func invalidateCaches() {
         let newFeedNotes = shiftNotes
             .filter { $0.locationId == selectedLocationId }
-            .sorted { $0.createdAt > $1.createdAt }
+            .sorted { $0.syncOrderingDate > $1.syncOrderingDate }
         feedNotes = newFeedNotes
 
         allActionItemsWithDate = shiftNotes.flatMap { note in
@@ -273,6 +311,9 @@ final class AppViewModel {
     func clearAuthenticatedUser() {
         api.clearAuth()
         firestore.stopAllListeners()
+        if let userId = authenticatedUserId {
+            persistence.clearPendingSyncState(for: userId)
+        }
         authenticatedUserId = nil
         organizationId = nil
         userProfile = nil
@@ -284,13 +325,25 @@ final class AppViewModel {
         selectedLocationId = ""
         unacknowledgedCount = 0
         lastSyncDate = nil
+        lastSyncedFromServer = nil
         syncError = nil
         hasPendingWrites = false
+        pendingNoteIds = []
+        pendingSyncState = PendingSyncState()
+        hasServerSnapshotSinceReconnect = false
+        lastWriteError = nil
+        isDataFromCache = true
         isInitialLoading = true
+        updateSyncState()
     }
 
     private func loadUserData(_ userId: String) async {
         do {
+            if let persistedPending = persistence.loadPendingSyncState(for: userId) {
+                pendingSyncState = persistedPending
+                pendingNoteIds = persistedPending.pendingNoteIds
+            }
+
             let (profile, orgId, locId) = try await firestore.fetchUserData(userId)
             if let profile { self.userProfile = profile }
             self.organizationId = orgId
@@ -308,16 +361,36 @@ final class AppViewModel {
         }
     }
 
-    private func applyShiftNotesSnapshot(_ notes: [ShiftNote]) {
-        shiftNotes = notes
-        isInitialLoading = false
-    }
+    private func applyShiftNotesListenerEvent(_ event: ShiftNotesListenerEvent) {
+        hasPendingWrites = event.hasPendingWrites
+        isDataFromCache = event.isFromCache
 
-    private func applyShiftNotesMetadata(hasPendingWrites: Bool, isFromCache: Bool) {
-        self.hasPendingWrites = hasPendingWrites
-        if !hasPendingWrites && !isFromCache {
-            lastSyncDate = Date()
+        if !event.isFromCache {
+            hasServerSnapshotSinceReconnect = true
+            let now = Date()
+            lastSyncedFromServer = now
+            lastSyncDate = now
         }
+
+        let reconciledNotes = event.notes.map { note in
+            var mutableNote = note
+            if !event.isFromCache {
+                mutableNote.updatedAtServer = note.updatedAt
+                pendingSyncState.noteLastSeenUpdatedAtServer[note.id] = note.updatedAt
+            } else if let knownServerDate = pendingSyncState.noteLastSeenUpdatedAtServer[note.id] {
+                mutableNote.updatedAtServer = knownServerDate
+            }
+            if mutableNote.updatedAtClient == nil {
+                mutableNote.updatedAtClient = mutableNote.updatedAt
+            }
+            return mutableNote
+        }
+
+        shiftNotes = reconciledNotes
+        reconcilePendingState(using: event)
+        isInitialLoading = false
+        persistPendingSyncState()
+        updateSyncState()
     }
 
     private func startListeners(orgId: String) {
@@ -343,13 +416,18 @@ final class AppViewModel {
 
         firestore.startShiftNotesListener(
             orgId,
-            onChange: { [weak self] notes in
+            onEvent: { [weak self] event in
                 guard let self else { return }
-                self.applyShiftNotesSnapshot(notes)
+                self.applyShiftNotesListenerEvent(event)
             },
-            onMetadataChange: { [weak self] hasPendingWrites, isFromCache in
+            onDocumentEvent: { [weak self] event in
                 guard let self else { return }
-                self.applyShiftNotesMetadata(hasPendingWrites: hasPendingWrites, isFromCache: isFromCache)
+                self.handleShiftNoteDocumentEvent(event)
+            },
+            onError: { [weak self] error in
+                guard let self else { return }
+                self.lastWriteError = error
+                self.updateSyncState()
             }
         )
 
@@ -367,14 +445,28 @@ final class AppViewModel {
 
     // MARK: - Firestore Write Helpers
 
-    private func writeShiftNote(_ note: ShiftNote) {
+    private func writeShiftNote(_ note: ShiftNote, operation: PendingNoteOperationType) {
         guard let orgId = organizationId else {
             showToast("No organization found — please complete setup", isError: true)
             return
         }
+
+        trackPendingOperation(note: note, type: operation)
+
         do {
-            try firestore.saveShiftNote(note, orgId: orgId)
+            try firestore.saveShiftNote(note, orgId: orgId) { [weak self] result in
+                guard let self else { return }
+                if case .failure(let error) = result {
+                    self.lastWriteError = error
+                    self.syncError = self.userFacingSyncError(error)
+                    self.updateSyncState()
+                }
+            }
         } catch {
+            let mappedError = SyncError(error: error)
+            lastWriteError = mappedError
+            syncError = userFacingSyncError(mappedError)
+            updateSyncState()
             showToast("Failed to save note", isError: true)
         }
     }
@@ -438,13 +530,15 @@ final class AppViewModel {
 
         var mutableNote = note
         mutableNote.updatedAt = Date()
+        mutableNote.updatedAtClient = mutableNote.updatedAt
+        mutableNote.updatedAtServer = pendingSyncState.noteLastSeenUpdatedAtServer[mutableNote.id]
         publishError = nil
         pendingPublishNote = nil
         recording.discardPendingNote()
 
         shiftNotes.insert(mutableNote, at: 0)
 
-        writeShiftNote(mutableNote)
+        writeShiftNote(mutableNote, operation: .create)
 
         if !isOffline {
             showToast("Shift note published", isError: false)
@@ -452,11 +546,19 @@ final class AppViewModel {
     }
 
     func deleteNote(_ noteId: String) {
-        let removedNotes = shiftNotes.filter { $0.id == noteId }
+        guard let removedNote = shiftNotes.first(where: { $0.id == noteId }) else { return }
         shiftNotes.removeAll { $0.id == noteId }
 
         guard let orgId = organizationId else { return }
-        firestore.deleteShiftNote(noteId, orgId: orgId)
+        trackDeleteTombstone(noteId: noteId, lastSeenUpdatedAtServer: removedNote.updatedAtServer)
+        firestore.deleteShiftNote(noteId, orgId: orgId) { [weak self] result in
+            guard let self else { return }
+            if case .failure(let error) = result {
+                self.lastWriteError = error
+                self.syncError = self.userFacingSyncError(error)
+                self.updateSyncState()
+            }
+        }
 
         showToast("Note deleted", isError: false)
     }
@@ -465,9 +567,11 @@ final class AppViewModel {
         guard let index = shiftNotes.firstIndex(where: { $0.id == noteId }) else { return }
         guard !shiftNotes[index].acknowledgments.contains(where: { $0.userId == currentUserId }) else { return }
         let ack = Acknowledgment(userId: currentUserId, userName: currentUserName)
+        let now = Date()
         shiftNotes[index].acknowledgments.append(ack)
-        shiftNotes[index].updatedAt = Date()
-        writeShiftNote(shiftNotes[index])
+        shiftNotes[index].updatedAt = now
+        shiftNotes[index].updatedAtClient = now
+        writeShiftNote(shiftNotes[index], operation: .edit)
     }
 
     func isNoteAcknowledged(_ note: ShiftNote) -> Bool {
@@ -490,7 +594,8 @@ final class AppViewModel {
         shiftNotes[noteIndex].actionItems[itemIndex].statusUpdatedAt = now
         shiftNotes[noteIndex].actionItems[itemIndex].updatedAt = now
         shiftNotes[noteIndex].updatedAt = now
-        writeShiftNote(shiftNotes[noteIndex])
+        shiftNotes[noteIndex].updatedAtClient = now
+        writeShiftNote(shiftNotes[noteIndex], operation: .edit)
     }
 
     func updateActionItemAssignee(noteId: String, actionItemId: String, assignee: String?, assigneeId: String? = nil) {
@@ -502,7 +607,8 @@ final class AppViewModel {
         shiftNotes[noteIndex].actionItems[itemIndex].assigneeUpdatedAt = now
         shiftNotes[noteIndex].actionItems[itemIndex].updatedAt = now
         shiftNotes[noteIndex].updatedAt = now
-        writeShiftNote(shiftNotes[noteIndex])
+        shiftNotes[noteIndex].updatedAtClient = now
+        writeShiftNote(shiftNotes[noteIndex], operation: .edit)
     }
 
     func dismissConflict(noteId: String, actionItemId: String) {
@@ -510,7 +616,10 @@ final class AppViewModel {
               let itemIdx = shiftNotes[noteIdx].actionItems.firstIndex(where: { $0.id == actionItemId }) else { return }
         shiftNotes[noteIdx].actionItems[itemIdx].hasConflict = false
         shiftNotes[noteIdx].actionItems[itemIdx].conflictDescription = nil
-        writeShiftNote(shiftNotes[noteIdx])
+        let now = Date()
+        shiftNotes[noteIdx].updatedAt = now
+        shiftNotes[noteIdx].updatedAtClient = now
+        writeShiftNote(shiftNotes[noteIdx], operation: .edit)
     }
 
     // MARK: - Locations
@@ -654,6 +763,201 @@ final class AppViewModel {
         startListeners(orgId: org.id)
     }
 
+    private func updateSyncState() {
+        syncState = SyncStateReducer.reduce(
+            SyncStateInput(
+                isConnected: networkMonitor.isConnected,
+                hasPendingWrites: hasPendingWrites || !pendingNoteIds.isEmpty,
+                hasServerSnapshotSinceReconnect: hasServerSnapshotSinceReconnect,
+                lastWriteError: lastWriteError
+            )
+        )
+    }
+
+    private func persistPendingSyncState() {
+        pendingSyncState.pendingNoteIds = pendingNoteIds
+        guard let userId = authenticatedUserId else { return }
+        persistence.savePendingSyncState(pendingSyncState, for: userId)
+    }
+
+    private func handleReconnectTransition() {
+        hasServerSnapshotSinceReconnect = false
+        lastSyncedFromServer = nil
+        lastWriteError = nil
+        syncError = nil
+        updateSyncState()
+    }
+
+    private func trackPendingOperation(note: ShiftNote, type: PendingNoteOperationType) {
+        let operation = PendingNoteOperation(
+            noteId: note.id,
+            type: type,
+            expectedUpdatedAtClient: note.updatedAtClient ?? note.updatedAt,
+            lastSeenUpdatedAtServer: pendingSyncState.noteLastSeenUpdatedAtServer[note.id]
+        )
+        pendingSyncState.pendingOperations[note.id] = operation
+        pendingNoteIds.insert(note.id)
+
+        if type == .edit,
+           let baseServerDate = pendingSyncState.noteLastSeenUpdatedAtServer[note.id] {
+            pendingSyncState.noteEditBases[note.id] = baseServerDate
+        }
+
+        persistPendingSyncState()
+        updateSyncState()
+    }
+
+    private func trackDeleteTombstone(noteId: String, lastSeenUpdatedAtServer: Date?) {
+        let tombstone = PendingNoteOperation(
+            noteId: noteId,
+            type: .delete,
+            expectedUpdatedAtClient: nil,
+            lastSeenUpdatedAtServer: lastSeenUpdatedAtServer
+        )
+        pendingSyncState.pendingDeletes[noteId] = tombstone
+        pendingNoteIds.insert(noteId)
+        persistPendingSyncState()
+        updateSyncState()
+    }
+
+    private func clearPendingOperation(noteId: String) {
+        pendingSyncState.pendingOperations.removeValue(forKey: noteId)
+        pendingSyncState.pendingDeletes.removeValue(forKey: noteId)
+        pendingSyncState.noteEditBases.removeValue(forKey: noteId)
+        pendingNoteIds.remove(noteId)
+        persistPendingSyncState()
+        updateSyncState()
+    }
+
+    private func reconcilePendingState(using event: ShiftNotesListenerEvent) {
+        guard !event.isFromCache else { return }
+
+        for (noteId, operation) in Array(pendingSyncState.pendingOperations) {
+            guard operation.type != .delete else { continue }
+            guard let note = shiftNotes.first(where: { $0.id == noteId }) else { continue }
+
+            switch operation.type {
+            case .create:
+                clearPendingOperation(noteId: noteId)
+            case .edit:
+                if let expectedDate = operation.expectedUpdatedAtClient {
+                    if note.updatedAt >= expectedDate {
+                        clearPendingOperation(noteId: noteId)
+                    }
+                } else {
+                    clearPendingOperation(noteId: noteId)
+                }
+            case .delete:
+                break
+            }
+        }
+
+        for note in shiftNotes {
+            if let baseDate = pendingSyncState.noteEditBases[note.id],
+               let pendingOperation = pendingSyncState.pendingOperations[note.id],
+               pendingOperation.type == .edit,
+               let lastKnownServer = note.updatedAtServer,
+               lastKnownServer > baseDate {
+                pendingSyncState.conflictCandidateNoteIds.insert(note.id)
+            }
+        }
+
+        persistPendingSyncState()
+        updateSyncState()
+    }
+
+    private func handleShiftNoteDocumentEvent(_ event: ShiftNoteDocumentEvent) {
+        guard !event.isFromCache else { return }
+
+        if event.exists, let note = event.note {
+            pendingSyncState.noteLastSeenUpdatedAtServer[event.noteId] = note.updatedAt
+
+            if let baseDate = pendingSyncState.noteEditBases[event.noteId],
+               let operation = pendingSyncState.pendingOperations[event.noteId],
+               operation.type == .edit,
+               note.updatedAt > baseDate {
+                pendingSyncState.conflictCandidateNoteIds.insert(event.noteId)
+            }
+
+            if let operation = pendingSyncState.pendingOperations[event.noteId] {
+                switch operation.type {
+                case .create:
+                    clearPendingOperation(noteId: event.noteId)
+                case .edit:
+                    if let expectedDate = operation.expectedUpdatedAtClient,
+                       note.updatedAt >= expectedDate {
+                        clearPendingOperation(noteId: event.noteId)
+                    }
+                case .delete:
+                    break
+                }
+            }
+        } else if pendingSyncState.pendingDeletes[event.noteId] != nil {
+            clearPendingOperation(noteId: event.noteId)
+        }
+
+        persistPendingSyncState()
+        updateSyncState()
+    }
+
+    private func userFacingSyncError(_ error: SyncError) -> String {
+        switch error {
+        case .permissionDenied:
+            return "You don’t have permission to sync this change."
+        case .authExpired:
+            return "Your session expired. Please sign in again."
+        case .invalidData:
+            return "This note has invalid data and could not sync."
+        case .rejectedTransaction:
+            return "This change was rejected. Please retry."
+        case .networkFatal:
+            return "Network unavailable while syncing."
+        case .unknown:
+            return "Sync failed. Please retry."
+        }
+    }
+
+    func forceSyncListenerRestart() {
+        guard let orgId = organizationId else { return }
+        firestore.stopAllListeners()
+        hasServerSnapshotSinceReconnect = false
+        updateSyncState()
+        startListeners(orgId: orgId)
+    }
+
+    func triggerReauthenticationForSyncFailure() async {
+        guard case .authExpired = lastWriteError else { return }
+        guard let user = Auth.auth().currentUser else { return }
+        _ = try? await user.getIDToken(forcingRefresh: true)
+    }
+
+    func retryPendingNoteWrites() {
+        let pendingOperations = pendingSyncState.pendingOperations.values
+        for operation in pendingOperations {
+            guard let note = shiftNotes.first(where: { $0.id == operation.noteId }) else { continue }
+            writeShiftNote(note, operation: operation.type)
+        }
+
+        for deleteOperation in pendingSyncState.pendingDeletes.values {
+            guard let orgId = organizationId else { continue }
+            firestore.deleteShiftNote(deleteOperation.noteId, orgId: orgId) { [weak self] result in
+                guard let self else { return }
+                if case .failure(let error) = result {
+                    self.lastWriteError = error
+                    self.syncError = self.userFacingSyncError(error)
+                    self.updateSyncState()
+                }
+            }
+        }
+    }
+
+    func beginEditingNote(_ noteId: String) {
+        if let serverDate = pendingSyncState.noteLastSeenUpdatedAtServer[noteId] {
+            pendingSyncState.noteEditBases[noteId] = serverDate
+            persistPendingSyncState()
+        }
+    }
+
     // MARK: - UI State
 
     func showToast(_ message: String, isError: Bool = false) {
@@ -666,6 +970,7 @@ final class AppViewModel {
 
     func handleNetworkReconnect() {
         guard let orgId = organizationId else { return }
+        handleReconnectTransition()
         showToast("Back online", isError: false)
         startListeners(orgId: orgId)
     }
@@ -715,8 +1020,13 @@ final class AppViewModel {
         }
         isInitialLoading = false
         hasPendingWrites = false
+        pendingNoteIds = []
         lastSyncDate = Date()
+        lastSyncedFromServer = Date()
+        hasServerSnapshotSinceReconnect = true
+        lastWriteError = nil
         syncError = nil
+        updateSyncState()
         loadFirstPage(shiftFilter: nil)
     }
 

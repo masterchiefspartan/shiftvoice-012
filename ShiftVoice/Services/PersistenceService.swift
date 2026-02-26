@@ -159,6 +159,10 @@ final class PersistenceService {
         userDirectory(for: userId).appendingPathComponent("sync_snapshot.json")
     }
 
+    private func pendingSyncStateURL(for userId: String) -> URL {
+        userDirectory(for: userId).appendingPathComponent("pending_sync_state.json")
+    }
+
     func saveSnapshot(_ data: AppData, for userId: String) {
         do {
             let jsonData = try encoder.encode(data)
@@ -181,6 +185,31 @@ final class PersistenceService {
 
     func clearSnapshot(for userId: String) {
         try? fileManager.removeItem(at: snapshotURL(for: userId))
+    }
+
+    func savePendingSyncState(_ state: PendingSyncState, for userId: String) {
+        do {
+            let data = try encoder.encode(state)
+            try data.write(to: pendingSyncStateURL(for: userId), options: .atomic)
+        } catch {
+            print("PersistenceService savePendingSyncState error: \(error)")
+        }
+    }
+
+    func loadPendingSyncState(for userId: String) -> PendingSyncState? {
+        let url = pendingSyncStateURL(for: userId)
+        guard fileManager.fileExists(atPath: url.path) else { return nil }
+        do {
+            let data = try Data(contentsOf: url)
+            return try decoder.decode(PendingSyncState.self, from: data)
+        } catch {
+            print("PersistenceService loadPendingSyncState error: \(error)")
+            return nil
+        }
+    }
+
+    func clearPendingSyncState(for userId: String) {
+        try? fileManager.removeItem(at: pendingSyncStateURL(for: userId))
     }
 
     // MARK: - Clear User Data

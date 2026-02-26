@@ -94,28 +94,61 @@ final class FirestoreService {
 
     // MARK: - Shift Notes
 
-    func saveShiftNote(_ note: ShiftNote, orgId: String) throws {
-        try db.collection("organizations").document(orgId).collection("shiftNotes").document(note.id).setData(from: note)
+    func saveShiftNote(
+        _ note: ShiftNote,
+        orgId: String,
+        completion: ((Result<Void, SyncError>) -> Void)? = nil
+    ) throws {
+        try db.collection("organizations").document(orgId).collection("shiftNotes").document(note.id).setData(from: note) { error in
+            if let error {
+                completion?(.failure(SyncError(error: error)))
+                return
+            }
+            completion?(.success(()))
+        }
     }
 
-    func deleteShiftNote(_ noteId: String, orgId: String) {
-        db.collection("organizations").document(orgId).collection("shiftNotes").document(noteId).delete()
+    func deleteShiftNote(
+        _ noteId: String,
+        orgId: String,
+        completion: ((Result<Void, SyncError>) -> Void)? = nil
+    ) {
+        db.collection("organizations").document(orgId).collection("shiftNotes").document(noteId).delete { error in
+            if let error {
+                completion?(.failure(SyncError(error: error)))
+                return
+            }
+            completion?(.success(()))
+        }
     }
 
     func startShiftNotesListener(
         _ orgId: String,
-        onChange: @escaping ([ShiftNote]) -> Void,
-        onMetadataChange: @escaping (_ hasPendingWrites: Bool, _ isFromCache: Bool) -> Void
+        onEvent: @escaping (ShiftNotesListenerEvent) -> Void,
+        onDocumentEvent: @escaping (ShiftNoteDocumentEvent) -> Void,
+        onError: @escaping (SyncError) -> Void
     ) {
         let options = SnapshotListenOptions()
             .withIncludeMetadataChanges(true)
-        let reg = db.collection("organizations").document(orgId).collection("shiftNotes")
+        let collection = db.collection("organizations").document(orgId).collection("shiftNotes")
+
+        let queryReg = collection
             .order(by: "createdAt", descending: true)
             .limit(to: 300)
-            .addSnapshotListener(options: options) { snapshot, _ in
+            .addSnapshotListener(options: options) { snapshot, error in
+                if let error {
+                    onError(SyncError(error: error))
+                    return
+                }
                 guard let snapshot else {
-                    onChange([])
-                    onMetadataChange(false, true)
+                    onEvent(
+                        ShiftNotesListenerEvent(
+                            notes: [],
+                            hasPendingWrites: false,
+                            isFromCache: true,
+                            documentIDs: []
+                        )
+                    )
                     return
                 }
                 let items = snapshot.documents.compactMap { document -> ShiftNote? in
@@ -124,10 +157,40 @@ final class FirestoreService {
                     note.isDirty = document.metadata.hasPendingWrites
                     return note
                 }
-                onChange(items)
-                onMetadataChange(snapshot.metadata.hasPendingWrites, snapshot.metadata.isFromCache)
+                onEvent(
+                    ShiftNotesListenerEvent(
+                        notes: items,
+                        hasPendingWrites: snapshot.metadata.hasPendingWrites,
+                        isFromCache: snapshot.metadata.isFromCache,
+                        documentIDs: Set(snapshot.documents.map(\.documentID))
+                    )
+                )
             }
-        activeListeners.append(reg)
+
+        let documentReg = collection
+            .addSnapshotListener(options: options) { snapshot, error in
+                if let error {
+                    onError(SyncError(error: error))
+                    return
+                }
+                guard let snapshot else { return }
+                for change in snapshot.documentChanges {
+                    let noteId = change.document.documentID
+                    let note = try? change.document.data(as: ShiftNote.self)
+                    onDocumentEvent(
+                        ShiftNoteDocumentEvent(
+                            noteId: noteId,
+                            note: note,
+                            exists: change.type != .removed,
+                            hasPendingWrites: change.document.metadata.hasPendingWrites,
+                            isFromCache: snapshot.metadata.isFromCache
+                        )
+                    )
+                }
+            }
+
+        activeListeners.append(queryReg)
+        activeListeners.append(documentReg)
     }
 
     // MARK: - Recurring Issues
