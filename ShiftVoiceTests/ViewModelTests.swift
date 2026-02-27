@@ -435,4 +435,24 @@ struct ViewModelTests {
         ]
         #expect(!vm.hasPendingSyncIndicators)
     }
+
+    @Test func completeReviewSessionRoutesToNoteDetail() {
+        let vm = AppViewModel()
+        let note = ShiftNote(authorId: "u1", authorName: "A", authorInitials: "A", locationId: "loc1", shiftType: .opening, rawTranscript: "", summary: "")
+
+        vm.completeReviewSession(noteId: note.id)
+
+        #expect(vm.pendingNoteId == note.id)
+    }
+
+    @Test func reviewFlowDropOffEventsAreTracked() {
+        let vm = AppViewModel()
+
+        vm.trackReviewFlowEvent(.enteredReview(source: .record, returnDestination: .inboxDetail))
+        vm.trackReviewFlowEvent(.exitedWithoutSave(source: .record, returnDestination: .recording, reason: .discarded))
+
+        #expect(vm.reviewFlowDropOffCountForDiagnostics == 1)
+        #expect(vm.recentReviewFlowEventsForDiagnostics.count == 2)
+        #expect(vm.recentReviewFlowEventsForDiagnostics.first?.kind == .exitedWithoutSave)
+    }
 }

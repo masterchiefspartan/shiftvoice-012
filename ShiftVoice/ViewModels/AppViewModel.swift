@@ -1622,6 +1622,17 @@ final class AppViewModel {
     // MARK: - Push Notifications
 
     var pendingNoteId: String?
+    private let reviewFlowLogger = ReviewFlowLogger.shared
+    var recentReviewFlowEventsForDiagnostics: [ReviewFlowEventRecord] { reviewFlowLogger.recentEvents(limit: 20) }
+    var reviewFlowDropOffCountForDiagnostics: Int { reviewFlowLogger.dropOffEventCount }
+
+    func trackReviewFlowEvent(_ event: ReviewFlowEvent) {
+        reviewFlowLogger.log(event)
+    }
+
+    func completeReviewSession(noteId: String) {
+        pendingNoteId = noteId
+    }
 
     func handlePushNotificationTap(noteId: String) {
         pendingNoteId = noteId

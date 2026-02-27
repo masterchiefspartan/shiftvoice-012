@@ -56,6 +56,8 @@ struct RecordView: View {
                 if let reviewData = recording.pendingReviewData {
                     NoteReviewView(
                         viewModel: viewModel,
+                        source: .record,
+                        returnDestination: .inboxDetail,
                         rawTranscript: reviewData.rawTranscript,
                         audioDuration: reviewData.audioDuration,
                         audioUrl: reviewData.audioUrl,
@@ -78,6 +80,7 @@ struct RecordView: View {
                             }
                             showReview = false
                             showSuccess = true
+                            viewModel.completeReviewSession(noteId: note.id)
                             Task {
                                 try? await Task.sleep(for: .seconds(1.5))
                                 showSuccess = false
@@ -112,6 +115,7 @@ struct RecordView: View {
             .sensoryFeedback(.warning, trigger: recording.audioRecorder.autoStopWarningActive)
             .onChange(of: recording.isProcessing) { oldValue, newValue in
                 if oldValue && !newValue && recording.pendingReviewData != nil {
+                    viewModel.trackReviewFlowEvent(.enteredReview(source: .record, returnDestination: .inboxDetail))
                     showReview = true
                 }
             }

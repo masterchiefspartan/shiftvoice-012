@@ -11,6 +11,8 @@ nonisolated private enum NoteReviewScreenState: Equatable {
 
 struct NoteReviewView: View {
     @Bindable var viewModel: AppViewModel
+    let source: ReviewEntrySource
+    let returnDestination: ReviewReturnDestination
     @State private var rawTranscript: String
     let audioDuration: TimeInterval
     let audioUrl: String?
@@ -33,10 +35,18 @@ struct NoteReviewView: View {
     @State private var structuringWarning: String?
     @State private var transcriptionFailed: Bool
     @State private var transcriptionFailureMessage: String?
+    @State private var showUnsavedExitDialog: Bool = false
     @Environment(\.dismiss) private var dismiss
+
+    private let initialSummary: String
+    private let initialRawTranscript: String
+    private let initialCategorizedItems: [EditableCategorizedItem]
+    private let initialActionItems: [EditableActionItem]
 
     init(
         viewModel: AppViewModel,
+        source: ReviewEntrySource,
+        returnDestination: ReviewReturnDestination,
         rawTranscript: String,
         audioDuration: TimeInterval,
         audioUrl: String?,
@@ -51,6 +61,8 @@ struct NoteReviewView: View {
         onPublish: @escaping (ShiftNote) -> Bool
     ) {
         self.viewModel = viewModel
+        self.source = source
+        self.returnDestination = returnDestination
         _rawTranscript = State(initialValue: rawTranscript)
         self.audioDuration = audioDuration
         self.audioUrl = audioUrl
@@ -58,8 +70,14 @@ struct NoteReviewView: View {
         self.onDiscard = onDiscard
         self.onPublish = onPublish
         _summary = State(initialValue: summary)
-        _editableCategorizedItems = State(initialValue: categorizedItems.map { EditableCategorizedItem(from: $0) })
-        _editableActionItems = State(initialValue: actionItems.map { EditableActionItem(from: $0) })
+        let initialCategorizedItems = categorizedItems.map { EditableCategorizedItem(from: $0) }
+        let initialActionItems = actionItems.map { EditableActionItem(from: $0) }
+        _editableCategorizedItems = State(initialValue: initialCategorizedItems)
+        _editableActionItems = State(initialValue: initialActionItems)
+        self.initialSummary = summary
+        self.initialRawTranscript = rawTranscript
+        self.initialCategorizedItems = initialCategorizedItems
+        self.initialActionItems = initialActionItems
         _structuringWarning = State(initialValue: structuringWarning)
         _transcriptionFailed = State(initialValue: transcriptionFailed)
         _transcriptionFailureMessage = State(initialValue: transcriptionFailureMessage)
@@ -138,20 +156,42 @@ struct NoteReviewView: View {
                         .foregroundStyle(SVTheme.textPrimary)
                 }
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("Discard") {
-                        showDiscardAlert = true
+                    Button {
+                        if hasUnsavedChanges {
+                            showUnsavedExitDialog = true
+                        } else {
+                            dismiss()
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "chevron.left")
+                                .font(.caption.weight(.semibold))
+                            Text("Back")
+                                .font(.subheadline)
+                        }
+                        .foregroundStyle(SVTheme.textSecondary)
                     }
-                    .font(.subheadline)
-                    .foregroundStyle(SVTheme.urgentRed)
                 }
             }
             .toolbarBackground(SVTheme.surface, for: .navigationBar)
             .toolbarBackground(.visible, for: .navigationBar)
             .alert("Discard Note?", isPresented: $showDiscardAlert) {
-                Button("Discard", role: .destructive) { onDiscard() }
+                Button("Discard", role: .destructive) {
+                    viewModel.trackReviewFlowEvent(.exitedWithoutSave(source: source, returnDestination: .recording, reason: .discarded))
+                    onDiscard()
+                }
                 Button("Keep Editing", role: .cancel) {}
             } message: {
                 Text("This will permanently delete this recording and all structured data.")
+            }
+            .confirmationDialog("Discard your edits?", isPresented: $showUnsavedExitDialog, titleVisibility: .visible) {
+                Button("Discard Changes", role: .destructive) {
+                    viewModel.trackReviewFlowEvent(.exitedWithoutSave(source: source, returnDestination: .recording, reason: .backNavigation))
+                    dismiss()
+                }
+                Button("Keep Editing", role: .cancel) {}
+            } message: {
+                Text("You have unsaved edits in this review.")
             }
             .sheet(isPresented: $showAssignSheet) {
                 if let actionId = assigningActionId {
@@ -194,7 +234,15 @@ struct NoteReviewView: View {
             .onChange(of: editableActionItems) { _, _ in
                 viewModel.recording.markReviewAsUserEdited()
             }
+            .navigationBarBackButtonHidden(true)
         }
+    }
+
+    private var hasUnsavedChanges: Bool {
+        summary != initialSummary ||
+        rawTranscript != initialRawTranscript ||
+        editableCategorizedItems != initialCategorizedItems ||
+        editableActionItems != initialActionItems
     }
 
     private var screenState: NoteReviewScreenState {
@@ -693,9 +741,11 @@ struct NoteReviewView: View {
         guard didPublish else {
             isPublishing = false
             publishValidationError = viewModel.publishError ?? "Couldn't send note. Please review and try again."
+            viewModel.trackReviewFlowEvent(.publishFailed(source: source, returnDestination: returnDestination, message: publishValidationError ?? "unknown"))
             return
         }
 
+        viewModel.trackReviewFlowEvent(.published(source: source, returnDestination: returnDestination, noteId: note.id))
         publishSucceeded = true
     }
 
