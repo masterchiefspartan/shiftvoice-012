@@ -775,6 +775,21 @@ final class AppViewModel {
         showToast("Location removed", isError: false)
     }
 
+    func updateLocation(_ location: Location) {
+        if let error = InputValidator.validateLocationName(location.name) {
+            showToast(error, isError: true)
+            return
+        }
+        guard let index = locations.firstIndex(where: { $0.id == location.id }) else { return }
+        locations[index] = location
+        writeLocation(location)
+        showToast("Location updated", isError: false)
+    }
+
+    var canAddMoreLocations: Bool {
+        locations.count < organization.plan.maxLocations
+    }
+
     // MARK: - Team
 
     func addTeamMember(_ member: TeamMember) {

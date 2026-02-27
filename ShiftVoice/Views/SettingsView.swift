@@ -1663,47 +1663,306 @@ struct EditTeamMemberSheet: View {
 struct LocationManagementSheet: View {
     let viewModel: AppViewModel
     @Environment(\.dismiss) private var dismiss
+    @State private var showAddForm: Bool = false
+    @State private var editingLocation: Location? = nil
+    @State private var locationToDelete: Location? = nil
 
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 0) {
-                    ForEach(Array(viewModel.locations.enumerated()), id: \.element.id) { index, location in
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text(location.name)
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(SVTheme.textPrimary)
-                            Text(location.address)
-                                .font(.caption)
-                                .foregroundStyle(SVTheme.textTertiary)
+                VStack(spacing: 16) {
+                    HStack {
+                        Text("\(viewModel.locations.count) location\(viewModel.locations.count == 1 ? "" : "s")")
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(SVTheme.textSecondary)
+                        Spacer()
+                        Text("\(viewModel.organization.plan.rawValue) plan")
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(SVTheme.accent)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background(SVTheme.accent.opacity(0.1))
+                            .clipShape(Capsule())
+                    }
+                    .padding(.horizontal, 24)
 
-                            HStack(spacing: 16) {
-                                shiftTimeLabel(icon: "sunrise", label: "Open", time: location.openingTime)
-                                shiftTimeLabel(icon: "sun.max", label: "Mid", time: location.midTime)
-                                shiftTimeLabel(icon: "moon.stars", label: "Close", time: location.closingTime)
+                    VStack(spacing: 0) {
+                        ForEach(Array(viewModel.locations.enumerated()), id: \.element.id) { index, location in
+                            Button {
+                                editingLocation = location
+                            } label: {
+                                LocationRow(location: location, isSelected: location.id == viewModel.selectedLocationId)
+                            }
+                            .buttonStyle(.plain)
+                            .contextMenu {
+                                Button {
+                                    editingLocation = location
+                                } label: {
+                                    Label("Edit", systemImage: "pencil")
+                                }
+                                if viewModel.locations.count > 1 {
+                                    Button(role: .destructive) {
+                                        locationToDelete = location
+                                    } label: {
+                                        Label("Remove", systemImage: "trash")
+                                    }
+                                }
+                            }
+
+                            if index < viewModel.locations.count - 1 {
+                                Rectangle()
+                                    .fill(SVTheme.divider)
+                                    .frame(height: 1)
+                                    .padding(.leading, 60)
                             }
                         }
-                        .padding(.horizontal, 24)
-                        .padding(.vertical, 16)
+                    }
+                    .background(SVTheme.cardBackground)
+                    .clipShape(.rect(cornerRadius: 12))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(SVTheme.surfaceBorder, lineWidth: 1)
+                    )
+                    .padding(.horizontal, 24)
 
-                        if index < viewModel.locations.count - 1 {
-                            Rectangle()
-                                .fill(SVTheme.divider)
-                                .frame(height: 1)
-                                .padding(.leading, 24)
+                    if !viewModel.canAddMoreLocations {
+                        HStack(spacing: 8) {
+                            Image(systemName: "info.circle")
+                                .font(.caption)
+                            Text("Upgrade your plan to add more locations")
+                                .font(.caption)
                         }
+                        .foregroundStyle(SVTheme.textTertiary)
+                        .padding(.horizontal, 24)
                     }
                 }
                 .padding(.top, 8)
+                .padding(.bottom, 40)
             }
             .background(SVTheme.background)
             .navigationTitle("Locations")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        if viewModel.canAddMoreLocations {
+                            showAddForm = true
+                        } else {
+                            viewModel.presentPaywall(reason: .manualUpgrade)
+                        }
+                    } label: {
+                        Image(systemName: "plus")
+                            .font(.body.weight(.semibold))
+                            .foregroundStyle(SVTheme.accent)
+                    }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") { dismiss() }
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(SVTheme.accent)
+                }
+            }
+            .sheet(isPresented: $showAddForm) {
+                AddLocationSheet(viewModel: viewModel)
+            }
+            .sheet(item: $editingLocation) { location in
+                EditLocationSheet(viewModel: viewModel, location: location)
+            }
+            .alert("Remove Location", isPresented: Binding(
+                get: { locationToDelete != nil },
+                set: { if !$0 { locationToDelete = nil } }
+            )) {
+                Button("Cancel", role: .cancel) { locationToDelete = nil }
+                Button("Remove", role: .destructive) {
+                    if let location = locationToDelete {
+                        viewModel.removeLocation(location.id)
+                        locationToDelete = nil
+                    }
+                }
+            } message: {
+                if let location = locationToDelete {
+                    Text("Are you sure you want to remove \(location.name)? All notes for this location will also be deleted.")
+                }
+            }
+        }
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
+    }
+}
+
+struct LocationRow: View {
+    let location: Location
+    let isSelected: Bool
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "mappin")
+                .font(.subheadline)
+                .foregroundStyle(isSelected ? .white : SVTheme.textTertiary)
+                .frame(width: 36, height: 36)
+                .background(isSelected ? SVTheme.accent : SVTheme.iconBackground)
+                .clipShape(.rect(cornerRadius: 8))
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    Text(location.name)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(SVTheme.textPrimary)
+                    if isSelected {
+                        Text("Active")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(SVTheme.accent)
+                            .clipShape(Capsule())
+                    }
+                }
+                if !location.address.isEmpty {
+                    Text(location.address)
+                        .font(.caption)
+                        .foregroundStyle(SVTheme.textTertiary)
+                        .lineLimit(1)
+                }
+                HStack(spacing: 12) {
+                    shiftTimeLabel(icon: "sunrise", time: location.openingTime)
+                    shiftTimeLabel(icon: "sun.max", time: location.midTime)
+                    shiftTimeLabel(icon: "moon.stars", time: location.closingTime)
+                }
+            }
+
+            Spacer()
+
+            Image(systemName: "chevron.right")
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(SVTheme.textTertiary)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .contentShape(Rectangle())
+    }
+
+    private func shiftTimeLabel(icon: String, time: String) -> some View {
+        HStack(spacing: 3) {
+            Image(systemName: icon)
+                .font(.system(size: 9))
+            Text(time)
+                .font(.caption2)
+        }
+        .foregroundStyle(SVTheme.textTertiary)
+    }
+}
+
+struct AddLocationSheet: View {
+    let viewModel: AppViewModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var name: String = ""
+    @State private var address: String = ""
+    @State private var openingTime: Date = Calendar.current.date(from: DateComponents(hour: 6, minute: 0)) ?? Date()
+    @State private var midTime: Date = Calendar.current.date(from: DateComponents(hour: 14, minute: 0)) ?? Date()
+    @State private var closingTime: Date = Calendar.current.date(from: DateComponents(hour: 22, minute: 0)) ?? Date()
+
+    private var openingTimeString: String {
+        let c = Calendar.current
+        return String(format: "%02d:%02d", c.component(.hour, from: openingTime), c.component(.minute, from: openingTime))
+    }
+    private var midTimeString: String {
+        let c = Calendar.current
+        return String(format: "%02d:%02d", c.component(.hour, from: midTime), c.component(.minute, from: midTime))
+    }
+    private var closingTimeString: String {
+        let c = Calendar.current
+        return String(format: "%02d:%02d", c.component(.hour, from: closingTime), c.component(.minute, from: closingTime))
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("DETAILS")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(SVTheme.textTertiary)
+                            .tracking(0.5)
+
+                        VStack(spacing: 0) {
+                            TextField("Location Name", text: $name)
+                                .font(.subheadline)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 14)
+                                .autocorrectionDisabled()
+
+                            Rectangle().fill(SVTheme.divider).frame(height: 1).padding(.leading, 16)
+
+                            TextField("Address (optional)", text: $address)
+                                .font(.subheadline)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 14)
+                                .textContentType(.fullStreetAddress)
+                        }
+                        .background(SVTheme.cardBackground)
+                        .clipShape(.rect(cornerRadius: 12))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(SVTheme.surfaceBorder, lineWidth: 1)
+                        )
+                    }
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("SHIFT TIMES")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(SVTheme.textTertiary)
+                            .tracking(0.5)
+
+                        Text("Set when each shift starts so notes are automatically categorized.")
+                            .font(.caption)
+                            .foregroundStyle(SVTheme.textTertiary)
+
+                        VStack(spacing: 0) {
+                            shiftTimePicker(icon: "sunrise", label: "Opening Shift", selection: $openingTime)
+                            Rectangle().fill(SVTheme.divider).frame(height: 1).padding(.leading, 52)
+                            shiftTimePicker(icon: "sun.max", label: "Mid Shift", selection: $midTime)
+                            Rectangle().fill(SVTheme.divider).frame(height: 1).padding(.leading, 52)
+                            shiftTimePicker(icon: "moon.stars", label: "Closing Shift", selection: $closingTime)
+                        }
+                        .background(SVTheme.cardBackground)
+                        .clipShape(.rect(cornerRadius: 12))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(SVTheme.surfaceBorder, lineWidth: 1)
+                        )
+                    }
+                }
+                .padding(.horizontal, 24)
+                .padding(.top, 8)
+                .padding(.bottom, 40)
+            }
+            .background(SVTheme.background)
+            .navigationTitle("Add Location")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Cancel") { dismiss() }
+                        .font(.subheadline)
+                        .foregroundStyle(SVTheme.textSecondary)
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Add") {
+                        let location = Location(
+                            name: name.trimmingCharacters(in: .whitespacesAndNewlines),
+                            address: address.trimmingCharacters(in: .whitespacesAndNewlines),
+                            timezone: TimeZone.current.identifier,
+                            openingTime: openingTimeString,
+                            midTime: midTimeString,
+                            closingTime: closingTimeString,
+                            managerIds: [viewModel.currentUserId]
+                        )
+                        viewModel.addLocation(location)
+                        dismiss()
+                    }
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(SVTheme.accent)
+                    .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
         }
@@ -1711,13 +1970,217 @@ struct LocationManagementSheet: View {
         .presentationDragIndicator(.visible)
     }
 
-    private func shiftTimeLabel(icon: String, label: String, time: String) -> some View {
-        HStack(spacing: 4) {
+    private func shiftTimePicker(icon: String, label: String, selection: Binding<Date>) -> some View {
+        HStack(spacing: 12) {
             Image(systemName: icon)
-                .font(.caption2)
-            Text("\(label) \(time)")
-                .font(.caption2)
+                .font(.subheadline)
+                .foregroundStyle(SVTheme.textTertiary)
+                .frame(width: 28, height: 28)
+
+            Text(label)
+                .font(.subheadline)
+                .foregroundStyle(SVTheme.textPrimary)
+
+            Spacer()
+
+            DatePicker("", selection: selection, displayedComponents: .hourAndMinute)
+                .labelsHidden()
         }
-        .foregroundStyle(SVTheme.textTertiary)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+    }
+}
+
+struct EditLocationSheet: View {
+    let viewModel: AppViewModel
+    let location: Location
+    @Environment(\.dismiss) private var dismiss
+    @State private var name: String = ""
+    @State private var address: String = ""
+    @State private var openingTime: Date = Date()
+    @State private var midTime: Date = Date()
+    @State private var closingTime: Date = Date()
+
+    private var openingTimeString: String {
+        let c = Calendar.current
+        return String(format: "%02d:%02d", c.component(.hour, from: openingTime), c.component(.minute, from: openingTime))
+    }
+    private var midTimeString: String {
+        let c = Calendar.current
+        return String(format: "%02d:%02d", c.component(.hour, from: midTime), c.component(.minute, from: midTime))
+    }
+    private var closingTimeString: String {
+        let c = Calendar.current
+        return String(format: "%02d:%02d", c.component(.hour, from: closingTime), c.component(.minute, from: closingTime))
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("DETAILS")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(SVTheme.textTertiary)
+                            .tracking(0.5)
+
+                        VStack(spacing: 0) {
+                            TextField("Location Name", text: $name)
+                                .font(.subheadline)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 14)
+                                .autocorrectionDisabled()
+
+                            Rectangle().fill(SVTheme.divider).frame(height: 1).padding(.leading, 16)
+
+                            TextField("Address", text: $address)
+                                .font(.subheadline)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 14)
+                                .textContentType(.fullStreetAddress)
+                        }
+                        .background(SVTheme.cardBackground)
+                        .clipShape(.rect(cornerRadius: 12))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(SVTheme.surfaceBorder, lineWidth: 1)
+                        )
+                    }
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("SHIFT TIMES")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(SVTheme.textTertiary)
+                            .tracking(0.5)
+
+                        VStack(spacing: 0) {
+                            shiftTimePicker(icon: "sunrise", label: "Opening Shift", selection: $openingTime)
+                            Rectangle().fill(SVTheme.divider).frame(height: 1).padding(.leading, 52)
+                            shiftTimePicker(icon: "sun.max", label: "Mid Shift", selection: $midTime)
+                            Rectangle().fill(SVTheme.divider).frame(height: 1).padding(.leading, 52)
+                            shiftTimePicker(icon: "moon.stars", label: "Closing Shift", selection: $closingTime)
+                        }
+                        .background(SVTheme.cardBackground)
+                        .clipShape(.rect(cornerRadius: 12))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(SVTheme.surfaceBorder, lineWidth: 1)
+                        )
+                    }
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("INFO")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(SVTheme.textTertiary)
+                            .tracking(0.5)
+
+                        VStack(spacing: 0) {
+                            HStack {
+                                Text("Timezone")
+                                    .font(.subheadline)
+                                    .foregroundStyle(SVTheme.textPrimary)
+                                Spacer()
+                                Text(location.timezone.replacingOccurrences(of: "_", with: " "))
+                                    .font(.caption)
+                                    .foregroundStyle(SVTheme.textTertiary)
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 14)
+
+                            Rectangle().fill(SVTheme.divider).frame(height: 1).padding(.leading, 16)
+
+                            HStack {
+                                Text("Managers")
+                                    .font(.subheadline)
+                                    .foregroundStyle(SVTheme.textPrimary)
+                                Spacer()
+                                Text("\(location.managerIds.count)")
+                                    .font(.subheadline.monospacedDigit())
+                                    .foregroundStyle(SVTheme.textTertiary)
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 14)
+                        }
+                        .background(SVTheme.cardBackground)
+                        .clipShape(.rect(cornerRadius: 12))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(SVTheme.surfaceBorder, lineWidth: 1)
+                        )
+                    }
+                }
+                .padding(.horizontal, 24)
+                .padding(.top, 8)
+                .padding(.bottom, 40)
+            }
+            .background(SVTheme.background)
+            .navigationTitle("Edit Location")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Cancel") { dismiss() }
+                        .font(.subheadline)
+                        .foregroundStyle(SVTheme.textSecondary)
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Save") {
+                        let updated = Location(
+                            id: location.id,
+                            name: name.trimmingCharacters(in: .whitespacesAndNewlines),
+                            address: address.trimmingCharacters(in: .whitespacesAndNewlines),
+                            timezone: location.timezone,
+                            openingTime: openingTimeString,
+                            midTime: midTimeString,
+                            closingTime: closingTimeString,
+                            managerIds: location.managerIds
+                        )
+                        viewModel.updateLocation(updated)
+                        dismiss()
+                    }
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(SVTheme.accent)
+                    .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+        }
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
+        .onAppear {
+            name = location.name
+            address = location.address
+            openingTime = timeFromString(location.openingTime)
+            midTime = timeFromString(location.midTime)
+            closingTime = timeFromString(location.closingTime)
+        }
+    }
+
+    private func shiftTimePicker(icon: String, label: String, selection: Binding<Date>) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.subheadline)
+                .foregroundStyle(SVTheme.textTertiary)
+                .frame(width: 28, height: 28)
+
+            Text(label)
+                .font(.subheadline)
+                .foregroundStyle(SVTheme.textPrimary)
+
+            Spacer()
+
+            DatePicker("", selection: selection, displayedComponents: .hourAndMinute)
+                .labelsHidden()
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+    }
+
+    private func timeFromString(_ timeStr: String) -> Date {
+        let parts = timeStr.split(separator: ":")
+        guard parts.count == 2,
+              let hour = Int(parts[0]),
+              let minute = Int(parts[1]) else {
+            return Date()
+        }
+        return Calendar.current.date(from: DateComponents(hour: hour, minute: minute)) ?? Date()
     }
 }
