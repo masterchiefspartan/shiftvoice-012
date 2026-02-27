@@ -81,6 +81,7 @@ struct RecordView: View {
                             }
                         }
                     )
+                    .id(reviewData.rawTranscript + "|" + reviewData.summary)
                 }
             }
             .alert("Permissions Required", isPresented: $showPermissionAlert) {
@@ -378,7 +379,10 @@ struct RecordView: View {
         if recording.processingElapsed >= 20 {
             return "Still working on it…"
         }
-        switch recording.processingStage {
+        guard let stage = recording.processingStage else {
+            return fallbackProcessingTitle
+        }
+        switch stage {
         case .transcribing:
             return "Transcribing audio…"
         case .structuring:
@@ -392,7 +396,10 @@ struct RecordView: View {
         if recording.processingElapsed >= 20 {
             return "This is taking longer than usual"
         }
-        switch recording.processingStage {
+        guard let stage = recording.processingStage else {
+            return "Please wait…"
+        }
+        switch stage {
         case .transcribing:
             return "Converting speech to text"
         case .structuring:

@@ -15,13 +15,14 @@ final class RecordingViewModel {
     private let structuringCache = StructuringCache.shared
 
     var isProcessing: Bool = false
-    var processingStage: ProcessingStage = .transcribing
+    var processingStage: ProcessingStage? = nil
     var structuringWarning: String?
     var pendingReviewData: PendingNoteReviewData?
     var processingElapsed: TimeInterval = 0
     var transcriptionFailed: Bool = false
     var transcriptionFailureMessage: String?
     var isRetryingTranscription: Bool = false
+    private var hasUserEditedReview: Bool = false
     private var processingTimer: Task<Void, Never>?
     private var lastStopParams: StopParams?
 
@@ -59,6 +60,8 @@ final class RecordingViewModel {
         let liveText = transcriptionService.transcribedText
         audioRecorder.stopRecording()
         isProcessing = true
+        processingStage = .transcribing
+        hasUserEditedReview = false
         structuringWarning = nil
         transcriptionFailed = false
         transcriptionFailureMessage = nil
@@ -103,7 +106,7 @@ final class RecordingViewModel {
                     )
                 }
                 group.addTask {
-                    try? await Task.sleep(for: .seconds(30))
+                    try? await Task.sleep(for: .seconds(15))
                     return nil
                 }
                 for await r in group {
@@ -166,8 +169,9 @@ final class RecordingViewModel {
         if hasLiveText {
             processingStage = .structuring
 
-            let (instantSummary, instantCategories, instantActions, instantUsedAI, instantWarning) = await structureTranscript(
-                liveTranscript, businessType: businessType, authToken: authToken, userId: userId
+            let (instantSummary, instantCategories, instantActions, instantUsedAI, instantWarning) = instantStructureTranscript(
+                liveTranscript,
+                businessType: businessType
             )
 
             processingStage = .finalizing
@@ -185,6 +189,7 @@ final class RecordingViewModel {
                 transcriptionFailed: false
             )
             stopProcessingTimer()
+            processingStage = nil
             isProcessing = false
 
             if let audioURL {
@@ -251,6 +256,7 @@ final class RecordingViewModel {
                 transcriptionFailureMessage: failMessage
             )
             stopProcessingTimer()
+            processingStage = nil
             isProcessing = false
         }
     }
@@ -290,6 +296,17 @@ final class RecordingViewModel {
         }
     }
 
+    private func instantStructureTranscript(_ transcript: String, businessType: String) -> (String, [CategorizedItem], [ActionItem], Bool, String?) {
+        let summary = TranscriptProcessor.generateSummary(from: transcript)
+        if let cachedCategories = structuringCache.enhancedOfflineCategories(from: transcript, businessType: businessType) {
+            let actions = TranscriptProcessor.generateActionItems(from: cachedCategories)
+            return (summary, cachedCategories, actions, false, "Refining in background with full transcription…")
+        }
+        let categories = TranscriptProcessor.generateCategories(from: transcript)
+        let actions = TranscriptProcessor.generateActionItems(from: categories)
+        return (summary, categories, actions, false, "Refining in background with full transcription…")
+    }
+
     private func offlineFallback(transcript: String, businessType: String, warning: String) -> (String, [CategorizedItem], [ActionItem], Bool, String?) {
         let summary = TranscriptProcessor.generateSummary(from: transcript)
         if let cachedCategories = structuringCache.enhancedOfflineCategories(from: transcript, businessType: businessType) {
@@ -313,6 +330,7 @@ final class RecordingViewModel {
         )
 
         guard usedAI else { return }
+        guard !hasUserEditedReview else { return }
 
         pendingReviewData = PendingNoteReviewData(
             rawTranscript: fullTranscript,
@@ -330,12 +348,18 @@ final class RecordingViewModel {
 
     func cancelProcessing() {
         stopProcessingTimer()
+        processingStage = nil
         isProcessing = false
         pendingReviewData = nil
     }
 
     func discardPendingNote() {
+        processingStage = nil
         pendingReviewData = nil
+    }
+
+    func markReviewAsUserEdited() {
+        hasUserEditedReview = true
     }
 
     private func startProcessingTimer() {

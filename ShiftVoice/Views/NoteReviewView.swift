@@ -164,6 +164,15 @@ struct NoteReviewView: View {
                 .presentationDetents([.medium])
                 .presentationDragIndicator(.visible)
             }
+            .onChange(of: summary) { _, _ in
+                viewModel.recording.markReviewAsUserEdited()
+            }
+            .onChange(of: editableCategorizedItems) { _, _ in
+                viewModel.recording.markReviewAsUserEdited()
+            }
+            .onChange(of: editableActionItems) { _, _ in
+                viewModel.recording.markReviewAsUserEdited()
+            }
         }
     }
 
@@ -553,7 +562,7 @@ struct NoteReviewView: View {
     }
 }
 
-struct EditableCategorizedItem: Identifiable {
+struct EditableCategorizedItem: Identifiable, Equatable {
     let id: String
     var category: NoteCategory
     var categoryTemplateId: String?
@@ -579,7 +588,7 @@ struct EditableCategorizedItem: Identifiable {
     }
 }
 
-struct EditableActionItem: Identifiable {
+struct EditableActionItem: Identifiable, Equatable {
     let id: String
     var task: String
     var category: NoteCategory
