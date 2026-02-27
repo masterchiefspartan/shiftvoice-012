@@ -46,8 +46,11 @@ struct ShiftFeedView: View {
             }
             .toolbarBackground(SVTheme.surface, for: .navigationBar)
             .toolbarBackground(.visible, for: .navigationBar)
-            .navigationDestination(for: String.self) { noteId in
-                ShiftNoteDetailView(noteId: noteId, viewModel: viewModel)
+            .navigationDestination(for: AppRoute.self) { route in
+                switch route {
+                case .shiftNoteDetail(let noteId):
+                    ShiftNoteDetailView(noteId: noteId, viewModel: viewModel)
+                }
             }
             .sheet(isPresented: $showLocationPicker) {
                 locationPickerSheet
@@ -244,7 +247,7 @@ struct ShiftFeedView: View {
             } else {
                 LazyVStack(spacing: 0) {
                     ForEach(notes, id: \.id) { note in
-                        NavigationLink(value: note.id) {
+                        NavigationLink(value: AppRoute.shiftNoteDetail(noteId: note.id)) {
                             ShiftNoteCardView(
                                 note: note,
                                 isAcknowledged: viewModel.isNoteAcknowledged(note),
@@ -326,7 +329,7 @@ struct ShiftFeedView: View {
 
                     LazyVStack(spacing: 0) {
                         ForEach(results, id: \.id) { note in
-                            NavigationLink(value: note.id) {
+                            NavigationLink(value: AppRoute.shiftNoteDetail(noteId: note.id)) {
                                 ShiftNoteCardView(
                                     note: note,
                                     isAcknowledged: viewModel.isNoteAcknowledged(note),

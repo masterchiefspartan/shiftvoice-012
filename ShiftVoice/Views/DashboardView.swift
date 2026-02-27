@@ -92,8 +92,11 @@ struct DashboardView: View {
             }
             .toolbarBackground(SVTheme.surface, for: .navigationBar)
             .toolbarBackground(.visible, for: .navigationBar)
-            .navigationDestination(for: String.self) { noteId in
-                ShiftNoteDetailView(noteId: noteId, viewModel: viewModel)
+            .navigationDestination(for: AppRoute.self) { route in
+                switch route {
+                case .shiftNoteDetail(let noteId):
+                    ShiftNoteDetailView(noteId: noteId, viewModel: viewModel)
+                }
             }
             .sheet(isPresented: $showFilterSheet) {
                 filterSheetContent

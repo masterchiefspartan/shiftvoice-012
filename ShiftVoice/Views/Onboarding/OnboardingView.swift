@@ -20,13 +20,16 @@ struct OnboardingView: View {
                 OnboardingCategoriesView(viewModel: viewModel)
                     .tag(1)
 
-                OnboardingTeamView(viewModel: viewModel, onComplete: completeOnboarding)
+                OnboardingScheduleView(viewModel: viewModel)
                     .tag(2)
+
+                OnboardingTeamView(viewModel: viewModel, onComplete: completeOnboarding)
+                    .tag(3)
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
             .animation(.easeOut(duration: 0.25), value: viewModel.currentStep)
 
-            if viewModel.currentStep < 2 {
+            if viewModel.currentStep < 3 {
                 bottomActions
             }
         }

@@ -699,7 +699,7 @@ struct SettingsView: View {
                         }
 
                         Button {
-                            viewModel.showPaywall = true
+                            viewModel.presentPaywall(reason: .manualUpgrade)
                         } label: {
                             HStack(spacing: 6) {
                                 Image(systemName: "crown.fill")

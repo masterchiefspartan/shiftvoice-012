@@ -16,6 +16,7 @@ struct RecordView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dismiss) private var dismiss
     private let subscription = SubscriptionService.shared
+    @State private var shouldResumeRecordingAfterPaywall: Bool = false
 
     private var recording: RecordingViewModel { viewModel.recording }
 
@@ -112,6 +113,13 @@ struct RecordView: View {
             .onChange(of: recording.isProcessing) { oldValue, newValue in
                 if oldValue && !newValue && recording.pendingReviewData != nil {
                     showReview = true
+                }
+            }
+            .onChange(of: viewModel.showPaywall) { oldValue, newValue in
+                guard oldValue, !newValue, shouldResumeRecordingAfterPaywall else { return }
+                shouldResumeRecordingAfterPaywall = false
+                if subscription.canRecordNote(currentMonthNoteCount: viewModel.notesThisMonth) {
+                    startRecording()
                 }
             }
         }
@@ -510,7 +518,8 @@ struct RecordView: View {
         }
         let thisMonthCount = viewModel.notesThisMonth
         if !subscription.canRecordNote(currentMonthNoteCount: thisMonthCount) {
-            viewModel.showPaywall = true
+            shouldResumeRecordingAfterPaywall = true
+            viewModel.presentPaywall(reason: .recordingLimitReached)
             return
         }
         recording.startRecording()

@@ -25,6 +25,7 @@ final class AppViewModel {
     var publishError: String?
     var pendingPublishNote: ShiftNote?
     var showPaywall: Bool = false
+    var paywallTriggerReason: PaywallTriggerReason = .unknown
 
     let networkMonitor = NetworkMonitor.shared
     var isOffline: Bool { !networkMonitor.isConnected }
@@ -215,6 +216,16 @@ final class AppViewModel {
             self.updateSyncState()
         }
         updateSyncState()
+    }
+
+    func presentPaywall(reason: PaywallTriggerReason) {
+        guard !showPaywall else { return }
+        paywallTriggerReason = reason
+        showPaywall = true
+    }
+
+    func dismissPaywall() {
+        showPaywall = false
     }
 
     deinit {

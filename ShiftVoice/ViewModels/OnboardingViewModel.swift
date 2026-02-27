@@ -49,7 +49,7 @@ nonisolated struct TeamInvite: Identifiable, Sendable {
 @Observable
 final class OnboardingViewModel {
     var currentStep: Int = 0
-    let totalSteps: Int = 3
+    let totalSteps: Int = 4
 
     var businessType: BusinessType = .restaurant
     var locationName: String = ""
@@ -79,6 +79,8 @@ final class OnboardingViewModel {
         case 1:
             return !selectedCategoryTemplates.isEmpty
         case 2:
+            return true
+        case 3:
             return true
         default:
             return true
@@ -121,6 +123,8 @@ final class OnboardingViewModel {
             }
             return true
         case 2:
+            return true
+        case 3:
             var valid = true
             var seenEmails = Set<String>()
             for invite in teamInvites where !invite.email.isEmpty {

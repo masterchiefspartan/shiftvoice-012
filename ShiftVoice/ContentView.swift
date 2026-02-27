@@ -56,7 +56,7 @@ struct ContentView: View {
         }
         .sheet(isPresented: Binding(
             get: { viewModel.showPaywall },
-            set: { viewModel.showPaywall = $0 }
+            set: { if !$0 { viewModel.dismissPaywall() } }
         )) {
             PaywallView()
         }
@@ -66,7 +66,7 @@ struct ContentView: View {
             selectedTab = .inbox
             Task {
                 try? await Task.sleep(for: .milliseconds(300))
-                inboxNavPath.append(noteId)
+                inboxNavPath.append(AppRoute.shiftNoteDetail(noteId: noteId))
                 viewModel.pendingNoteId = nil
             }
         }
@@ -215,4 +215,8 @@ nonisolated enum AppTab: Hashable, Sendable {
     case inbox
     case actions
     case profile
+}
+
+nonisolated enum AppRoute: Hashable, Sendable {
+    case shiftNoteDetail(noteId: String)
 }
