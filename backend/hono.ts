@@ -1322,6 +1322,32 @@ const structuredNoteSchema = z.object({
   ).describe("Each distinct issue, observation, or handoff item mentioned in the transcript. Split into SEPARATE items - one per distinct topic. Do NOT group multiple topics together."),
 });
 
+function estimateExpectedItemCount(transcript: string): number {
+  const lower = transcript.toLowerCase();
+  let cues = 0;
+
+  const explicitCounts = lower.match(/\b(two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(things?|items?|issues?|points?|notes?)\b/);
+  if (explicitCounts) {
+    const numWords: Record<string, number> = { two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
+    const parsed = numWords[explicitCounts[1]] || parseInt(explicitCounts[1], 10);
+    if (parsed && parsed >= 2) return parsed;
+  }
+
+  const ordinals = lower.match(/\b(first|second|third|fourth|fifth|number one|number two|number three)\b/g);
+  if (ordinals) cues = Math.max(cues, new Set(ordinals).size);
+
+  const numberedList = lower.match(/(?:^|\n|\. )\d+[\.\)\:]/g);
+  if (numberedList) cues = Math.max(cues, numberedList.length);
+
+  const transitions = (lower.match(/\b(also|and then|next|another thing|on top of that|additionally|oh and|plus|as well|besides that)\b/g) || []).length;
+  cues = Math.max(cues, transitions + 1);
+
+  const imperatives = (lower.match(/\b(check|fix|order|replace|clean|call|tell|restock|notify|schedule|follow up|make sure|need to|needs to|have to|has to)\b/g) || []).length;
+  if (imperatives >= 3) cues = Math.max(cues, Math.ceil(imperatives * 0.6));
+
+  return Math.max(2, cues);
+}
+
 app.post("/rest/structure-transcript", async (c) => {
   const userId = c.req.header("x-user-id") || c.req.header("x-forwarded-for") || "anonymous";
   if (!userId) return errorResponse(c, 400, "User identifier required", "BAD_REQUEST");
@@ -1335,7 +1361,7 @@ app.post("/rest/structure-transcript", async (c) => {
   const { transcript, businessType } = validation.data;
 
   try {
-    const result = await generateObject({
+    const firstPass = await generateObject({
       messages: [
         {
           role: "user",
@@ -1374,7 +1400,49 @@ Here is the transcript to structure:
       schema: structuredNoteSchema,
     });
 
-    return c.json({ success: true, structured: result });
+    const extractedCount = firstPass.items?.length ?? 0;
+    const expectedMin = estimateExpectedItemCount(transcript);
+
+    if (extractedCount < expectedMin && extractedCount > 0) {
+      try {
+        const existingItems = firstPass.items.map((i: any) => i.content).join("\n- ");
+        const recoveryPass = await generateObject({
+          messages: [
+            {
+              role: "user",
+              content: `You are reviewing a shift handoff transcript for a ${businessType} business. A first pass already extracted some items, but it may have MISSED some.
+
+Here is the original transcript:
+"${transcript}"
+
+Here are the items already extracted:
+- ${existingItems}
+
+The transcript contains cues suggesting there should be MORE items than the ${extractedCount} already found (e.g. numbered lists, transition words like "also"/"next"/"another thing", or multiple imperative verbs).
+
+Your job: Find ANY items from the transcript that are NOT already covered above. Only return NEW items that were missed. If nothing was missed, return an empty items array and keep the same summary.
+
+Rules:
+- Do NOT duplicate items already extracted
+- Each new item must describe a DISTINCT topic not covered above
+- Use the worker's actual words and details`
+            }
+          ],
+          schema: structuredNoteSchema,
+        });
+
+        if (recoveryPass.items?.length > 0) {
+          firstPass.items.push(...recoveryPass.items);
+          if (recoveryPass.summary) {
+            firstPass.summary = recoveryPass.summary;
+          }
+        }
+      } catch (recoveryError: any) {
+        console.warn("Recovery pass failed, using first pass only:", recoveryError?.message);
+      }
+    }
+
+    return c.json({ success: true, structured: firstPass });
   } catch (error: any) {
     console.error("AI structuring failed:", error?.message || error);
     return c.json({ success: false, error: "AI structuring unavailable", code: "AI_ERROR" }, 500);
