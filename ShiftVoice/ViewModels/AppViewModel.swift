@@ -806,6 +806,28 @@ final class AppViewModel {
         showToast("Team member removed", isError: false)
     }
 
+    func updateTeamMember(_ member: TeamMember) {
+        if let error = InputValidator.validateName(member.name, fieldName: "Name") {
+            showToast(error, isError: true)
+            return
+        }
+        if let error = InputValidator.validateEmail(member.email) {
+            showToast(error, isError: true)
+            return
+        }
+        guard let index = teamMembers.firstIndex(where: { $0.id == member.id }) else { return }
+        teamMembers[index] = member
+        writeTeamMember(member)
+        showToast("Team member updated", isError: false)
+    }
+
+    var currentUserRole: ManagerRole {
+        if let member = teamMembers.first(where: { $0.id == currentUserId }) {
+            return member.role
+        }
+        return .owner
+    }
+
     // MARK: - Recurring Issues
 
     func resolveRecurringIssue(_ issueId: String) {

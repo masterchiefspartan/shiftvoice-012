@@ -8,6 +8,8 @@ struct DashboardView: View {
     @State private var selectedLocationFilter: String? = nil
     @State private var selectedCategoryFilter: CategoryDisplayInfo? = nil
     @State private var selectedDateRange: DateRangeFilter = .all
+    @State private var selectedAssigneeFilter: String? = nil
+    @State private var assignedToMe: Bool = false
     @State private var showRecurringIssues: Bool = false
     @State private var showFilterSheet: Bool = false
 
@@ -18,6 +20,8 @@ struct DashboardView: View {
         if selectedLocationFilter != nil { count += 1 }
         if selectedCategoryFilter != nil { count += 1 }
         if selectedDateRange != .all { count += 1 }
+        if assignedToMe { count += 1 }
+        if selectedAssigneeFilter != nil { count += 1 }
         return count
     }
 
@@ -27,6 +31,8 @@ struct DashboardView: View {
             if let status = selectedStatusFilter, entry.item.status != status { return false }
             if let locId = selectedLocationFilter, entry.locationId != locId { return false }
             if let cat = selectedCategoryFilter, entry.item.displayInfo.id != cat.id { return false }
+            if assignedToMe, entry.item.assigneeId != viewModel.currentUserId { return false }
+            if let assigneeId = selectedAssigneeFilter, entry.item.assigneeId != assigneeId { return false }
             if selectedDateRange != .all {
                 let cutoff = selectedDateRange.cutoffDate
                 if entry.createdAt < cutoff { return false }
@@ -34,6 +40,10 @@ struct DashboardView: View {
             return true
         }
         .sorted { $0.item.urgency.sortOrder < $1.item.urgency.sortOrder }
+    }
+
+    private var myAssignedCount: Int {
+        viewModel.allActionItemsWithDate.filter { $0.item.assigneeId == viewModel.currentUserId && $0.item.status != .resolved }.count
     }
 
     private var openCount: Int {
@@ -117,6 +127,12 @@ struct DashboardView: View {
                 viewModel.loadFirstActionPage(filtered: filteredActions)
             }
             .onChange(of: selectedDateRange) { _, _ in
+                viewModel.loadFirstActionPage(filtered: filteredActions)
+            }
+            .onChange(of: assignedToMe) { _, _ in
+                viewModel.loadFirstActionPage(filtered: filteredActions)
+            }
+            .onChange(of: selectedAssigneeFilter) { _, _ in
                 viewModel.loadFirstActionPage(filtered: filteredActions)
             }
         }
@@ -210,6 +226,38 @@ struct DashboardView: View {
     private var filterSection: some View {
         VStack(spacing: 10) {
             HStack(spacing: 8) {
+                Button {
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        assignedToMe.toggle()
+                        if assignedToMe { selectedAssigneeFilter = nil }
+                    }
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: "person.fill")
+                            .font(.system(size: 10))
+                        Text("Mine")
+                            .font(.caption.weight(.medium))
+                        if myAssignedCount > 0 {
+                            Text("\(myAssignedCount)")
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundStyle(assignedToMe ? .white : SVTheme.accent)
+                                .frame(width: 16, height: 16)
+                                .background(assignedToMe ? Color.white.opacity(0.3) : SVTheme.accent.opacity(0.15))
+                                .clipShape(Circle())
+                        }
+                    }
+                    .foregroundStyle(assignedToMe ? .white : SVTheme.textSecondary)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(assignedToMe ? SVTheme.accent : SVTheme.surface)
+                    .clipShape(.rect(cornerRadius: 8))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(assignedToMe ? Color.clear : SVTheme.surfaceBorder, lineWidth: 1)
+                    )
+                }
+                .sensoryFeedback(.selection, trigger: assignedToMe)
+
                 Button {
                     showFilterSheet = true
                 } label: {
@@ -381,7 +429,8 @@ struct DashboardView: View {
                                     withAnimation(.easeOut(duration: 0.2)) {
                                         viewModel.dismissConflict(noteId: entry.noteId, actionItemId: entry.item.id)
                                     }
-                                } : nil
+                                } : nil,
+                                assigneeInitials: viewModel.teamMembers.first(where: { $0.id == entry.item.assigneeId })?.avatarInitials
                             )
                         }
                         .buttonStyle(.plain)
@@ -679,6 +728,56 @@ struct DashboardView: View {
                         )
                     }
 
+                    filterSheetSection(title: "ASSIGNED TO") {
+                        VStack(spacing: 0) {
+                            ForEach(Array(viewModel.teamMembers.enumerated()), id: \.element.id) { index, member in
+                                let isSelected = selectedAssigneeFilter == member.id
+                                Button {
+                                    withAnimation(.easeOut(duration: 0.2)) {
+                                        selectedAssigneeFilter = isSelected ? nil : member.id
+                                        if selectedAssigneeFilter != nil { assignedToMe = false }
+                                    }
+                                } label: {
+                                    HStack(spacing: 12) {
+                                        Text(member.avatarInitials)
+                                            .font(.system(size: 10, weight: .bold))
+                                            .foregroundStyle(isSelected ? .white : SVTheme.textSecondary)
+                                            .frame(width: 32, height: 32)
+                                            .background(isSelected ? SVTheme.accent : SVTheme.iconBackground)
+                                            .clipShape(Circle())
+
+                                        VStack(alignment: .leading, spacing: 1) {
+                                            Text(member.name)
+                                                .font(.subheadline.weight(.medium))
+                                                .foregroundStyle(SVTheme.textPrimary)
+                                            Text(member.roleDisplayInfo.name)
+                                                .font(.caption)
+                                                .foregroundStyle(SVTheme.textTertiary)
+                                        }
+                                        Spacer()
+                                        if isSelected {
+                                            Image(systemName: "checkmark")
+                                                .font(.subheadline.weight(.semibold))
+                                                .foregroundStyle(SVTheme.accent)
+                                        }
+                                    }
+                                    .padding(.horizontal, 16)
+                                    .padding(.vertical, 10)
+                                }
+
+                                if index < viewModel.teamMembers.count - 1 {
+                                    Rectangle().fill(SVTheme.divider).frame(height: 1).padding(.leading, 60)
+                                }
+                            }
+                        }
+                        .background(SVTheme.cardBackground)
+                        .clipShape(.rect(cornerRadius: 12))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(SVTheme.surfaceBorder, lineWidth: 1)
+                        )
+                    }
+
                     filterSheetSection(title: "TIME RANGE") {
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 100))], spacing: 8) {
                             ForEach(DateRangeFilter.allCases) { range in
@@ -751,6 +850,8 @@ struct DashboardView: View {
         selectedLocationFilter = nil
         selectedCategoryFilter = nil
         selectedDateRange = .all
+        assignedToMe = false
+        selectedAssigneeFilter = nil
     }
 }
 
@@ -810,6 +911,7 @@ struct ActionItemRow: View {
     let noteId: String
     let onStatusChange: (ActionItemStatus) -> Void
     var onDismissConflict: (() -> Void)? = nil
+    var assigneeInitials: String? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -879,12 +981,35 @@ struct ActionItemRow: View {
                         .font(.caption2)
                         .foregroundStyle(SVTheme.textTertiary)
 
-                    Text("·")
-                        .foregroundStyle(SVTheme.textTertiary)
-
-                    Text(authorName)
-                        .font(.caption2)
-                        .foregroundStyle(SVTheme.textTertiary)
+                    if let assignee = item.assignee {
+                        Text("·")
+                            .foregroundStyle(SVTheme.textTertiary)
+                        HStack(spacing: 3) {
+                            if let initials = assigneeInitials {
+                                Text(initials)
+                                    .font(.system(size: 7, weight: .bold))
+                                    .foregroundStyle(.white)
+                                    .frame(width: 16, height: 16)
+                                    .background(SVTheme.accent.opacity(0.7))
+                                    .clipShape(Circle())
+                            }
+                            Text(assignee)
+                                .font(.caption2)
+                                .foregroundStyle(SVTheme.accent)
+                                .lineLimit(1)
+                        }
+                    } else {
+                        Text("·")
+                            .foregroundStyle(SVTheme.textTertiary)
+                        HStack(spacing: 3) {
+                            Image(systemName: "person.fill.questionmark")
+                                .font(.system(size: 8))
+                                .foregroundStyle(SVTheme.textTertiary.opacity(0.5))
+                            Text("Unassigned")
+                                .font(.caption2)
+                                .foregroundStyle(SVTheme.textTertiary.opacity(0.6))
+                        }
+                    }
                 }
             }
 

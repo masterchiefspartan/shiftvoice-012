@@ -114,7 +114,7 @@ struct SettingsView: View {
                 Text(authService.userEmail.isEmpty ? "No email" : authService.userEmail)
                     .font(.caption)
                     .foregroundStyle(SVTheme.textTertiary)
-                Text("Owner")
+                Text(viewModel.currentUserRole.rawValue)
                     .font(.caption.weight(.medium))
                     .foregroundStyle(SVTheme.accent)
             }
@@ -1060,66 +1060,603 @@ struct SettingsView: View {
 struct TeamManagementSheet: View {
     let viewModel: AppViewModel
     @Environment(\.dismiss) private var dismiss
+    @State private var showAddForm: Bool = false
+    @State private var editingMember: TeamMember? = nil
+    @State private var memberToDelete: TeamMember? = nil
 
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 0) {
-                    ForEach(Array(viewModel.teamMembers.enumerated()), id: \.element.id) { index, member in
-                        HStack(spacing: 12) {
-                            Text(member.avatarInitials)
-                                .font(.caption.weight(.bold))
+                VStack(spacing: 16) {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("\(viewModel.teamMembers.count) members")
+                                .font(.subheadline.weight(.medium))
                                 .foregroundStyle(SVTheme.textSecondary)
-                                .frame(width: 36, height: 36)
-                                .background(SVTheme.iconBackground)
-                                .clipShape(Circle())
-
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(member.name)
-                                    .font(.subheadline.weight(.medium))
-                                    .foregroundStyle(SVTheme.textPrimary)
-                                Text(member.email)
-                                    .font(.caption)
-                                    .foregroundStyle(SVTheme.textTertiary)
-                            }
-
-                            Spacer()
-
-                            VStack(alignment: .trailing, spacing: 2) {
-                                Text(member.roleDisplayInfo.name)
-                                    .font(.caption.weight(.medium))
-                                    .foregroundStyle(SVTheme.textSecondary)
-                                Text(member.inviteStatus.rawValue)
-                                    .font(.caption2)
-                                    .foregroundStyle(member.inviteStatus == .accepted ? SVTheme.successGreen : SVTheme.textTertiary)
-                            }
                         }
-                        .padding(.horizontal, 24)
-                        .padding(.vertical, 14)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 24)
 
-                        if index < viewModel.teamMembers.count - 1 {
-                            Rectangle()
-                                .fill(SVTheme.divider)
-                                .frame(height: 1)
-                                .padding(.leading, 72)
+                    VStack(spacing: 0) {
+                        ForEach(Array(viewModel.teamMembers.enumerated()), id: \.element.id) { index, member in
+                            let isCurrentUser = member.id == viewModel.currentUserId
+                            Button {
+                                if !isCurrentUser {
+                                    editingMember = member
+                                }
+                            } label: {
+                                TeamMemberRow(member: member, isCurrentUser: isCurrentUser)
+                            }
+                            .buttonStyle(.plain)
+                            .contextMenu {
+                                if !isCurrentUser {
+                                    Button {
+                                        editingMember = member
+                                    } label: {
+                                        Label("Edit", systemImage: "pencil")
+                                    }
+                                    Button(role: .destructive) {
+                                        memberToDelete = member
+                                    } label: {
+                                        Label("Remove", systemImage: "trash")
+                                    }
+                                }
+                            }
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                if !isCurrentUser {
+                                    Button(role: .destructive) {
+                                        memberToDelete = member
+                                    } label: {
+                                        Label("Remove", systemImage: "trash")
+                                    }
+                                    Button {
+                                        editingMember = member
+                                    } label: {
+                                        Label("Edit", systemImage: "pencil")
+                                    }
+                                    .tint(SVTheme.accent)
+                                }
+                            }
+
+                            if index < viewModel.teamMembers.count - 1 {
+                                Rectangle()
+                                    .fill(SVTheme.divider)
+                                    .frame(height: 1)
+                                    .padding(.leading, 72)
+                            }
                         }
                     }
+                    .background(SVTheme.cardBackground)
+                    .clipShape(.rect(cornerRadius: 12))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(SVTheme.surfaceBorder, lineWidth: 1)
+                    )
+                    .padding(.horizontal, 24)
                 }
                 .padding(.top, 8)
+                .padding(.bottom, 40)
             }
             .background(SVTheme.background)
             .navigationTitle("Team")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        showAddForm = true
+                    } label: {
+                        Image(systemName: "plus")
+                            .font(.body.weight(.semibold))
+                            .foregroundStyle(SVTheme.accent)
+                    }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") { dismiss() }
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(SVTheme.accent)
                 }
             }
+            .sheet(isPresented: $showAddForm) {
+                AddTeamMemberSheet(viewModel: viewModel, locations: viewModel.locations)
+            }
+            .sheet(item: $editingMember) { member in
+                EditTeamMemberSheet(viewModel: viewModel, member: member, locations: viewModel.locations)
+            }
+            .alert("Remove Team Member", isPresented: Binding(
+                get: { memberToDelete != nil },
+                set: { if !$0 { memberToDelete = nil } }
+            )) {
+                Button("Cancel", role: .cancel) { memberToDelete = nil }
+                Button("Remove", role: .destructive) {
+                    if let member = memberToDelete {
+                        viewModel.removeTeamMember(member.id)
+                        memberToDelete = nil
+                    }
+                }
+            } message: {
+                if let member = memberToDelete {
+                    Text("Are you sure you want to remove \(member.name)? This cannot be undone.")
+                }
+            }
         }
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
+    }
+}
+
+struct TeamMemberRow: View {
+    let member: TeamMember
+    let isCurrentUser: Bool
+
+    private var statusColor: Color {
+        switch member.inviteStatus {
+        case .accepted: return SVTheme.successGreen
+        case .pending: return SVTheme.amber
+        case .deactivated: return SVTheme.textTertiary
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Text(member.avatarInitials)
+                .font(.caption.weight(.bold))
+                .foregroundStyle(SVTheme.textSecondary)
+                .frame(width: 40, height: 40)
+                .background(SVTheme.iconBackground)
+                .clipShape(Circle())
+
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text(member.name)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(SVTheme.textPrimary)
+                    if isCurrentUser {
+                        Text("You")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(SVTheme.accent)
+                            .clipShape(Capsule())
+                    }
+                }
+                Text(member.email)
+                    .font(.caption)
+                    .foregroundStyle(SVTheme.textTertiary)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            VStack(alignment: .trailing, spacing: 3) {
+                Text(member.roleDisplayInfo.name)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(SVTheme.textSecondary)
+                Text(member.inviteStatus.rawValue)
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(statusColor)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(statusColor.opacity(0.1))
+                    .clipShape(Capsule())
+            }
+
+            if !isCurrentUser {
+                Image(systemName: "chevron.right")
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(SVTheme.textTertiary)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .contentShape(Rectangle())
+    }
+}
+
+struct AddTeamMemberSheet: View {
+    let viewModel: AppViewModel
+    let locations: [Location]
+    @Environment(\.dismiss) private var dismiss
+    @State private var name: String = ""
+    @State private var email: String = ""
+    @State private var selectedRole: ManagerRole = .manager
+    @State private var selectedLocationIds: Set<String> = []
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("DETAILS")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(SVTheme.textTertiary)
+                            .tracking(0.5)
+
+                        VStack(spacing: 0) {
+                            TextField("Full Name", text: $name)
+                                .font(.subheadline)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 14)
+                                .textContentType(.name)
+                                .autocorrectionDisabled()
+
+                            Rectangle().fill(SVTheme.divider).frame(height: 1).padding(.leading, 16)
+
+                            TextField("Email Address", text: $email)
+                                .font(.subheadline)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 14)
+                                .keyboardType(.emailAddress)
+                                .textContentType(.emailAddress)
+                                .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled()
+                        }
+                        .background(SVTheme.cardBackground)
+                        .clipShape(.rect(cornerRadius: 12))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(SVTheme.surfaceBorder, lineWidth: 1)
+                        )
+                    }
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("ROLE")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(SVTheme.textTertiary)
+                            .tracking(0.5)
+
+                        VStack(spacing: 0) {
+                            ForEach(ManagerRole.allCases.filter { $0 != .owner }, id: \.rawValue) { role in
+                                Button {
+                                    selectedRole = role
+                                } label: {
+                                    HStack {
+                                        Text(role.rawValue)
+                                            .font(.subheadline)
+                                            .foregroundStyle(SVTheme.textPrimary)
+                                        Spacer()
+                                        if selectedRole == role {
+                                            Image(systemName: "checkmark")
+                                                .font(.subheadline.weight(.semibold))
+                                                .foregroundStyle(SVTheme.accent)
+                                        }
+                                    }
+                                    .padding(.horizontal, 16)
+                                    .padding(.vertical, 14)
+                                    .contentShape(Rectangle())
+                                }
+
+                                if role != ManagerRole.allCases.filter({ $0 != .owner }).last {
+                                    Rectangle().fill(SVTheme.divider).frame(height: 1).padding(.leading, 16)
+                                }
+                            }
+                        }
+                        .background(SVTheme.cardBackground)
+                        .clipShape(.rect(cornerRadius: 12))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(SVTheme.surfaceBorder, lineWidth: 1)
+                        )
+                    }
+
+                    if !locations.isEmpty {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("LOCATIONS")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(SVTheme.textTertiary)
+                                .tracking(0.5)
+
+                            VStack(spacing: 0) {
+                                ForEach(Array(locations.enumerated()), id: \.element.id) { index, location in
+                                    let isSelected = selectedLocationIds.contains(location.id)
+                                    Button {
+                                        if isSelected {
+                                            selectedLocationIds.remove(location.id)
+                                        } else {
+                                            selectedLocationIds.insert(location.id)
+                                        }
+                                    } label: {
+                                        HStack(spacing: 12) {
+                                            Image(systemName: "mappin")
+                                                .font(.subheadline)
+                                                .foregroundStyle(SVTheme.textTertiary)
+                                                .frame(width: 28, height: 28)
+
+                                            VStack(alignment: .leading, spacing: 1) {
+                                                Text(location.name)
+                                                    .font(.subheadline)
+                                                    .foregroundStyle(SVTheme.textPrimary)
+                                                Text(location.address)
+                                                    .font(.caption)
+                                                    .foregroundStyle(SVTheme.textTertiary)
+                                            }
+
+                                            Spacer()
+
+                                            Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                                                .font(.body)
+                                                .foregroundStyle(isSelected ? SVTheme.accent : SVTheme.textTertiary)
+                                        }
+                                        .padding(.horizontal, 16)
+                                        .padding(.vertical, 12)
+                                        .contentShape(Rectangle())
+                                    }
+
+                                    if index < locations.count - 1 {
+                                        Rectangle().fill(SVTheme.divider).frame(height: 1).padding(.leading, 56)
+                                    }
+                                }
+                            }
+                            .background(SVTheme.cardBackground)
+                            .clipShape(.rect(cornerRadius: 12))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .stroke(SVTheme.surfaceBorder, lineWidth: 1)
+                            )
+                        }
+                    }
+                }
+                .padding(.horizontal, 24)
+                .padding(.top, 8)
+                .padding(.bottom, 40)
+            }
+            .background(SVTheme.background)
+            .navigationTitle("Add Team Member")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Cancel") { dismiss() }
+                        .font(.subheadline)
+                        .foregroundStyle(SVTheme.textSecondary)
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Add") {
+                        let member = TeamMember(
+                            name: name.trimmingCharacters(in: .whitespacesAndNewlines),
+                            email: email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+                            role: selectedRole,
+                            locationIds: Array(selectedLocationIds),
+                            inviteStatus: .pending
+                        )
+                        viewModel.addTeamMember(member)
+                        dismiss()
+                    }
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(SVTheme.accent)
+                    .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+        }
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
+        .onAppear {
+            if let first = locations.first {
+                selectedLocationIds.insert(first.id)
+            }
+        }
+    }
+}
+
+struct EditTeamMemberSheet: View {
+    let viewModel: AppViewModel
+    let member: TeamMember
+    let locations: [Location]
+    @Environment(\.dismiss) private var dismiss
+    @State private var name: String = ""
+    @State private var email: String = ""
+    @State private var selectedRole: ManagerRole = .manager
+    @State private var selectedLocationIds: Set<String> = []
+    @State private var selectedStatus: InviteStatus = .pending
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("DETAILS")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(SVTheme.textTertiary)
+                            .tracking(0.5)
+
+                        VStack(spacing: 0) {
+                            TextField("Full Name", text: $name)
+                                .font(.subheadline)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 14)
+                                .textContentType(.name)
+                                .autocorrectionDisabled()
+
+                            Rectangle().fill(SVTheme.divider).frame(height: 1).padding(.leading, 16)
+
+                            TextField("Email Address", text: $email)
+                                .font(.subheadline)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 14)
+                                .keyboardType(.emailAddress)
+                                .textContentType(.emailAddress)
+                                .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled()
+                        }
+                        .background(SVTheme.cardBackground)
+                        .clipShape(.rect(cornerRadius: 12))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(SVTheme.surfaceBorder, lineWidth: 1)
+                        )
+                    }
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("ROLE")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(SVTheme.textTertiary)
+                            .tracking(0.5)
+
+                        VStack(spacing: 0) {
+                            ForEach(ManagerRole.allCases.filter { $0 != .owner }, id: \.rawValue) { role in
+                                Button {
+                                    selectedRole = role
+                                } label: {
+                                    HStack {
+                                        Text(role.rawValue)
+                                            .font(.subheadline)
+                                            .foregroundStyle(SVTheme.textPrimary)
+                                        Spacer()
+                                        if selectedRole == role {
+                                            Image(systemName: "checkmark")
+                                                .font(.subheadline.weight(.semibold))
+                                                .foregroundStyle(SVTheme.accent)
+                                        }
+                                    }
+                                    .padding(.horizontal, 16)
+                                    .padding(.vertical, 14)
+                                    .contentShape(Rectangle())
+                                }
+
+                                if role != ManagerRole.allCases.filter({ $0 != .owner }).last {
+                                    Rectangle().fill(SVTheme.divider).frame(height: 1).padding(.leading, 16)
+                                }
+                            }
+                        }
+                        .background(SVTheme.cardBackground)
+                        .clipShape(.rect(cornerRadius: 12))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(SVTheme.surfaceBorder, lineWidth: 1)
+                        )
+                    }
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("STATUS")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(SVTheme.textTertiary)
+                            .tracking(0.5)
+
+                        HStack(spacing: 8) {
+                            ForEach([InviteStatus.pending, .accepted, .deactivated], id: \.rawValue) { status in
+                                let isSelected = selectedStatus == status
+                                Button {
+                                    selectedStatus = status
+                                } label: {
+                                    Text(status.rawValue)
+                                        .font(.subheadline.weight(.medium))
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 12)
+                                        .background(isSelected ? statusColor(status) : SVTheme.surface)
+                                        .foregroundStyle(isSelected ? .white : SVTheme.textSecondary)
+                                        .clipShape(.rect(cornerRadius: 10))
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 10)
+                                                .stroke(isSelected ? Color.clear : SVTheme.surfaceBorder, lineWidth: 1)
+                                        )
+                                }
+                            }
+                        }
+                    }
+
+                    if !locations.isEmpty {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("LOCATIONS")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(SVTheme.textTertiary)
+                                .tracking(0.5)
+
+                            VStack(spacing: 0) {
+                                ForEach(Array(locations.enumerated()), id: \.element.id) { index, location in
+                                    let isSelected = selectedLocationIds.contains(location.id)
+                                    Button {
+                                        if isSelected {
+                                            selectedLocationIds.remove(location.id)
+                                        } else {
+                                            selectedLocationIds.insert(location.id)
+                                        }
+                                    } label: {
+                                        HStack(spacing: 12) {
+                                            Image(systemName: "mappin")
+                                                .font(.subheadline)
+                                                .foregroundStyle(SVTheme.textTertiary)
+                                                .frame(width: 28, height: 28)
+
+                                            Text(location.name)
+                                                .font(.subheadline)
+                                                .foregroundStyle(SVTheme.textPrimary)
+
+                                            Spacer()
+
+                                            Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                                                .font(.body)
+                                                .foregroundStyle(isSelected ? SVTheme.accent : SVTheme.textTertiary)
+                                        }
+                                        .padding(.horizontal, 16)
+                                        .padding(.vertical, 12)
+                                        .contentShape(Rectangle())
+                                    }
+
+                                    if index < locations.count - 1 {
+                                        Rectangle().fill(SVTheme.divider).frame(height: 1).padding(.leading, 56)
+                                    }
+                                }
+                            }
+                            .background(SVTheme.cardBackground)
+                            .clipShape(.rect(cornerRadius: 12))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .stroke(SVTheme.surfaceBorder, lineWidth: 1)
+                            )
+                        }
+                    }
+                }
+                .padding(.horizontal, 24)
+                .padding(.top, 8)
+                .padding(.bottom, 40)
+            }
+            .background(SVTheme.background)
+            .navigationTitle("Edit Member")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Cancel") { dismiss() }
+                        .font(.subheadline)
+                        .foregroundStyle(SVTheme.textSecondary)
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Save") {
+                        let updated = TeamMember(
+                            id: member.id,
+                            name: name.trimmingCharacters(in: .whitespacesAndNewlines),
+                            email: email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+                            role: selectedRole,
+                            roleTemplateId: member.roleTemplateId,
+                            locationIds: Array(selectedLocationIds),
+                            inviteStatus: selectedStatus,
+                            updatedAt: Date()
+                        )
+                        viewModel.updateTeamMember(updated)
+                        dismiss()
+                    }
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(SVTheme.accent)
+                    .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+        }
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
+        .onAppear {
+            name = member.name
+            email = member.email
+            selectedRole = member.role
+            selectedLocationIds = Set(member.locationIds)
+            selectedStatus = member.inviteStatus
+        }
+    }
+
+    private func statusColor(_ status: InviteStatus) -> Color {
+        switch status {
+        case .accepted: return SVTheme.successGreen
+        case .pending: return SVTheme.amber
+        case .deactivated: return SVTheme.textTertiary
+        }
     }
 }
 
