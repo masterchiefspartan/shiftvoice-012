@@ -1412,9 +1412,19 @@ struct AddTeamMemberSheet: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Add") {
+                        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+                        let trimmedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                        if let error = InputValidator.validateName(trimmedName, fieldName: "Name") {
+                            viewModel.showToast(error, isError: true)
+                            return
+                        }
+                        if let error = InputValidator.validateEmail(trimmedEmail) {
+                            viewModel.showToast(error, isError: true)
+                            return
+                        }
                         let member = TeamMember(
-                            name: name.trimmingCharacters(in: .whitespacesAndNewlines),
-                            email: email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+                            name: trimmedName,
+                            email: trimmedEmail,
                             role: selectedRole,
                             locationIds: Array(selectedLocationIds),
                             inviteStatus: .pending
