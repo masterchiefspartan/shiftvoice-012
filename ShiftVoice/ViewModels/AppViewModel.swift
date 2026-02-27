@@ -11,6 +11,7 @@ final class AppViewModel {
     private(set) var hasTeamMembersLoaded: Bool = false
     var organization: Organization = Organization(name: "", ownerId: "")
     var recurringIssues: [RecurringIssue] = []
+    var isAssignedToMeFilterEnabled: Bool = false
 
     var selectedLocationId: String = "" {
         didSet {
@@ -382,6 +383,7 @@ final class AppViewModel {
         teamMembers = []
         hasTeamMembersLoaded = false
         recurringIssues = []
+        isAssignedToMeFilterEnabled = false
         organization = Organization(name: "", ownerId: "")
         selectedLocationId = ""
         unacknowledgedCount = 0

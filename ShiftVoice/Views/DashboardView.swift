@@ -9,7 +9,6 @@ struct DashboardView: View {
     @State private var selectedCategoryFilter: CategoryDisplayInfo? = nil
     @State private var selectedDateRange: DateRangeFilter = .all
     @State private var selectedAssigneeFilter: String? = nil
-    @State private var assignedToMe: Bool = false
     @State private var showRecurringIssues: Bool = false
     @State private var showFilterSheet: Bool = false
 
@@ -20,7 +19,7 @@ struct DashboardView: View {
         if selectedLocationFilter != nil { count += 1 }
         if selectedCategoryFilter != nil { count += 1 }
         if selectedDateRange != .all { count += 1 }
-        if assignedToMe { count += 1 }
+        if viewModel.isAssignedToMeFilterEnabled { count += 1 }
         if selectedAssigneeFilter != nil { count += 1 }
         return count
     }
@@ -31,7 +30,7 @@ struct DashboardView: View {
             if let status = selectedStatusFilter, entry.item.status != status { return false }
             if let locId = selectedLocationFilter, entry.locationId != locId { return false }
             if let cat = selectedCategoryFilter, entry.item.displayInfo.id != cat.id { return false }
-            if assignedToMe, entry.item.assigneeId != viewModel.currentUserId { return false }
+            if viewModel.isAssignedToMeFilterEnabled, entry.item.assigneeId != viewModel.currentUserId { return false }
             if let assigneeId = selectedAssigneeFilter, entry.item.assigneeId != assigneeId { return false }
             if selectedDateRange != .all {
                 let cutoff = selectedDateRange.cutoffDate
@@ -129,7 +128,7 @@ struct DashboardView: View {
             .onChange(of: selectedDateRange) { _, _ in
                 viewModel.loadFirstActionPage(filtered: filteredActions)
             }
-            .onChange(of: assignedToMe) { _, _ in
+            .onChange(of: viewModel.isAssignedToMeFilterEnabled) { _, _ in
                 viewModel.loadFirstActionPage(filtered: filteredActions)
             }
             .onChange(of: selectedAssigneeFilter) { _, _ in
@@ -228,35 +227,35 @@ struct DashboardView: View {
             HStack(spacing: 8) {
                 Button {
                     withAnimation(.easeOut(duration: 0.2)) {
-                        assignedToMe.toggle()
-                        if assignedToMe { selectedAssigneeFilter = nil }
+                        viewModel.isAssignedToMeFilterEnabled.toggle()
+                        if viewModel.isAssignedToMeFilterEnabled { selectedAssigneeFilter = nil }
                     }
                 } label: {
                     HStack(spacing: 5) {
                         Image(systemName: "person.fill")
                             .font(.system(size: 10))
-                        Text("Mine")
+                        Text("Assigned to Me")
                             .font(.caption.weight(.medium))
                         if myAssignedCount > 0 {
                             Text("\(myAssignedCount)")
                                 .font(.system(size: 9, weight: .bold))
-                                .foregroundStyle(assignedToMe ? .white : SVTheme.accent)
+                                .foregroundStyle(viewModel.isAssignedToMeFilterEnabled ? .white : SVTheme.accent)
                                 .frame(width: 16, height: 16)
-                                .background(assignedToMe ? Color.white.opacity(0.3) : SVTheme.accent.opacity(0.15))
+                                .background(viewModel.isAssignedToMeFilterEnabled ? Color.white.opacity(0.3) : SVTheme.accent.opacity(0.15))
                                 .clipShape(Circle())
                         }
                     }
-                    .foregroundStyle(assignedToMe ? .white : SVTheme.textSecondary)
+                    .foregroundStyle(viewModel.isAssignedToMeFilterEnabled ? .white : SVTheme.textSecondary)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
-                    .background(assignedToMe ? SVTheme.accent : SVTheme.surface)
+                    .background(viewModel.isAssignedToMeFilterEnabled ? SVTheme.accent : SVTheme.surface)
                     .clipShape(.rect(cornerRadius: 8))
                     .overlay(
                         RoundedRectangle(cornerRadius: 8)
-                            .stroke(assignedToMe ? Color.clear : SVTheme.surfaceBorder, lineWidth: 1)
+                            .stroke(viewModel.isAssignedToMeFilterEnabled ? Color.clear : SVTheme.surfaceBorder, lineWidth: 1)
                     )
                 }
-                .sensoryFeedback(.selection, trigger: assignedToMe)
+                .sensoryFeedback(.selection, trigger: viewModel.isAssignedToMeFilterEnabled)
 
                 Button {
                     showFilterSheet = true
@@ -735,7 +734,7 @@ struct DashboardView: View {
                                 Button {
                                     withAnimation(.easeOut(duration: 0.2)) {
                                         selectedAssigneeFilter = isSelected ? nil : member.id
-                                        if selectedAssigneeFilter != nil { assignedToMe = false }
+                                        if selectedAssigneeFilter != nil { viewModel.isAssignedToMeFilterEnabled = false }
                                     }
                                 } label: {
                                     HStack(spacing: 12) {
@@ -850,7 +849,7 @@ struct DashboardView: View {
         selectedLocationFilter = nil
         selectedCategoryFilter = nil
         selectedDateRange = .all
-        assignedToMe = false
+        viewModel.isAssignedToMeFilterEnabled = false
         selectedAssigneeFilter = nil
     }
 }
