@@ -616,7 +616,7 @@ struct NoteReviewView: View {
                             Rectangle()
                                 .fill(SVTheme.divider)
                                 .frame(height: 1)
-                                .padding(.leading, 16)
+                                .padding(.leading, 18)
                         }
                     }
                 }
@@ -631,53 +631,57 @@ struct NoteReviewView: View {
     }
 
     private var bottomBar: some View {
-        HStack(spacing: 12) {
-            Button {
-                showDiscardAlert = true
-            } label: {
-                Text("Discard")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(SVTheme.textSecondary)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 48)
-                    .background(SVTheme.cardBackground)
-                    .clipShape(.rect(cornerRadius: 10))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 10)
-                            .stroke(SVTheme.surfaceBorder, lineWidth: 1)
-                    )
-            }
+        VStack(spacing: 0) {
+            Rectangle()
+                .fill(SVTheme.surfaceBorder.opacity(0.8))
+                .frame(height: 1)
 
-            Button {
-                publishNote()
-            } label: {
-                HStack(spacing: 8) {
-                    if isPublishing {
-                        ProgressView()
-                            .tint(.white)
-                            .scaleEffect(0.8)
-                    } else {
-                        Image(systemName: "paperplane.fill")
-                            .font(.subheadline)
-                    }
-                    Text("Send to Team")
+            HStack(spacing: 12) {
+                Button {
+                    showDiscardAlert = true
+                } label: {
+                    Text("Discard")
                         .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(SVTheme.textSecondary)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 52)
+                        .background(SVTheme.cardBackground)
+                        .clipShape(.rect(cornerRadius: 12))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(SVTheme.surfaceBorder, lineWidth: 1)
+                        )
                 }
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity)
-                .frame(height: 48)
-                .background(isPublishing ? SVTheme.accent.opacity(0.6) : SVTheme.accent)
-                .clipShape(.rect(cornerRadius: 10))
+
+                Button {
+                    publishNote()
+                } label: {
+                    HStack(spacing: 8) {
+                        if isPublishing {
+                            ProgressView()
+                                .tint(.white)
+                                .scaleEffect(0.85)
+                        } else {
+                            Image(systemName: "paperplane.fill")
+                                .font(.subheadline)
+                        }
+                        Text("Send to Team")
+                            .font(.subheadline.weight(.semibold))
+                    }
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 52)
+                    .background(isPublishing ? SVTheme.accent.opacity(0.6) : SVTheme.accent)
+                    .clipShape(.rect(cornerRadius: 12))
+                }
+                .disabled(isPublishing || screenState == .loading)
+                .sensoryFeedback(.success, trigger: publishSucceeded)
             }
-            .disabled(isPublishing || screenState == .loading)
-            .sensoryFeedback(.success, trigger: publishSucceeded)
+            .padding(.horizontal, 20)
+            .padding(.top, 14)
+            .padding(.bottom, 10)
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 12)
-        .background(
-            SVTheme.surface
-                .shadow(color: .black.opacity(0.06), radius: 12, y: -4)
-        )
+        .background(.ultraThinMaterial)
         .overlay(alignment: .top) {
             if let error = publishValidationError {
                 HStack(spacing: 6) {
@@ -928,6 +932,7 @@ struct EditableActionItemRow: View {
     let onDelete: () -> Void
     @State private var isEditing: Bool = false
     @State private var showSuggestion: Bool = true
+    @State private var showUrgencyMenu: Bool = false
 
     private var qualityHint: String? {
         let tempAction = ActionItem(
@@ -945,19 +950,19 @@ struct EditableActionItemRow: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 12) {
             if isEditing {
                 TextField("Action item...", text: $item.task, axis: .vertical)
-                    .font(.subheadline)
+                    .font(.body)
                     .foregroundStyle(SVTheme.textPrimary)
                     .lineLimit(1...4)
-                    .padding(10)
+                    .padding(12)
                     .background(SVTheme.surfaceSecondary)
-                    .clipShape(.rect(cornerRadius: 8))
+                    .clipShape(.rect(cornerRadius: 10))
                     .onSubmit { isEditing = false }
             } else {
                 Text(item.task)
-                    .font(.subheadline)
+                    .font(.body)
                     .foregroundStyle(SVTheme.textPrimary)
                     .lineSpacing(2)
             }
@@ -987,23 +992,45 @@ struct EditableActionItemRow: View {
                 .transition(.opacity.combined(with: .scale(scale: 0.95)))
             }
 
-            HStack(spacing: 8) {
-                UrgencyBadge(urgency: item.urgency)
+            HStack(spacing: 10) {
+                Button {
+                    showUrgencyMenu = true
+                } label: {
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(SVTheme.urgencyColor(item.urgency))
+                            .frame(width: 8, height: 8)
+                        Text(item.urgency.rawValue)
+                            .font(.subheadline.weight(.medium))
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .foregroundStyle(SVTheme.urgencyColor(item.urgency))
+                    .background(SVTheme.urgencyColor(item.urgency).opacity(0.1))
+                    .clipShape(.rect(cornerRadius: 9))
+                }
+                .confirmationDialog("Select Urgency", isPresented: $showUrgencyMenu, titleVisibility: .visible) {
+                    ForEach(UrgencyLevel.allCases) { level in
+                        Button(level.rawValue) {
+                            item.urgency = level
+                        }
+                    }
+                }
 
                 Button {
                     onAssign()
                 } label: {
-                    HStack(spacing: 4) {
+                    HStack(spacing: 6) {
                         Image(systemName: item.assignee != nil ? "person.fill" : "person.badge.plus")
-                            .font(.system(size: 10))
+                            .font(.system(size: 11, weight: .medium))
                         Text(item.assignee ?? "Assign")
-                            .font(.caption2.weight(.medium))
+                            .font(.subheadline.weight(.medium))
                     }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
                     .foregroundStyle(item.assignee != nil ? SVTheme.accent : SVTheme.textTertiary)
-                    .background(item.assignee != nil ? SVTheme.accent.opacity(0.08) : SVTheme.iconBackground)
-                    .clipShape(.rect(cornerRadius: 6))
+                    .background(item.assignee != nil ? SVTheme.accent.opacity(0.1) : SVTheme.iconBackground)
+                    .clipShape(.rect(cornerRadius: 9))
                 }
 
                 Spacer()
@@ -1014,29 +1041,21 @@ struct EditableActionItemRow: View {
                     } label: {
                         Label("Edit", systemImage: "pencil")
                     }
-                    Menu("Urgency") {
-                        ForEach(UrgencyLevel.allCases) { level in
-                            Button {
-                                item.urgency = level
-                            } label: {
-                                Label(level.rawValue, systemImage: "circle.fill")
-                            }
-                        }
-                    }
                     Divider()
                     Button(role: .destructive) { onDelete() } label: {
                         Label("Remove", systemImage: "trash")
                     }
                 } label: {
                     Image(systemName: "ellipsis")
-                        .font(.caption)
+                        .font(.subheadline)
                         .foregroundStyle(SVTheme.textTertiary)
-                        .frame(width: 24, height: 24)
+                        .frame(width: 30, height: 30)
                         .contentShape(Rectangle())
                 }
             }
         }
-        .padding(16)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 18)
     }
 }
 
