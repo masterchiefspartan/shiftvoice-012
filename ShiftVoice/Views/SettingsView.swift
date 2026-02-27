@@ -1883,6 +1883,25 @@ struct AddLocationSheet: View {
     @State private var openingTime: Date = Calendar.current.date(from: DateComponents(hour: 6, minute: 0)) ?? Date()
     @State private var midTime: Date = Calendar.current.date(from: DateComponents(hour: 14, minute: 0)) ?? Date()
     @State private var closingTime: Date = Calendar.current.date(from: DateComponents(hour: 22, minute: 0)) ?? Date()
+    @State private var selectedTimezoneId: String = TimeZone.current.identifier
+    @State private var showPlanLimitAlert: Bool = false
+
+    private let timezoneOptions: [String] = TimeZone.knownTimeZoneIdentifiers.sorted()
+
+    private var trimmedName: String {
+        name.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var canSubmit: Bool {
+        !trimmedName.isEmpty && !selectedTimezoneId.isEmpty
+    }
+
+    private var nameValidationMessage: String? {
+        if trimmedName.isEmpty {
+            return "Location name is required"
+        }
+        return nil
+    }
 
     private var openingTimeString: String {
         let c = Calendar.current
@@ -1895,6 +1914,9 @@ struct AddLocationSheet: View {
     private var closingTimeString: String {
         let c = Calendar.current
         return String(format: "%02d:%02d", c.component(.hour, from: closingTime), c.component(.minute, from: closingTime))
+    }
+    private var timezoneDisplayName: String {
+        selectedTimezoneId.replacingOccurrences(of: "_", with: " ")
     }
 
     var body: some View {
@@ -1931,6 +1953,51 @@ struct AddLocationSheet: View {
                     }
 
                     VStack(alignment: .leading, spacing: 10) {
+                        Text("TIMEZONE")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(SVTheme.textTertiary)
+                            .tracking(0.5)
+
+                        VStack(spacing: 0) {
+                            HStack(spacing: 12) {
+                                Image(systemName: "globe")
+                                    .font(.subheadline)
+                                    .foregroundStyle(SVTheme.textTertiary)
+                                    .frame(width: 28, height: 28)
+
+                                Text("Timezone")
+                                    .font(.subheadline)
+                                    .foregroundStyle(SVTheme.textPrimary)
+
+                                Spacer()
+
+                                Picker("Timezone", selection: $selectedTimezoneId) {
+                                    ForEach(timezoneOptions, id: \.self) { timezoneId in
+                                        Text(timezoneId.replacingOccurrences(of: "_", with: " "))
+                                            .tag(timezoneId)
+                                    }
+                                }
+                                .labelsHidden()
+                                .pickerStyle(.menu)
+                                .tint(SVTheme.accent)
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 10)
+                        }
+                        .background(SVTheme.cardBackground)
+                        .clipShape(.rect(cornerRadius: 12))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(SVTheme.surfaceBorder, lineWidth: 1)
+                        )
+
+                        Text(timezoneDisplayName)
+                            .font(.caption)
+                            .foregroundStyle(SVTheme.textTertiary)
+                            .padding(.leading, 4)
+                    }
+
+                    VStack(alignment: .leading, spacing: 10) {
                         Text("SHIFT TIMES")
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(SVTheme.textTertiary)
@@ -1954,6 +2021,28 @@ struct AddLocationSheet: View {
                                 .stroke(SVTheme.surfaceBorder, lineWidth: 1)
                         )
                     }
+
+                    if !viewModel.canAddMoreLocations {
+                        HStack(spacing: 8) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.caption)
+                            Text("Location limit reached for your current plan. Upgrade to add another location.")
+                                .font(.caption)
+                        }
+                        .foregroundStyle(SVTheme.amber)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(SVTheme.amber.opacity(0.12))
+                        .clipShape(.rect(cornerRadius: 10))
+                    }
+
+                    if let nameValidationMessage {
+                        Text(nameValidationMessage)
+                            .font(.caption)
+                            .foregroundStyle(SVTheme.amber)
+                            .padding(.leading, 4)
+                    }
                 }
                 .padding(.horizontal, 24)
                 .padding(.top, 8)
@@ -1970,10 +2059,15 @@ struct AddLocationSheet: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Add") {
+                        guard viewModel.canAddMoreLocations else {
+                            showPlanLimitAlert = true
+                            return
+                        }
+                        guard canSubmit else { return }
                         let location = Location(
-                            name: name.trimmingCharacters(in: .whitespacesAndNewlines),
+                            name: trimmedName,
                             address: address.trimmingCharacters(in: .whitespacesAndNewlines),
-                            timezone: TimeZone.current.identifier,
+                            timezone: selectedTimezoneId,
                             openingTime: openingTimeString,
                             midTime: midTimeString,
                             closingTime: closingTimeString,
@@ -1984,12 +2078,20 @@ struct AddLocationSheet: View {
                     }
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(SVTheme.accent)
-                    .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(!canSubmit)
                 }
             }
         }
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
+        .alert("Location Limit Reached", isPresented: $showPlanLimitAlert) {
+            Button("Cancel", role: .cancel) { }
+            Button("Upgrade") {
+                viewModel.presentPaywall(reason: .manualUpgrade)
+            }
+        } message: {
+            Text("Your \(viewModel.organization.plan.rawValue) plan supports up to \(viewModel.organization.plan.maxLocations) location\(viewModel.organization.plan.maxLocations == 1 ? "" : "s").")
+        }
     }
 
     private func shiftTimePicker(icon: String, label: String, selection: Binding<Date>) -> some View {
