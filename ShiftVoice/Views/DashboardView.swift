@@ -429,7 +429,15 @@ struct DashboardView: View {
                                         viewModel.dismissConflict(noteId: entry.noteId, actionItemId: entry.item.id)
                                     }
                                 } : nil,
-                                assigneeInitials: viewModel.teamMembers.first(where: { $0.id == entry.item.assigneeId })?.avatarInitials
+                                assigneeName: viewModel.teamMembers.first(where: { $0.id == entry.item.assigneeId })?.name,
+                                assigneeInitials: viewModel.teamMembers.first(where: { $0.id == entry.item.assigneeId })?.avatarInitials,
+                                onAssigneeTap: {
+                                    guard let assigneeId = entry.item.assigneeId else { return }
+                                    withAnimation(.easeOut(duration: 0.2)) {
+                                        selectedAssigneeFilter = assigneeId
+                                        viewModel.isAssignedToMeFilterEnabled = false
+                                    }
+                                }
                             )
                         }
                         .buttonStyle(.plain)
@@ -910,7 +918,9 @@ struct ActionItemRow: View {
     let noteId: String
     let onStatusChange: (ActionItemStatus) -> Void
     var onDismissConflict: (() -> Void)? = nil
+    var assigneeName: String? = nil
     var assigneeInitials: String? = nil
+    var onAssigneeTap: (() -> Void)? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -980,39 +990,27 @@ struct ActionItemRow: View {
                         .font(.caption2)
                         .foregroundStyle(SVTheme.textTertiary)
 
-                    if let assignee = item.assignee {
-                        Text("·")
-                            .foregroundStyle(SVTheme.textTertiary)
-                        HStack(spacing: 3) {
-                            if let initials = assigneeInitials {
-                                Text(initials)
-                                    .font(.system(size: 7, weight: .bold))
-                                    .foregroundStyle(.white)
-                                    .frame(width: 16, height: 16)
-                                    .background(SVTheme.accent.opacity(0.7))
-                                    .clipShape(Circle())
-                            }
-                            Text(assignee)
-                                .font(.caption2)
-                                .foregroundStyle(SVTheme.accent)
-                                .lineLimit(1)
-                        }
-                    } else {
-                        Text("·")
-                            .foregroundStyle(SVTheme.textTertiary)
-                        HStack(spacing: 3) {
-                            Image(systemName: "person.fill.questionmark")
-                                .font(.system(size: 8))
-                                .foregroundStyle(SVTheme.textTertiary.opacity(0.5))
-                            Text("Unassigned")
-                                .font(.caption2)
-                                .foregroundStyle(SVTheme.textTertiary.opacity(0.6))
-                        }
-                    }
+                    Text("·")
+                        .foregroundStyle(SVTheme.textTertiary)
+                    Text(assigneeLabel)
+                        .font(.caption2)
+                        .foregroundStyle(isAssigned ? SVTheme.accent : SVTheme.textTertiary.opacity(0.7))
+                        .lineLimit(1)
                 }
             }
 
             Spacer(minLength: 4)
+
+            Group {
+                if let onAssigneeTap {
+                    Button(action: onAssigneeTap) {
+                        assigneeAvatar
+                    }
+                } else {
+                    assigneeAvatar
+                }
+            }
+            .frame(width: 30, height: 30)
 
             Menu {
                 Button { onStatusChange(.open) } label: {
@@ -1049,6 +1047,39 @@ struct ActionItemRow: View {
         case .open: return SVTheme.textTertiary
         case .inProgress: return SVTheme.infoBlue
         case .resolved: return SVTheme.successGreen
+        }
+    }
+
+    private var resolvedAssigneeName: String? {
+        assigneeName ?? item.assignee
+    }
+
+    private var isAssigned: Bool {
+        resolvedAssigneeName != nil
+    }
+
+    private var assigneeLabel: String {
+        resolvedAssigneeName ?? "Unassigned"
+    }
+
+    @ViewBuilder
+    private var assigneeAvatar: some View {
+        if let initials = assigneeInitials, isAssigned {
+            Text(initials)
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 30, height: 30)
+                .background(SVTheme.accent)
+                .clipShape(Circle())
+        } else {
+            Image(systemName: "person")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(SVTheme.textTertiary)
+                .frame(width: 30, height: 30)
+                .overlay(
+                    Circle()
+                        .stroke(SVTheme.textTertiary.opacity(0.45), style: StrokeStyle(lineWidth: 1.2, dash: [4, 2]))
+                )
         }
     }
 }
