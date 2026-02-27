@@ -8,8 +8,15 @@ enum TranscriptProcessor {
         return sentences.prefix(3).joined(separator: ". ") + "."
     }
 
-    static func generateCategories(from transcript: String) -> [CategorizedItem] {
+    static func generateCategories(from transcript: String, businessType: String? = nil) -> [CategorizedItem] {
         guard !transcript.isEmpty else { return [] }
+
+        if let businessType,
+           let cachedItems = StructuringCache.shared.enhancedOfflineCategories(from: transcript, businessType: businessType),
+           !cachedItems.isEmpty {
+            return cachedItems
+        }
+
         let segments = splitTranscriptIntoSegments(transcript)
         var items: [CategorizedItem] = []
 

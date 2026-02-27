@@ -9,21 +9,22 @@ nonisolated struct CachedStructuring: Codable, Sendable {
 }
 
 nonisolated struct StructuringCacheStore: Codable, Sendable {
-    var entries: [CachedStructuring]
-    var businessType: String
+    var entriesByBusinessType: [String: [CachedStructuring]]
 }
 
 final class StructuringCache {
     static let shared = StructuringCache()
 
-    private let maxEntries = 200
+    private let maxEntriesPerBusinessType = 200
+    private let maxBusinessTypes = 12
     private let cacheKey = "sv_structuring_cache"
     private let defaults = UserDefaults.standard
 
     private init() {}
 
     func cacheResult(_ result: StructuringResult, businessType: String) {
-        var store = loadStore(businessType: businessType)
+        var store = loadStore()
+        var entries = store.entriesByBusinessType[businessType] ?? []
 
         for item in result.categorizedItems {
             let words = extractKeywords(from: item.content)
@@ -35,19 +36,21 @@ final class StructuringCache {
                 hasAction: true,
                 timestamp: Date().timeIntervalSince1970
             )
-            store.entries.append(entry)
+            entries.append(entry)
         }
 
-        if store.entries.count > maxEntries {
-            store.entries = Array(store.entries.suffix(maxEntries))
+        if entries.count > maxEntriesPerBusinessType {
+            entries = Array(entries.suffix(maxEntriesPerBusinessType))
         }
 
+        store.entriesByBusinessType[businessType] = entries
+        pruneBusinessTypesIfNeeded(&store)
         saveStore(store)
     }
 
     func enhancedOfflineCategories(from transcript: String, businessType: String) -> [CategorizedItem]? {
-        let store = loadStore(businessType: businessType)
-        guard !store.entries.isEmpty else { return nil }
+        let store = loadStore()
+        guard let entries = store.entriesByBusinessType[businessType], !entries.isEmpty else { return nil }
 
         let segments = TranscriptProcessor.splitTranscriptIntoSegments(transcript)
         guard !segments.isEmpty else { return nil }
@@ -61,7 +64,7 @@ final class StructuringCache {
             var bestMatch: CachedStructuring?
             var bestScore = 0
 
-            for entry in store.entries {
+            for entry in entries {
                 let entryWords = Set(entry.keywords)
                 let overlap = segmentWords.intersection(entryWords).count
                 if overlap > bestScore {
@@ -79,9 +82,6 @@ final class StructuringCache {
                     content: segment.trimmingCharacters(in: .whitespacesAndNewlines),
                     urgency: urgency
                 ))
-            } else {
-                let fallback = TranscriptProcessor.generateCategories(from: segment)
-                items.append(contentsOf: fallback)
             }
         }
 
@@ -123,11 +123,10 @@ final class StructuringCache {
         }
     }
 
-    private func loadStore(businessType: String) -> StructuringCacheStore {
+    private func loadStore() -> StructuringCacheStore {
         guard let data = defaults.data(forKey: cacheKey),
-              let store = try? JSONDecoder().decode(StructuringCacheStore.self, from: data),
-              store.businessType == businessType else {
-            return StructuringCacheStore(entries: [], businessType: businessType)
+              let store = try? JSONDecoder().decode(StructuringCacheStore.self, from: data) else {
+            return StructuringCacheStore(entriesByBusinessType: [:])
         }
         return store
     }
@@ -135,5 +134,20 @@ final class StructuringCache {
     private func saveStore(_ store: StructuringCacheStore) {
         guard let data = try? JSONEncoder().encode(store) else { return }
         defaults.set(data, forKey: cacheKey)
+    }
+
+    private func pruneBusinessTypesIfNeeded(_ store: inout StructuringCacheStore) {
+        guard store.entriesByBusinessType.count > maxBusinessTypes else { return }
+
+        let orderedKeys = store.entriesByBusinessType.keys.sorted { lhs, rhs in
+            let lhsTimestamp = store.entriesByBusinessType[lhs]?.last?.timestamp ?? 0
+            let rhsTimestamp = store.entriesByBusinessType[rhs]?.last?.timestamp ?? 0
+            return lhsTimestamp < rhsTimestamp
+        }
+
+        let keysToRemove = orderedKeys.prefix(store.entriesByBusinessType.count - maxBusinessTypes)
+        for key in keysToRemove {
+            store.entriesByBusinessType.removeValue(forKey: key)
+        }
     }
 }

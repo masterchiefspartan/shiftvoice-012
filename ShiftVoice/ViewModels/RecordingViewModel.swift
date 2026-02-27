@@ -298,24 +298,16 @@ final class RecordingViewModel {
 
     private func instantStructureTranscript(_ transcript: String, businessType: String) -> (String, [CategorizedItem], [ActionItem], Bool, String?) {
         let summary = TranscriptProcessor.generateSummary(from: transcript)
-        if let cachedCategories = structuringCache.enhancedOfflineCategories(from: transcript, businessType: businessType) {
-            let actions = TranscriptProcessor.generateActionItems(from: cachedCategories)
-            return (summary, cachedCategories, actions, false, "Refining in background with full transcription…")
-        }
-        let categories = TranscriptProcessor.generateCategories(from: transcript)
+        let categories = TranscriptProcessor.generateCategories(from: transcript, businessType: businessType)
         let actions = TranscriptProcessor.generateActionItems(from: categories)
         return (summary, categories, actions, false, "Refining in background with full transcription…")
     }
 
     private func offlineFallback(transcript: String, businessType: String, warning: String) -> (String, [CategorizedItem], [ActionItem], Bool, String?) {
         let summary = TranscriptProcessor.generateSummary(from: transcript)
-        if let cachedCategories = structuringCache.enhancedOfflineCategories(from: transcript, businessType: businessType) {
-            let actions = TranscriptProcessor.generateActionItems(from: cachedCategories)
-            return (summary, cachedCategories, actions, false, warning + " (enhanced with learned patterns)")
-        }
-        let cats = TranscriptProcessor.generateCategories(from: transcript)
-        let actions = TranscriptProcessor.generateActionItems(from: cats)
-        return (summary, cats, actions, false, warning)
+        let categories = TranscriptProcessor.generateCategories(from: transcript, businessType: businessType)
+        let actions = TranscriptProcessor.generateActionItems(from: categories)
+        return (summary, categories, actions, false, warning)
     }
 
     private func refineWithFullTranscription(audioURL: URL, duration: TimeInterval, shiftInfo: ShiftDisplayInfo, businessType: String, authToken: String?, userId: String?, previousTranscript: String) async {
