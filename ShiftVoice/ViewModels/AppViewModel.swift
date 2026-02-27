@@ -809,16 +809,22 @@ final class AppViewModel {
     }
 
     func removeTeamMember(_ memberId: String) {
+        guard memberId != organization.ownerId else {
+            showToast("Cannot remove the organization owner", isError: true)
+            return
+        }
+        guard let removedMember = teamMembers.first(where: { $0.id == memberId }) else { return }
         teamMembers.removeAll { $0.id == memberId }
         guard let orgId = organizationId else { return }
         Task {
             do {
                 try await firestore.deleteTeamMember(memberId, orgId: orgId)
+                showToast("Team member removed", isError: false)
             } catch {
+                teamMembers.append(removedMember)
                 showToast("Failed to remove team member", isError: true)
             }
         }
-        showToast("Team member removed", isError: false)
     }
 
     func updateTeamMember(_ member: TeamMember) {

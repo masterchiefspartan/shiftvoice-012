@@ -1081,6 +1081,8 @@ struct TeamManagementSheet: View {
                     VStack(spacing: 0) {
                         ForEach(Array(viewModel.teamMembers.enumerated()), id: \.element.id) { index, member in
                             let isCurrentUser = member.id == viewModel.currentUserId
+                            let isOrgOwner = member.id == viewModel.organization.ownerId
+                            let isProtected = isCurrentUser || isOrgOwner
                             Button {
                                 if !isCurrentUser {
                                     editingMember = member
@@ -1096,20 +1098,24 @@ struct TeamManagementSheet: View {
                                     } label: {
                                         Label("Edit", systemImage: "pencil")
                                     }
+                                    if !isProtected {
+                                        Button(role: .destructive) {
+                                            memberToDelete = member
+                                        } label: {
+                                            Label("Remove", systemImage: "trash")
+                                        }
+                                    }
+                                }
+                            }
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                if !isProtected {
                                     Button(role: .destructive) {
                                         memberToDelete = member
                                     } label: {
                                         Label("Remove", systemImage: "trash")
                                     }
                                 }
-                            }
-                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                 if !isCurrentUser {
-                                    Button(role: .destructive) {
-                                        memberToDelete = member
-                                    } label: {
-                                        Label("Remove", systemImage: "trash")
-                                    }
                                     Button {
                                         editingMember = member
                                     } label: {
