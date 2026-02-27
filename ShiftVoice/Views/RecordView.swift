@@ -366,15 +366,15 @@ struct RecordView: View {
 
     private var processingTitle: String {
         if recording.processingElapsed >= 20 {
-            return "Still working on it..."
+            return "Still working on it…"
         }
         switch recording.processingStage {
         case .transcribing:
-            return "Transcribing audio"
+            return "Transcribing audio…"
         case .structuring:
-            return "Extracting action items"
+            return "Extracting action items…"
         case .finalizing:
-            return "Finalizing your notes"
+            return "Finalizing…"
         }
     }
 
@@ -391,6 +391,8 @@ struct RecordView: View {
             return "Almost done"
         }
     }
+
+    private var fallbackProcessingTitle: String { "Processing…" }
 
     private var successView: some View {
         VStack(spacing: 24) {
