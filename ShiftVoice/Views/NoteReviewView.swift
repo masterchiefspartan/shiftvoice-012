@@ -1,5 +1,14 @@
 import SwiftUI
 
+nonisolated private enum NoteReviewScreenState: Equatable {
+    case loading
+    case empty
+    case ready
+    case error(String)
+    case publishing
+    case success
+}
+
 struct NoteReviewView: View {
     @Bindable var viewModel: AppViewModel
     @State private var rawTranscript: String
@@ -20,6 +29,7 @@ struct NoteReviewView: View {
     @State private var assigningActionId: String?
     @State private var publishValidationError: String?
     @State private var isPublishing: Bool = false
+    @State private var publishSucceeded: Bool = false
     @State private var structuringWarning: String?
     @State private var transcriptionFailed: Bool
     @State private var transcriptionFailureMessage: String?
@@ -89,24 +99,35 @@ struct NoteReviewView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    if transcriptionFailed {
-                        transcriptionFailedBanner
+                    switch screenState {
+                    case .loading:
+                        loadingStateView
+                    case .empty:
+                        emptyStateView
+                    case .error(let message):
+                        errorStateView(message)
+                    case .ready, .publishing, .success:
+                        if transcriptionFailed {
+                            transcriptionFailedBanner
+                        }
+                        if let warning = structuringWarning {
+                            structuringWarningBanner(warning)
+                        }
+                        headerInfo
+                        summaryEditor
+                        transcriptPreview
+                        categorizedItemsEditor
+                        actionItemsEditor
                     }
-                    if let warning = structuringWarning {
-                        structuringWarningBanner(warning)
-                    }
-                    headerInfo
-                    summaryEditor
-                    transcriptPreview
-                    categorizedItemsEditor
-                    actionItemsEditor
                 }
                 .padding(20)
                 .padding(.bottom, 100)
             }
             .background(SVTheme.background)
             .safeAreaInset(edge: .bottom) {
-                bottomBar
+                if screenState != .loading {
+                    bottomBar
+                }
             }
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
@@ -173,6 +194,119 @@ struct NoteReviewView: View {
             .onChange(of: editableActionItems) { _, _ in
                 viewModel.recording.markReviewAsUserEdited()
             }
+        }
+    }
+
+    private var screenState: NoteReviewScreenState {
+        if isPublishing {
+            return .publishing
+        }
+
+        if publishSucceeded {
+            return .success
+        }
+
+        if viewModel.recording.isRetryingTranscription {
+            return .loading
+        }
+
+        let hasTranscript: Bool = !rawTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let hasSummary: Bool = !summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let hasCategorizedItems: Bool = !editableCategorizedItems.isEmpty
+        let hasActionItems: Bool = !editableActionItems.isEmpty
+        let hasAnyContent: Bool = hasTranscript || hasSummary || hasCategorizedItems || hasActionItems
+
+        if !hasAnyContent {
+            if transcriptionFailed {
+                return .error(transcriptionFailureMessage ?? "Transcription failed. Retry transcription or discard this note.")
+            }
+            return .empty
+        }
+
+        return .ready
+    }
+
+    private var loadingStateView: some View {
+        VStack(spacing: 14) {
+            ProgressView()
+                .controlSize(.large)
+            Text("Refreshing transcript…")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(SVTheme.textPrimary)
+            Text("Please keep this screen open while we rebuild your note.")
+                .font(.caption)
+                .foregroundStyle(SVTheme.textSecondary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(28)
+        .background(SVTheme.cardBackground)
+        .clipShape(.rect(cornerRadius: 12))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(SVTheme.surfaceBorder, lineWidth: 1)
+        )
+    }
+
+    private var emptyStateView: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ContentUnavailableView {
+                Label("Nothing to Review Yet", systemImage: "text.badge.xmark")
+            } description: {
+                Text("No transcript or structured note content was generated. Retry transcription or discard this recording.")
+            }
+
+            Button {
+                showDiscardAlert = true
+            } label: {
+                Text("Discard Recording")
+                    .font(.subheadline.weight(.semibold))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 44)
+            }
+            .buttonStyle(.bordered)
+            .tint(SVTheme.urgentRed)
+        }
+    }
+
+    private func errorStateView(_ message: String) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            ContentUnavailableView {
+                Label("We Couldn't Build This Note", systemImage: "exclamationmark.triangle")
+            } description: {
+                Text(message)
+            }
+
+            Button {
+                Task {
+                    await retryTranscription()
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    if viewModel.recording.isRetryingTranscription {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
+                    Text(viewModel.recording.isRetryingTranscription ? "Retrying…" : "Retry Transcription")
+                        .font(.subheadline.weight(.semibold))
+                }
+                .frame(maxWidth: .infinity)
+                .frame(height: 44)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(SVTheme.accent)
+            .disabled(viewModel.recording.isRetryingTranscription)
+
+            Button {
+                showDiscardAlert = true
+            } label: {
+                Text("Discard Recording")
+                    .font(.subheadline.weight(.semibold))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 44)
+            }
+            .buttonStyle(.bordered)
+            .tint(SVTheme.urgentRed)
         }
     }
 
@@ -265,24 +399,7 @@ struct NoteReviewView: View {
 
             Button {
                 Task {
-                    await viewModel.recording.retryTranscription(
-                        authToken: viewModel.backendAuthToken,
-                        userId: viewModel.currentUserId,
-                        businessType: viewModel.organizationBusinessType.rawValue.lowercased()
-                    )
-                    if let updated = viewModel.recording.pendingReviewData {
-                        rawTranscript = updated.rawTranscript
-                        summary = updated.summary
-                        editableCategorizedItems = updated.categorizedItems.map { EditableCategorizedItem(from: $0) }
-                        editableActionItems = updated.actionItems.map { EditableActionItem(from: $0) }
-                        structuringWarning = updated.structuringWarning
-                        transcriptionFailed = updated.transcriptionFailed
-                        transcriptionFailureMessage = updated.transcriptionFailureMessage
-                    }
-                    if viewModel.recording.transcriptionFailed {
-                        transcriptionFailed = true
-                        transcriptionFailureMessage = viewModel.recording.transcriptionFailureMessage
-                    }
+                    await retryTranscription()
                 }
             } label: {
                 HStack(spacing: 6) {
@@ -504,8 +621,8 @@ struct NoteReviewView: View {
                 .background(isPublishing ? SVTheme.accent.opacity(0.6) : SVTheme.accent)
                 .clipShape(.rect(cornerRadius: 10))
             }
-            .disabled(isPublishing)
-            .sensoryFeedback(.success, trigger: false)
+            .disabled(isPublishing || screenState == .loading)
+            .sensoryFeedback(.success, trigger: publishSucceeded)
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 12)
@@ -577,6 +694,31 @@ struct NoteReviewView: View {
             isPublishing = false
             publishValidationError = viewModel.publishError ?? "Couldn't send note. Please review and try again."
             return
+        }
+
+        publishSucceeded = true
+    }
+
+    private func retryTranscription() async {
+        await viewModel.recording.retryTranscription(
+            authToken: viewModel.backendAuthToken,
+            userId: viewModel.currentUserId,
+            businessType: viewModel.organizationBusinessType.rawValue.lowercased()
+        )
+
+        if let updated = viewModel.recording.pendingReviewData {
+            rawTranscript = updated.rawTranscript
+            summary = updated.summary
+            editableCategorizedItems = updated.categorizedItems.map { EditableCategorizedItem(from: $0) }
+            editableActionItems = updated.actionItems.map { EditableActionItem(from: $0) }
+            structuringWarning = updated.structuringWarning
+            transcriptionFailed = updated.transcriptionFailed
+            transcriptionFailureMessage = updated.transcriptionFailureMessage
+        }
+
+        if viewModel.recording.transcriptionFailed {
+            transcriptionFailed = true
+            transcriptionFailureMessage = viewModel.recording.transcriptionFailureMessage
         }
     }
 
