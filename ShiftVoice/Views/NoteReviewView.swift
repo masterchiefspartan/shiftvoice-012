@@ -7,7 +7,7 @@ struct NoteReviewView: View {
     let audioUrl: String?
     let shiftInfo: ShiftDisplayInfo
     let onDiscard: () -> Void
-    let onPublish: (ShiftNote) -> Void
+    let onPublish: (ShiftNote) -> Bool
 
     @State private var summary: String
     @State private var editableCategorizedItems: [EditableCategorizedItem]
@@ -38,7 +38,7 @@ struct NoteReviewView: View {
         transcriptionFailed: Bool = false,
         transcriptionFailureMessage: String? = nil,
         onDiscard: @escaping () -> Void,
-        onPublish: @escaping (ShiftNote) -> Void
+        onPublish: @escaping (ShiftNote) -> Bool
     ) {
         self.viewModel = viewModel
         _rawTranscript = State(initialValue: rawTranscript)
@@ -360,13 +360,33 @@ struct NoteReviewView: View {
                     .foregroundStyle(SVTheme.textTertiary)
             }
 
-            ForEach($editableCategorizedItems) { $item in
-                EditableCategorizedItemRow(
-                    item: $item,
-                    onDelete: {
-                        editableCategorizedItems.removeAll { $0.id == item.id }
-                    }
+            if editableCategorizedItems.isEmpty {
+                HStack(spacing: 8) {
+                    Image(systemName: "tray")
+                        .font(.title3)
+                        .foregroundStyle(SVTheme.textTertiary)
+                    Text("No categorized items yet. You can still send this note.")
+                        .font(.subheadline)
+                        .foregroundStyle(SVTheme.textTertiary)
+                }
+                .padding(20)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(SVTheme.cardBackground)
+                .clipShape(.rect(cornerRadius: 12))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(SVTheme.surfaceBorder.opacity(0.5), lineWidth: 1)
+                        .strokeBorder(style: StrokeStyle(lineWidth: 1, dash: [6, 4]))
                 )
+            } else {
+                ForEach($editableCategorizedItems) { $item in
+                    EditableCategorizedItemRow(
+                        item: $item,
+                        onDelete: {
+                            editableCategorizedItems.removeAll { $0.id == item.id }
+                        }
+                    )
+                }
             }
         }
     }
@@ -552,7 +572,12 @@ struct NoteReviewView: View {
             actionItems: actionItems
         )
 
-        onPublish(note)
+        let didPublish = onPublish(note)
+        guard didPublish else {
+            isPublishing = false
+            publishValidationError = viewModel.publishError ?? "Couldn't send note. Please review and try again."
+            return
+        }
     }
 
     private func formatDuration(_ duration: TimeInterval) -> String {

@@ -72,6 +72,9 @@ struct RecordView: View {
                         },
                         onPublish: { note in
                             viewModel.publishReviewedNote(note)
+                            guard viewModel.publishError == nil else {
+                                return false
+                            }
                             showReview = false
                             showSuccess = true
                             Task {
@@ -79,6 +82,7 @@ struct RecordView: View {
                                 showSuccess = false
                                 dismiss()
                             }
+                            return true
                         }
                     )
                     .id(reviewData.rawTranscript + "|" + reviewData.summary)
