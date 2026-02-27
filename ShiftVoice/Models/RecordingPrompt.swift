@@ -14,85 +14,121 @@ nonisolated struct RecordingPrompt: Identifiable, Sendable {
 
 nonisolated enum RecordingPromptProvider {
     static func prompts(for businessType: BusinessType, shiftName: String) -> [RecordingPrompt] {
-        var result: [RecordingPrompt] = []
+        let template = businessType.industryTemplate
+        let shiftSpecific = shiftPrompts(shiftName: shiftName, shifts: template.defaultShifts, terminology: template.terminology)
+        let categorySpecific = categoryPrompts(from: template.defaultCategories, terminology: template.terminology)
+        let universal = universalPrompts(terminology: template.terminology)
 
-        result.append(contentsOf: shiftPrompts(shiftName: shiftName))
-        result.append(contentsOf: industryPrompts(for: businessType))
-        result.append(contentsOf: universalPrompts)
+        var seenTexts: Set<String> = []
+        let combined = (shiftSpecific + categorySpecific + universal).filter { prompt in
+            seenTexts.insert(prompt.text).inserted
+        }
 
-        return result.shuffled()
+        return combined.shuffled()
     }
 
-    private static func shiftPrompts(shiftName: String) -> [RecordingPrompt] {
-        let lower = shiftName.lowercased()
-        if lower.contains("open") || lower.contains("morning") || lower.contains("day") {
+    private static func shiftPrompts(shiftName: String, shifts: [ShiftTemplate], terminology: IndustryTerminology) -> [RecordingPrompt] {
+        guard let matchedShift = resolveShift(named: shiftName, from: shifts) else {
             return [
-                RecordingPrompt(text: "Anything from last night's close?", icon: "moon.stars"),
-                RecordingPrompt(text: "Equipment working properly?", icon: "wrench.and.screwdriver"),
-                RecordingPrompt(text: "Any deliveries expected today?", icon: "shippingbox"),
-                RecordingPrompt(text: "Staff callouts or schedule changes?", icon: "person.badge.clock"),
+                RecordingPrompt(text: "Anything the previous shift flagged for this \(terminology.location.lowercased())?", icon: "arrow.left.circle"),
+                RecordingPrompt(text: "Any priorities to hand off in this \(terminology.shiftHandoff.lowercased())?", icon: "arrow.right.circle")
             ]
-        } else if lower.contains("clos") || lower.contains("night") || lower.contains("evening") {
+        }
+
+        switch shiftPhase(for: matchedShift, in: shifts) {
+        case .opening:
             return [
-                RecordingPrompt(text: "Anything unfinished for tomorrow?", icon: "arrow.right.circle"),
-                RecordingPrompt(text: "Any incidents during your shift?", icon: "exclamationmark.shield"),
-                RecordingPrompt(text: "Inventory that needs restocking?", icon: "shippingbox"),
-                RecordingPrompt(text: "Equipment issues to report?", icon: "wrench.and.screwdriver"),
+                RecordingPrompt(text: "What needs setup before this shift gets busy?", icon: "sunrise"),
+                RecordingPrompt(text: "Any carryover from the previous \(terminology.shiftHandoff.lowercased())?", icon: "arrow.left.circle"),
+                RecordingPrompt(text: "Any staffing coverage gaps for this shift?", icon: "person.badge.clock")
             ]
-        } else {
+        case .middle:
             return [
-                RecordingPrompt(text: "Updates from the morning crew?", icon: "arrow.left.circle"),
-                RecordingPrompt(text: "Any guest issues to flag?", icon: "person.crop.circle.badge.exclamationmark"),
-                RecordingPrompt(text: "Items running low?", icon: "chart.line.downtrend.xyaxis"),
+                RecordingPrompt(text: "Any new \(terminology.customer.lowercased()) issues since the shift started?", icon: "person.crop.circle.badge.exclamationmark"),
+                RecordingPrompt(text: "What changed since the last handoff that the next team should know?", icon: "arrow.triangle.2.circlepath"),
+                RecordingPrompt(text: "Any blockers that need support before handoff?", icon: "exclamationmark.circle")
+            ]
+        case .closing:
+            return [
+                RecordingPrompt(text: "What must be completed before this shift wraps?", icon: "checkmark.circle"),
+                RecordingPrompt(text: "Anything unfinished that should be in the next \(terminology.shiftHandoff.lowercased())?", icon: "arrow.right.circle"),
+                RecordingPrompt(text: "Any incidents or risks to flag before close?", icon: "exclamationmark.shield")
             ]
         }
     }
 
-    private static func industryPrompts(for businessType: BusinessType) -> [RecordingPrompt] {
-        switch businessType {
-        case .restaurant, .barPub, .cafe:
-            return [
-                RecordingPrompt(text: "Any 86'd items?", icon: "xmark.circle"),
-                RecordingPrompt(text: "VIP reservations tonight?", icon: "star"),
-                RecordingPrompt(text: "Kitchen equipment status?", icon: "flame"),
-            ]
-        case .hotel:
-            return [
-                RecordingPrompt(text: "Guest complaints to hand off?", icon: "person.crop.circle.badge.exclamationmark"),
-                RecordingPrompt(text: "Room maintenance requests?", icon: "hammer"),
-                RecordingPrompt(text: "VIP arrivals today?", icon: "star"),
-            ]
-        case .healthcare:
-            return [
-                RecordingPrompt(text: "Patient status changes?", icon: "heart.text.clipboard"),
-                RecordingPrompt(text: "Medication updates?", icon: "pills"),
-                RecordingPrompt(text: "Supply needs?", icon: "shippingbox"),
-            ]
-        case .manufacturing:
-            return [
-                RecordingPrompt(text: "Machine issues or downtime?", icon: "gearshape"),
-                RecordingPrompt(text: "Quality concerns?", icon: "checkmark.seal"),
-                RecordingPrompt(text: "Safety incidents?", icon: "exclamationmark.triangle"),
-            ]
-        case .retail:
-            return [
-                RecordingPrompt(text: "Customer escalations?", icon: "person.crop.circle.badge.exclamationmark"),
-                RecordingPrompt(text: "Stock that needs replenishing?", icon: "shippingbox"),
-                RecordingPrompt(text: "Loss prevention concerns?", icon: "exclamationmark.shield"),
-            ]
-        default:
-            return [
-                RecordingPrompt(text: "Equipment or facility issues?", icon: "wrench.and.screwdriver"),
-                RecordingPrompt(text: "Safety concerns?", icon: "exclamationmark.triangle"),
-            ]
+    private static func categoryPrompts(from categories: [CategoryTemplate], terminology: IndustryTerminology) -> [RecordingPrompt] {
+        let prioritized = categories
+            .filter { !$0.name.localizedCaseInsensitiveContains("general") }
+            .prefix(4)
+
+        var prompts = prioritized.map { category in
+            RecordingPrompt(
+                text: "Any updates on \(category.name.lowercased())?",
+                icon: category.icon
+            )
         }
+
+        let hasStockCategory = categories.contains {
+            $0.name.localizedCaseInsensitiveContains("86") ||
+            $0.name.localizedCaseInsensitiveContains("stock") ||
+            $0.name.localizedCaseInsensitiveContains("inventory") ||
+            $0.name.localizedCaseInsensitiveContains("supply")
+        }
+
+        if hasStockCategory {
+            prompts.append(
+                RecordingPrompt(
+                    text: "Anything currently marked as \(terminology.outOfStock.lowercased())?",
+                    icon: "shippingbox"
+                )
+            )
+        }
+
+        return prompts
     }
 
-    private static var universalPrompts: [RecordingPrompt] {
+    private static func universalPrompts(terminology: IndustryTerminology) -> [RecordingPrompt] {
         [
-            RecordingPrompt(text: "Anything the next shift needs to know?", icon: "arrow.right.circle"),
-            RecordingPrompt(text: "Follow-ups from earlier today?", icon: "arrow.clockwise"),
-            RecordingPrompt(text: "Any maintenance or repair needs?", icon: "hammer"),
+            RecordingPrompt(text: "Anything the next shift needs immediately?", icon: "arrow.right.circle"),
+            RecordingPrompt(text: "Any follow-ups from earlier today still open?", icon: "arrow.clockwise"),
+            RecordingPrompt(text: "Any equipment or maintenance concerns to include in the \(terminology.shiftHandoff.lowercased())?", icon: "wrench.and.screwdriver")
         ]
     }
+
+    private static func resolveShift(named shiftName: String, from shifts: [ShiftTemplate]) -> ShiftTemplate? {
+        let normalized = normalize(shiftName)
+
+        if let exact = shifts.first(where: { normalize($0.name) == normalized }) {
+            return exact
+        }
+
+        return shifts.first { shift in
+            let candidate = normalize(shift.name)
+            return normalized.contains(candidate) || candidate.contains(normalized)
+        }
+    }
+
+    private static func normalize(_ value: String) -> String {
+        value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+    }
+
+    private static func shiftPhase(for current: ShiftTemplate, in shifts: [ShiftTemplate]) -> ShiftPhase {
+        let ordered = shifts.sorted { $0.defaultStartHour < $1.defaultStartHour }
+        guard let index = ordered.firstIndex(where: { $0.id == current.id }) else {
+            return .middle
+        }
+
+        if index == 0 { return .opening }
+        if index == ordered.count - 1 { return .closing }
+        return .middle
+    }
+}
+
+nonisolated enum ShiftPhase: Sendable {
+    case opening
+    case middle
+    case closing
 }
