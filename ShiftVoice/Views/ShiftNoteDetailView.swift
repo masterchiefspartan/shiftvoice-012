@@ -15,6 +15,7 @@ struct ShiftNoteDetailView: View {
     @State private var progressTimer: Timer?
     @State private var isAcknowledging: Bool = false
     @State private var showConflictSheet: Bool = false
+    @State private var showQuickAppend: Bool = false
 
     private var note: ShiftNote? {
         viewModel.shiftNotes.first { $0.id == noteId }
@@ -67,6 +68,22 @@ struct ShiftNoteDetailView: View {
                 .presentationDragIndicator(.visible)
             }
         }
+        .sheet(isPresented: $showQuickAppend) {
+            if let note {
+                QuickAppendView(
+                    noteId: note.id,
+                    viewModel: viewModel
+                ) { newCategories, newActions in
+                    viewModel.appendItemsToNote(
+                        noteId: note.id,
+                        categorizedItems: newCategories,
+                        actionItems: newActions
+                    )
+                }
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+            }
+        }
         .sheet(isPresented: $showConflictSheet) {
             if viewModel.featureFlags.conflictUIEnabled {
                 ConflictDetailView(noteId: noteId, viewModel: viewModel)
@@ -98,6 +115,7 @@ struct ShiftNoteDetailView: View {
                 if !note.voiceReplies.isEmpty {
                     repliesSection(note)
                 }
+                quickAppendButton
                 if !isAcknowledged {
                     acknowledgeButton
                 }
@@ -482,6 +500,28 @@ struct ShiftNoteDetailView: View {
             .overlay(
                 RoundedRectangle(cornerRadius: 12)
                     .stroke(SVTheme.surfaceBorder, lineWidth: 1)
+            )
+        }
+    }
+
+    private var quickAppendButton: some View {
+        Button {
+            showQuickAppend = true
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "waveform.badge.plus")
+                    .font(.subheadline.weight(.semibold))
+                Text("Add to This Note")
+                    .font(.subheadline.weight(.semibold))
+            }
+            .foregroundStyle(SVTheme.accent)
+            .frame(maxWidth: .infinity)
+            .frame(height: 48)
+            .background(SVTheme.accent.opacity(0.08))
+            .clipShape(.rect(cornerRadius: 8))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(SVTheme.accent.opacity(0.2), lineWidth: 1)
             )
         }
     }

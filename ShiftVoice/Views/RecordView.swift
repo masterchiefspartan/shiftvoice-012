@@ -9,6 +9,10 @@ struct RecordView: View {
     @State private var showPermissionAlert: Bool = false
 
     @State private var showReview: Bool = false
+    @State private var guidedPrompts: [RecordingPrompt] = []
+    @State private var currentPromptIndex: Int = 0
+    @State private var promptVisible: Bool = true
+    @State private var promptRotationTask: Task<Void, Never>?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dismiss) private var dismiss
     private let subscription = SubscriptionService.shared
@@ -152,6 +156,12 @@ struct RecordView: View {
             Spacer()
 
             if recording.isRecording {
+                if !guidedPrompts.isEmpty && recording.transcriptionService.transcribedText.isEmpty {
+                    guidedPromptBubble
+                        .padding(.horizontal, 24)
+                        .padding(.bottom, 8)
+                }
+
                 liveTranscriptView
                     .padding(.horizontal, 24)
                     .padding(.bottom, 8)
@@ -427,6 +437,61 @@ struct RecordView: View {
         }
     }
 
+    private var guidedPromptBubble: some View {
+        Group {
+            if currentPromptIndex < guidedPrompts.count {
+                let prompt = guidedPrompts[currentPromptIndex]
+                HStack(spacing: 8) {
+                    Image(systemName: prompt.icon)
+                        .font(.caption)
+                        .foregroundStyle(SVTheme.accent)
+                    Text(prompt.text)
+                        .font(.subheadline)
+                        .foregroundStyle(SVTheme.textSecondary)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(SVTheme.accent.opacity(0.06))
+                .clipShape(.rect(cornerRadius: 10))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .stroke(SVTheme.accent.opacity(0.12), lineWidth: 1)
+                )
+                .opacity(promptVisible ? 1 : 0)
+                .animation(.easeInOut(duration: 0.4), value: promptVisible)
+                .transition(.opacity.combined(with: .scale(scale: 0.95)))
+            }
+        }
+    }
+
+    private func startPromptRotation() {
+        guidedPrompts = RecordingPromptProvider.prompts(
+            for: viewModel.organizationBusinessType,
+            shiftName: currentShiftDisplay.name
+        )
+        currentPromptIndex = 0
+        promptVisible = true
+        promptRotationTask?.cancel()
+        promptRotationTask = Task {
+            while !Task.isCancelled && currentPromptIndex < guidedPrompts.count {
+                try? await Task.sleep(for: .seconds(5))
+                if Task.isCancelled { break }
+                withAnimation { promptVisible = false }
+                try? await Task.sleep(for: .milliseconds(400))
+                if Task.isCancelled { break }
+                currentPromptIndex += 1
+                if currentPromptIndex < guidedPrompts.count {
+                    withAnimation { promptVisible = true }
+                }
+            }
+        }
+    }
+
+    private func stopPromptRotation() {
+        promptRotationTask?.cancel()
+        promptRotationTask = nil
+    }
+
     private func startRecording() {
         guard permissionGranted else {
             showPermissionAlert = true
@@ -438,6 +503,7 @@ struct RecordView: View {
             return
         }
         recording.startRecording()
+        startPromptRotation()
         if !reduceMotion {
             withAnimation(.easeInOut(duration: 1).repeatForever(autoreverses: true)) {
                 pulseScale = 1.15
@@ -447,6 +513,7 @@ struct RecordView: View {
 
     private func stopRecording() {
         pulseScale = 1.0
+        stopPromptRotation()
         recording.stopRecording(
             selectedShift: selectedShiftDisplay,
             defaultShift: viewModel.currentShiftDisplayInfo,

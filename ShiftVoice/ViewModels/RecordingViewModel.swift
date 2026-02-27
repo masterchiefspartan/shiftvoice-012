@@ -12,6 +12,7 @@ final class RecordingViewModel {
     let audioRecorder = AudioRecorderService()
     let transcriptionService = TranscriptionService()
     private let noteStructuring = NoteStructuringService.shared
+    private let structuringCache = StructuringCache.shared
 
     var isProcessing: Bool = false
     var processingStage: ProcessingStage = .transcribing
@@ -55,6 +56,7 @@ final class RecordingViewModel {
     ) {
         let duration = audioRecorder.recordingDuration
         let audioURL = audioRecorder.currentAudioURL
+        let liveText = transcriptionService.transcribedText
         audioRecorder.stopRecording()
         isProcessing = true
         structuringWarning = nil
@@ -74,7 +76,7 @@ final class RecordingViewModel {
         let shiftInfo = selectedShift ?? defaultShift
 
         Task {
-            await processRecording(audioURL: audioURL, duration: duration, shiftInfo: shiftInfo, businessType: businessType, authToken: authToken, userId: userId)
+            await processRecording(audioURL: audioURL, duration: duration, shiftInfo: shiftInfo, businessType: businessType, authToken: authToken, userId: userId, liveTranscript: liveText)
         }
     }
 
@@ -158,100 +160,172 @@ final class RecordingViewModel {
         isRetryingTranscription = false
     }
 
-    private func processRecording(audioURL: URL?, duration: TimeInterval, shiftInfo: ShiftDisplayInfo, businessType: String, authToken: String?, userId: String?) async {
-        var transcript = ""
-        var didTranscriptionFail = false
-        var failMessage: String?
+    private func processRecording(audioURL: URL?, duration: TimeInterval, shiftInfo: ShiftDisplayInfo, businessType: String, authToken: String?, userId: String?, liveTranscript: String = "") async {
+        let hasLiveText = !liveTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
 
-        processingStage = .transcribing
-
-        if let audioURL {
-            if let result = await transcriptionService.transcribeAudioFile(at: audioURL, authToken: authToken, userId: userId) {
-                transcript = result
-            } else {
-                didTranscriptionFail = true
-                failMessage = transcriptionService.failureReason?.userMessage
-            }
-        } else {
-            didTranscriptionFail = true
-            failMessage = "No audio file was recorded."
-        }
-
-        var summary: String
-        var categorizedItems: [CategorizedItem]
-        var actionItems: [ActionItem]
-        var usedAI = false
-
-        if !transcript.isEmpty {
+        if hasLiveText {
             processingStage = .structuring
 
-            let aiResult = await withTaskGroup(of: Result<StructuringResult, StructuringError>?.self) { group -> Result<StructuringResult, StructuringError>? in
-                group.addTask {
-                    await self.noteStructuring.structureTranscript(
-                        transcript,
-                        businessType: businessType,
-                        authToken: authToken,
-                        userId: userId
+            let (instantSummary, instantCategories, instantActions, instantUsedAI, instantWarning) = await structureTranscript(
+                liveTranscript, businessType: businessType, authToken: authToken, userId: userId
+            )
+
+            processingStage = .finalizing
+
+            pendingReviewData = PendingNoteReviewData(
+                rawTranscript: liveTranscript,
+                audioDuration: duration,
+                audioUrl: audioURL?.lastPathComponent,
+                shiftInfo: shiftInfo,
+                summary: instantSummary,
+                categorizedItems: instantCategories,
+                actionItems: instantActions,
+                usedAI: instantUsedAI,
+                structuringWarning: instantWarning,
+                transcriptionFailed: false
+            )
+            stopProcessingTimer()
+            isProcessing = false
+
+            if let audioURL {
+                Task {
+                    await refineWithFullTranscription(
+                        audioURL: audioURL, duration: duration, shiftInfo: shiftInfo,
+                        businessType: businessType, authToken: authToken, userId: userId,
+                        previousTranscript: liveTranscript
                     )
                 }
-                group.addTask {
-                    try? await Task.sleep(for: .seconds(15))
-                    return nil
-                }
-                for await result in group {
-                    if let result {
-                        group.cancelAll()
-                        return result
-                    }
-                }
-                group.cancelAll()
-                return .failure(.timeout)
-            }
-
-            switch aiResult {
-            case .success(let result):
-                summary = result.summary
-                categorizedItems = result.categorizedItems
-                actionItems = result.actionItems
-                usedAI = true
-                structuringWarning = result.warning
-            case .failure(let error):
-                summary = TranscriptProcessor.generateSummary(from: transcript)
-                categorizedItems = TranscriptProcessor.generateCategories(from: transcript)
-                actionItems = TranscriptProcessor.generateActionItems(from: categorizedItems)
-                structuringWarning = "AI structuring unavailable — structured locally. \(error.userMessage)"
-            case .none:
-                summary = TranscriptProcessor.generateSummary(from: transcript)
-                categorizedItems = TranscriptProcessor.generateCategories(from: transcript)
-                actionItems = TranscriptProcessor.generateActionItems(from: categorizedItems)
-                structuringWarning = "AI structuring timed out — structured locally."
             }
         } else {
-            summary = ""
-            categorizedItems = []
-            actionItems = []
+            var transcript = ""
+            var didTranscriptionFail = false
+            var failMessage: String?
+
+            processingStage = .transcribing
+
+            if let audioURL {
+                if let result = await transcriptionService.transcribeAudioFile(at: audioURL, authToken: authToken, userId: userId) {
+                    transcript = result
+                } else {
+                    didTranscriptionFail = true
+                    failMessage = transcriptionService.failureReason?.userMessage
+                }
+            } else {
+                didTranscriptionFail = true
+                failMessage = "No audio file was recorded."
+            }
+
+            var summary: String
+            var categorizedItems: [CategorizedItem]
+            var actionItems: [ActionItem]
+            var usedAI = false
+            var warning: String?
+
+            if !transcript.isEmpty {
+                processingStage = .structuring
+                (summary, categorizedItems, actionItems, usedAI, warning) = await structureTranscript(
+                    transcript, businessType: businessType, authToken: authToken, userId: userId
+                )
+            } else {
+                summary = ""
+                categorizedItems = []
+                actionItems = []
+            }
+
+            processingStage = .finalizing
+
+            transcriptionFailed = didTranscriptionFail
+            transcriptionFailureMessage = failMessage
+
+            pendingReviewData = PendingNoteReviewData(
+                rawTranscript: transcript,
+                audioDuration: duration,
+                audioUrl: audioURL?.lastPathComponent,
+                shiftInfo: shiftInfo,
+                summary: summary,
+                categorizedItems: categorizedItems,
+                actionItems: actionItems,
+                usedAI: usedAI,
+                structuringWarning: warning,
+                transcriptionFailed: didTranscriptionFail,
+                transcriptionFailureMessage: failMessage
+            )
+            stopProcessingTimer()
+            isProcessing = false
+        }
+    }
+
+    private func structureTranscript(_ transcript: String, businessType: String, authToken: String?, userId: String?) async -> (String, [CategorizedItem], [ActionItem], Bool, String?) {
+        let aiResult = await withTaskGroup(of: Result<StructuringResult, StructuringError>?.self) { group -> Result<StructuringResult, StructuringError>? in
+            group.addTask {
+                await self.noteStructuring.structureTranscript(
+                    transcript,
+                    businessType: businessType,
+                    authToken: authToken,
+                    userId: userId
+                )
+            }
+            group.addTask {
+                try? await Task.sleep(for: .seconds(15))
+                return nil
+            }
+            for await result in group {
+                if let result {
+                    group.cancelAll()
+                    return result
+                }
+            }
+            group.cancelAll()
+            return .failure(.timeout)
         }
 
-        processingStage = .finalizing
+        switch aiResult {
+        case .success(let result):
+            structuringCache.cacheResult(result, businessType: businessType)
+            return (result.summary, result.categorizedItems, result.actionItems, true, result.warning)
+        case .failure(let error):
+            return offlineFallback(transcript: transcript, businessType: businessType, warning: "AI structuring unavailable \u{2014} structured locally. \(error.userMessage)")
+        case .none:
+            return offlineFallback(transcript: transcript, businessType: businessType, warning: "AI structuring timed out \u{2014} structured locally.")
+        }
+    }
 
-        transcriptionFailed = didTranscriptionFail
-        transcriptionFailureMessage = failMessage
+    private func offlineFallback(transcript: String, businessType: String, warning: String) -> (String, [CategorizedItem], [ActionItem], Bool, String?) {
+        let summary = TranscriptProcessor.generateSummary(from: transcript)
+        if let cachedCategories = structuringCache.enhancedOfflineCategories(from: transcript, businessType: businessType) {
+            let actions = TranscriptProcessor.generateActionItems(from: cachedCategories)
+            return (summary, cachedCategories, actions, false, warning + " (enhanced with learned patterns)")
+        }
+        let cats = TranscriptProcessor.generateCategories(from: transcript)
+        let actions = TranscriptProcessor.generateActionItems(from: cats)
+        return (summary, cats, actions, false, warning)
+    }
+
+    private func refineWithFullTranscription(audioURL: URL, duration: TimeInterval, shiftInfo: ShiftDisplayInfo, businessType: String, authToken: String?, userId: String?, previousTranscript: String) async {
+        guard let fullTranscript = await transcriptionService.transcribeAudioFile(at: audioURL, authToken: authToken, userId: userId) else { return }
+
+        let trimmedFull = fullTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedPrevious = previousTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmedFull.count > trimmedPrevious.count + 20 else { return }
+
+        let (summary, categorizedItems, actionItems, usedAI, warning) = await structureTranscript(
+            fullTranscript, businessType: businessType, authToken: authToken, userId: userId
+        )
+
+        guard usedAI else { return }
 
         pendingReviewData = PendingNoteReviewData(
-            rawTranscript: transcript,
+            rawTranscript: fullTranscript,
             audioDuration: duration,
-            audioUrl: audioURL?.lastPathComponent,
+            audioUrl: audioURL.lastPathComponent,
             shiftInfo: shiftInfo,
             summary: summary,
             categorizedItems: categorizedItems,
             actionItems: actionItems,
             usedAI: usedAI,
-            structuringWarning: structuringWarning,
-            transcriptionFailed: didTranscriptionFail,
-            transcriptionFailureMessage: failMessage
+            structuringWarning: warning,
+            transcriptionFailed: false
         )
-        stopProcessingTimer()
-        isProcessing = false
     }
 
     func cancelProcessing() {

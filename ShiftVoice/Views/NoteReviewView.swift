@@ -701,6 +701,22 @@ struct EditableActionItemRow: View {
     let onAssign: () -> Void
     let onDelete: () -> Void
     @State private var isEditing: Bool = false
+    @State private var showSuggestion: Bool = true
+
+    private var qualityHint: String? {
+        let tempAction = ActionItem(
+            id: item.id,
+            task: item.task,
+            category: item.category,
+            urgency: item.urgency,
+            assignee: item.assignee,
+            assigneeId: item.assigneeId
+        )
+        if case .needsWork(let hint) = ActionItemScorer.evaluate(tempAction) {
+            return hint
+        }
+        return nil
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -718,6 +734,31 @@ struct EditableActionItemRow: View {
                     .font(.subheadline)
                     .foregroundStyle(SVTheme.textPrimary)
                     .lineSpacing(2)
+            }
+
+            if let hint = qualityHint, showSuggestion {
+                HStack(spacing: 6) {
+                    Image(systemName: "lightbulb.fill")
+                        .font(.system(size: 10))
+                        .foregroundStyle(SVTheme.amber)
+                    Text(hint)
+                        .font(.caption2)
+                        .foregroundStyle(SVTheme.textSecondary)
+                        .lineLimit(2)
+                    Spacer(minLength: 0)
+                    Button {
+                        withAnimation { showSuggestion = false }
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundStyle(SVTheme.textTertiary)
+                    }
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(SVTheme.amber.opacity(0.06))
+                .clipShape(.rect(cornerRadius: 6))
+                .transition(.opacity.combined(with: .scale(scale: 0.95)))
             }
 
             HStack(spacing: 8) {

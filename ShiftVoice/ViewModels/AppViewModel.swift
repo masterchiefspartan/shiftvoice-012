@@ -682,6 +682,45 @@ final class AppViewModel {
         writeShiftNote(shiftNotes[noteIndex], operation: .edit)
     }
 
+    func appendItemsToNote(noteId: String, categorizedItems: [CategorizedItem], actionItems: [ActionItem]) {
+        beginEditingNote(noteId)
+        guard let noteIndex = shiftNotes.firstIndex(where: { $0.id == noteId }) else { return }
+        let now = Date()
+        var mutableNote = shiftNotes[noteIndex]
+        var existingCategories = mutableNote.categorizedItems
+        existingCategories.append(contentsOf: categorizedItems)
+        var existingActions = mutableNote.actionItems
+        existingActions.append(contentsOf: actionItems)
+        mutableNote = ShiftNote(
+            id: mutableNote.id,
+            authorId: mutableNote.authorId,
+            authorName: mutableNote.authorName,
+            authorInitials: mutableNote.authorInitials,
+            locationId: mutableNote.locationId,
+            shiftType: mutableNote.shiftType,
+            shiftTemplateId: mutableNote.shiftTemplateId,
+            rawTranscript: mutableNote.rawTranscript,
+            audioUrl: mutableNote.audioUrl,
+            audioDuration: mutableNote.audioDuration,
+            summary: mutableNote.summary,
+            categorizedItems: existingCategories,
+            actionItems: existingActions,
+            photoUrls: mutableNote.photoUrls,
+            acknowledgments: mutableNote.acknowledgments,
+            voiceReplies: mutableNote.voiceReplies,
+            createdAt: mutableNote.createdAt,
+            updatedAt: now,
+            updatedAtClient: now,
+            updatedAtServer: mutableNote.updatedAtServer,
+            updatedByUserId: currentUserId,
+            isSynced: false,
+            isDirty: true
+        )
+        shiftNotes[noteIndex] = mutableNote
+        writeShiftNote(mutableNote, operation: .edit)
+        showToast("\(categorizedItems.count) item\(categorizedItems.count == 1 ? "" : "s") added", isError: false)
+    }
+
     func dismissConflict(noteId: String, actionItemId: String) {
         guard let noteIdx = shiftNotes.firstIndex(where: { $0.id == noteId }),
               let itemIdx = shiftNotes[noteIdx].actionItems.firstIndex(where: { $0.id == actionItemId }) else { return }

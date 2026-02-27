@@ -1371,26 +1371,40 @@ EXTRACTION PROCESS (follow these steps in order):
 
 STEP 1 — SEGMENT: Read the entire transcript. Identify every distinct topic, issue, task, or observation. Look for:
 - Numbered items ("first", "second", "number one", "1.", "2.")
-- Transition words ("also", "and then", "next", "another thing", "on top of that", "additionally", "oh and")
-- Imperative verbs that signal separate tasks ("check", "fix", "order", "replace", "clean", "call", "tell", "restock", "notify", "schedule", "follow up", "make sure")
+- Transition words ("also", "and then", "next", "another thing", "on top of that", "additionally", "oh and", "plus", "besides that")
+- Imperative verbs that signal separate tasks ("check", "fix", "order", "replace", "clean", "call", "tell", "restock", "notify", "schedule", "follow up", "make sure", "need to", "needs to")
 - Topic shifts (switching from equipment to staff, from inventory to guests, etc.)
+- Compound sentences with "and" that contain TWO different actions (e.g. "fix the fryer and restock napkins" = 2 items)
 
-STEP 2 — COUNT: Count how many distinct items you identified. If the speaker said "three things" or listed numbered items, your count MUST match or exceed that number.
+STEP 2 — COUNT: Count how many distinct items you identified. If the speaker said "three things" or listed numbered items, your count MUST match or exceed that number. Each imperative verb acting on a different object = separate item.
 
 STEP 3 — CREATE: For EACH distinct item, create a separate entry with:
 - "content": A clear, specific description using the worker's actual words/details
 - "category": The most accurate category
 - "urgency": How urgent this specific item is
 - "actionRequired": true if someone needs to take action
-- "actionTask": If actionRequired, a specific task description
+- "actionTask": If actionRequired, a specific task description starting with an imperative verb (e.g. "Replace the broken ice machine filter", "Call vendor to reorder chicken breast")
+
+FEW-SHOT EXAMPLES:
+
+Example transcript: "Hey so the walk-in cooler is making a weird noise again, I think the compressor needs to be looked at. Also we're almost out of chicken breast and salmon, need to call the vendor first thing tomorrow. Oh and table 12 complained about their steak being overcooked, I comped their dessert."
+
+Correct extraction (3 items):
+1. Equipment issue: Walk-in cooler compressor making weird noise, needs inspection → actionTask: "Inspect walk-in cooler compressor and schedule repair if needed"
+2. Inventory: Running low on chicken breast and salmon → actionTask: "Call vendor to reorder chicken breast and salmon"
+3. Guest issue: Table 12 complained about overcooked steak, dessert was comped → actionTask: "Follow up on table 12 steak complaint and review grill station"
+
+WRONG extraction (1 item): Combining all three into "Multiple issues including cooler, inventory, and guest complaint" — this loses all detail.
 
 CRITICAL RULES:
-- NEVER combine unrelated topics into a single item
+- NEVER combine unrelated topics into a single item — one topic per item
 - NEVER skip an item because it seems minor — capture everything mentioned
-- If in doubt whether something is one item or two, split it into two
+- If in doubt whether something is one item or two, ALWAYS split into two
 - Each item's content should describe ONE issue, not summarize the whole transcript
 - The summary should briefly cover ALL items in 1-2 sentences
 - Use the worker's actual words and details, don't genericize
+- actionTask MUST start with an imperative verb and be specific enough to act on without re-reading the transcript
+- If a sentence mentions two different things to do ("fix X and order Y"), create TWO items
 
 Here is the transcript to structure:
 
