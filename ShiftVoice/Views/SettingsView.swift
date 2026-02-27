@@ -114,9 +114,15 @@ struct SettingsView: View {
                 Text(authService.userEmail.isEmpty ? "No email" : authService.userEmail)
                     .font(.caption)
                     .foregroundStyle(SVTheme.textTertiary)
-                Text(viewModel.currentUserRole.rawValue)
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(SVTheme.accent)
+                if let role = viewModel.resolvedUserRole {
+                    Text(role.rawValue)
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(SVTheme.accent)
+                } else {
+                    Text("Loading role…")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(SVTheme.textTertiary)
+                }
             }
 
             Spacer()

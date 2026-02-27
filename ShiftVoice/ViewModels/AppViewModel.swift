@@ -8,6 +8,7 @@ final class AppViewModel {
     }
     var locations: [Location] = []
     var teamMembers: [TeamMember] = []
+    private(set) var hasTeamMembersLoaded: Bool = false
     var organization: Organization = Organization(name: "", ownerId: "")
     var recurringIssues: [RecurringIssue] = []
 
@@ -379,6 +380,7 @@ final class AppViewModel {
         shiftNotes = []
         locations = []
         teamMembers = []
+        hasTeamMembersLoaded = false
         recurringIssues = []
         organization = Organization(name: "", ownerId: "")
         selectedLocationId = ""
@@ -482,6 +484,7 @@ final class AppViewModel {
         firestore.startTeamMembersListener(orgId) { [weak self] members in
             guard let self else { return }
             self.teamMembers = members
+            self.hasTeamMembersLoaded = true
         }
 
         firestore.startShiftNotesListener(
@@ -842,11 +845,13 @@ final class AppViewModel {
         showToast("Team member updated", isError: false)
     }
 
+    var resolvedUserRole: ManagerRole? {
+        guard hasTeamMembersLoaded else { return nil }
+        return teamMembers.first(where: { $0.id == currentUserId })?.role
+    }
+
     var currentUserRole: ManagerRole {
-        if let member = teamMembers.first(where: { $0.id == currentUserId }) {
-            return member.role
-        }
-        return .owner
+        resolvedUserRole ?? .owner
     }
 
     // MARK: - Recurring Issues
@@ -927,6 +932,7 @@ final class AppViewModel {
         }
 
         teamMembers = members
+        hasTeamMembersLoaded = true
         shiftNotes = []
         recurringIssues = []
 
@@ -1639,6 +1645,7 @@ final class AppViewModel {
         organizationId = MockDataService.organization.id
         locations = MockDataService.locations
         teamMembers = MockDataService.teamMembers
+        hasTeamMembersLoaded = true
         shiftNotes = MockDataService.generateShiftNotes()
         recurringIssues = MockDataService.recurringIssues
         if selectedLocationId.isEmpty, let first = locations.first {
