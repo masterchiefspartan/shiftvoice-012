@@ -48,8 +48,8 @@ final class TranscriptionService {
 
     private let cloudSession: URLSession = {
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 60
-        config.timeoutIntervalForResource = 120
+        config.timeoutIntervalForRequest = 15
+        config.timeoutIntervalForResource = 30
         return URLSession(configuration: config)
     }()
 
@@ -113,22 +113,55 @@ final class TranscriptionService {
             break
         }
 
-        if !baseURL.isEmpty {
-            if let cloudResult = await transcribeViaCloud(audioURL: url, authToken: authToken, userId: userId) {
-                usedCloudTranscription = true
-                transcribedText = cloudResult
-                isTranscribing = false
-                return cloudResult
-            }
-        }
-
-        let localResult = await transcribeLocally(at: url)
-        if localResult == nil && failureReason == nil {
+        let result = await raceTranscription(audioURL: url, authToken: authToken, userId: userId)
+        if result == nil && failureReason == nil {
             failureReason = .noResult
             errorMessage = TranscriptionFailureReason.noResult.userMessage
         }
         isTranscribing = false
-        return localResult
+        return result
+    }
+
+    private func raceTranscription(audioURL: URL, authToken: String?, userId: String?) async -> String? {
+        let canCloud = !baseURL.isEmpty
+
+        if !canCloud {
+            return await transcribeLocally(at: audioURL)
+        }
+
+        return await withTaskGroup(of: (String?, Bool).self) { group in
+            group.addTask {
+                let result = await self.transcribeViaCloud(audioURL: audioURL, authToken: authToken, userId: userId)
+                return (result, true)
+            }
+            group.addTask {
+                let result = await self.transcribeLocally(at: audioURL)
+                return (result, false)
+            }
+
+            var firstResult: String?
+            var firstWasCloud = false
+
+            for await (result, isCloud) in group {
+                if let text = result, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    usedCloudTranscription = isCloud
+                    transcribedText = text
+                    group.cancelAll()
+                    return text
+                }
+                if firstResult == nil {
+                    firstResult = result
+                    firstWasCloud = isCloud
+                }
+            }
+
+            if let text = firstResult, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                usedCloudTranscription = firstWasCloud
+                transcribedText = text
+                return text
+            }
+            return nil
+        }
     }
 
     private func transcribeViaCloud(audioURL: URL, authToken: String?, userId: String?) async -> String? {

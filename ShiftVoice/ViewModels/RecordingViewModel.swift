@@ -1,6 +1,12 @@
 import SwiftUI
 import AVFoundation
 
+enum ProcessingStage: Sendable {
+    case transcribing
+    case structuring
+    case finalizing
+}
+
 @Observable
 final class RecordingViewModel {
     let audioRecorder = AudioRecorderService()
@@ -8,6 +14,7 @@ final class RecordingViewModel {
     private let noteStructuring = NoteStructuringService.shared
 
     var isProcessing: Bool = false
+    var processingStage: ProcessingStage = .transcribing
     var structuringWarning: String?
     var pendingReviewData: PendingNoteReviewData?
     var processingElapsed: TimeInterval = 0
@@ -156,6 +163,8 @@ final class RecordingViewModel {
         var didTranscriptionFail = false
         var failMessage: String?
 
+        processingStage = .transcribing
+
         if let audioURL {
             if let result = await transcriptionService.transcribeAudioFile(at: audioURL, authToken: authToken, userId: userId) {
                 transcript = result
@@ -174,6 +183,8 @@ final class RecordingViewModel {
         var usedAI = false
 
         if !transcript.isEmpty {
+            processingStage = .structuring
+
             let aiResult = await withTaskGroup(of: Result<StructuringResult, StructuringError>?.self) { group -> Result<StructuringResult, StructuringError>? in
                 group.addTask {
                     await self.noteStructuring.structureTranscript(
@@ -184,7 +195,7 @@ final class RecordingViewModel {
                     )
                 }
                 group.addTask {
-                    try? await Task.sleep(for: .seconds(30))
+                    try? await Task.sleep(for: .seconds(15))
                     return nil
                 }
                 for await result in group {
@@ -220,6 +231,8 @@ final class RecordingViewModel {
             categorizedItems = []
             actionItems = []
         }
+
+        processingStage = .finalizing
 
         transcriptionFailed = didTranscriptionFail
         transcriptionFailureMessage = failMessage

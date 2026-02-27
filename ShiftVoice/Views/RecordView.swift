@@ -367,19 +367,29 @@ struct RecordView: View {
     private var processingTitle: String {
         if recording.processingElapsed >= 20 {
             return "Still working on it..."
-        } else if recording.processingElapsed >= 10 {
-            return "AI is structuring your notes"
         }
-        return "Processing your shift notes"
+        switch recording.processingStage {
+        case .transcribing:
+            return "Transcribing audio"
+        case .structuring:
+            return "Extracting action items"
+        case .finalizing:
+            return "Finalizing your notes"
+        }
     }
 
     private var processingSubtitle: String {
         if recording.processingElapsed >= 20 {
             return "This is taking longer than usual"
-        } else if recording.processingElapsed >= 10 {
-            return "Categorizing and creating action items"
         }
-        return "Transcribing audio and categorizing"
+        switch recording.processingStage {
+        case .transcribing:
+            return "Converting speech to text"
+        case .structuring:
+            return "Categorizing and creating action items"
+        case .finalizing:
+            return "Almost done"
+        }
     }
 
     private var successView: some View {

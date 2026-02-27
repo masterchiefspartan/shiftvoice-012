@@ -186,7 +186,34 @@ final class NoteStructuringService {
     }
 
     private func confidenceWarning(transcript: String, itemCount: Int) -> String? {
+        let lower = transcript.lowercased()
         let wordCount = transcript.split(separator: " ").count
+
+        let ordinalCues = ["first", "second", "third", "fourth", "fifth",
+                           "number one", "number two", "number three",
+                           "next thing", "another thing", "also ", "and then ",
+                           "on top of that", "additionally"]
+        let numberedCues = lower.matches(of: /\b\d+[\.\)\:]\s/).count
+
+        var cueCount = numberedCues
+        for cue in ordinalCues {
+            if lower.contains(cue) { cueCount += 1 }
+        }
+
+        let imperativeVerbs = ["check ", "fix ", "order ", "replace ", "clean ", "call ",
+                               "tell ", "ask ", "make sure ", "follow up", "restock ",
+                               "notify ", "schedule ", "update "]
+        var imperativeCount = 0
+        for verb in imperativeVerbs {
+            if lower.contains(verb) { imperativeCount += 1 }
+        }
+
+        let expectedMinItems = max(cueCount, imperativeCount > 2 ? imperativeCount : 0)
+
+        if expectedMinItems >= 2 && itemCount < expectedMinItems {
+            return "This transcript appears to contain \(expectedMinItems)+ distinct items but only \(itemCount) were extracted. Review and split items if needed."
+        }
+
         if wordCount > 40 && itemCount <= 1 {
             return "This transcript may contain multiple topics that were grouped together. Review and split items if needed."
         }

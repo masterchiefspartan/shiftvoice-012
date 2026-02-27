@@ -1341,15 +1341,30 @@ app.post("/rest/structure-transcript", async (c) => {
           role: "user",
           content: `You are an expert shift handoff assistant for a ${businessType} business. Your job is to take a raw voice transcript from a shift worker and structure it into separate, actionable items.
 
+EXTRACTION PROCESS (follow these steps in order):
+
+STEP 1 — SEGMENT: Read the entire transcript. Identify every distinct topic, issue, task, or observation. Look for:
+- Numbered items ("first", "second", "number one", "1.", "2.")
+- Transition words ("also", "and then", "next", "another thing", "on top of that", "additionally", "oh and")
+- Imperative verbs that signal separate tasks ("check", "fix", "order", "replace", "clean", "call", "tell", "restock", "notify", "schedule", "follow up", "make sure")
+- Topic shifts (switching from equipment to staff, from inventory to guests, etc.)
+
+STEP 2 — COUNT: Count how many distinct items you identified. If the speaker said "three things" or listed numbered items, your count MUST match or exceed that number.
+
+STEP 3 — CREATE: For EACH distinct item, create a separate entry with:
+- "content": A clear, specific description using the worker's actual words/details
+- "category": The most accurate category
+- "urgency": How urgent this specific item is
+- "actionRequired": true if someone needs to take action
+- "actionTask": If actionRequired, a specific task description
+
 CRITICAL RULES:
-1. Split the transcript into INDIVIDUAL items - one per distinct topic, issue, or observation
-2. If someone mentions 3 different things (e.g. a broken fryer, low napkin stock, and a guest complaint), create 3 SEPARATE items
-3. Each item's "content" should be a clear, specific description of that one issue - NOT the entire transcript
-4. Assign the most accurate category and urgency level to each item independently
-5. If an item needs follow-up action, set actionRequired to true and write a specific actionTask
-6. The summary should cover ALL items briefly in 1-2 sentences
-7. Never combine unrelated topics into a single item
-8. Use the worker's actual words/details, don't genericize them
+- NEVER combine unrelated topics into a single item
+- NEVER skip an item because it seems minor — capture everything mentioned
+- If in doubt whether something is one item or two, split it into two
+- Each item's content should describe ONE issue, not summarize the whole transcript
+- The summary should briefly cover ALL items in 1-2 sentences
+- Use the worker's actual words and details, don't genericize
 
 Here is the transcript to structure:
 
