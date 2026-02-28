@@ -186,6 +186,33 @@ final class AppViewModel {
         conflictedActionItemsCache
     }
 
+    var unacknowledgedNotes: [ShiftNote] {
+        let uid = currentUserId
+        guard !uid.isEmpty else { return [] }
+        return feedNotes.filter { !$0.acknowledgments.contains(where: { $0.userId == uid }) }
+    }
+
+    var pendingConfirmationNotes: [ShiftNote] {
+        feedNotes.filter { !activeConflictsForNote($0.id).isEmpty }
+    }
+
+    var unassignedActionItems: [(item: ActionItem, noteId: String, authorName: String, locationId: String, createdAt: Date)] {
+        allActionItemsWithDate.filter {
+            $0.item.status != .resolved && $0.item.assigneeId == nil
+        }
+    }
+
+    var staleActionItems: [(item: ActionItem, noteId: String, authorName: String, locationId: String, createdAt: Date)] {
+        let cutoff = Date().addingTimeInterval(-48 * 60 * 60)
+        return allActionItemsWithDate.filter {
+            ($0.item.status == .open || $0.item.status == .inProgress) && $0.item.updatedAt < cutoff
+        }
+    }
+
+    var reviewBadgeCount: Int {
+        unacknowledgedNotes.count + pendingConfirmationNotes.count + unassignedActionItems.count + staleActionItems.count
+    }
+
     init(
         pendingOpsStore: PendingOpsStoreProtocol? = nil,
         confirmationReconciler: PendingOpReconciling? = nil,

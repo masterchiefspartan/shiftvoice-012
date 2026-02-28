@@ -11,6 +11,7 @@ struct ContentView: View {
     @State private var showFirstRunGuide: Bool = false
     @State private var inboxNavPath: NavigationPath = NavigationPath()
     @State private var actionsNavPath: NavigationPath = NavigationPath()
+    @State private var reviewNavPath: NavigationPath = NavigationPath()
     private let subscription = SubscriptionService.shared
 
     var body: some View {
@@ -26,6 +27,12 @@ struct ContentView: View {
                     DashboardView(viewModel: viewModel, navPath: $actionsNavPath)
                         .opacity(selectedTab == .actions ? 1 : 0)
                         .allowsHitTesting(selectedTab == .actions)
+                }
+
+                if tabsLoaded.contains(.review) {
+                    ReviewView(viewModel: viewModel, navPath: $reviewNavPath)
+                        .opacity(selectedTab == .review ? 1 : 0)
+                        .allowsHitTesting(selectedTab == .review)
                 }
 
                 if tabsLoaded.contains(.profile) {
@@ -144,7 +151,7 @@ struct ContentView: View {
                 tabButton(tab: .inbox, icon: "tray.fill", inactiveIcon: "tray", label: "Inbox", badge: viewModel.unacknowledgedCount)
                 tabButton(tab: .actions, icon: "bolt.fill", inactiveIcon: "bolt", label: "Actions", badge: 0)
                 recordButton
-                Spacer().frame(maxWidth: .infinity)
+                tabButton(tab: .review, icon: "sparkles.rectangle.stack.fill", inactiveIcon: "sparkles.rectangle.stack", label: "Review", badge: viewModel.reviewBadgeCount)
                 tabButton(tab: .profile, icon: "person.fill", inactiveIcon: "person", label: "Profile", badge: 0)
             }
             .padding(.horizontal, 8)
@@ -214,6 +221,7 @@ struct ContentView: View {
 nonisolated enum AppTab: Hashable, Sendable {
     case inbox
     case actions
+    case review
     case profile
 }
 
