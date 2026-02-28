@@ -34,6 +34,7 @@ struct NoteReviewView: View {
     @State private var publishSucceeded: Bool = false
     @State private var structuringWarning: String?
     @State private var recordingFailureState: RecordingFailureState
+    @State private var approvedActionItemIds: Set<String>
     @State private var showUnsavedExitDialog: Bool = false
     @Environment(\.dismiss) private var dismiss
 
@@ -41,6 +42,7 @@ struct NoteReviewView: View {
     private let initialRawTranscript: String
     private let initialCategorizedItems: [EditableCategorizedItem]
     private let initialActionItems: [EditableActionItem]
+    private let initialApprovedActionItemIds: Set<String>
 
     init(
         viewModel: AppViewModel,
@@ -78,6 +80,9 @@ struct NoteReviewView: View {
         self.initialActionItems = initialActionItems
         _structuringWarning = State(initialValue: structuringWarning)
         _recordingFailureState = State(initialValue: recordingFailureState)
+        let initialApprovedActionItemIds: Set<String> = []
+        _approvedActionItemIds = State(initialValue: initialApprovedActionItemIds)
+        self.initialApprovedActionItemIds = initialApprovedActionItemIds
     }
 
     private func structuringWarningBanner(_ warning: String) -> some View {
@@ -228,8 +233,10 @@ struct NoteReviewView: View {
             .onChange(of: editableCategorizedItems) { _, _ in
                 viewModel.recording.markReviewAsUserEdited()
             }
-            .onChange(of: editableActionItems) { _, _ in
+            .onChange(of: editableActionItems) { _, newItems in
                 viewModel.recording.markReviewAsUserEdited()
+                let currentIds = Set(newItems.map(\.id))
+                approvedActionItemIds = approvedActionItemIds.intersection(currentIds)
             }
             .navigationBarBackButtonHidden(true)
         }
@@ -239,7 +246,8 @@ struct NoteReviewView: View {
         summary != initialSummary ||
         rawTranscript != initialRawTranscript ||
         editableCategorizedItems != initialCategorizedItems ||
-        editableActionItems != initialActionItems
+        editableActionItems != initialActionItems ||
+        approvedActionItemIds != initialApprovedActionItemIds
     }
 
     private var screenState: NoteReviewScreenState {
@@ -628,6 +636,15 @@ struct NoteReviewView: View {
                     .foregroundStyle(SVTheme.textTertiary)
                     .tracking(0.5)
                 Spacer()
+                if !editableActionItems.isEmpty {
+                    Button {
+                        approvedActionItemIds = Set(editableActionItems.map(\.id))
+                    } label: {
+                        Text("Approve All")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(SVTheme.accent)
+                    }
+                }
                 Button {
                     showAddAction = true
                 } label: {
@@ -638,6 +655,21 @@ struct NoteReviewView: View {
                             .font(.caption.weight(.medium))
                     }
                     .foregroundStyle(SVTheme.accent)
+                }
+            }
+
+            if !editableActionItems.isEmpty {
+                HStack(spacing: 6) {
+                    Image(systemName: approvedActionItemIds.count == editableActionItems.count ? "checkmark.seal.fill" : "checkmark.seal")
+                        .font(.caption)
+                        .foregroundStyle(approvedActionItemIds.count == editableActionItems.count ? SVTheme.accent : SVTheme.textTertiary)
+                    Text(approvedActionItemsStatusText)
+                        .font(.caption)
+                        .foregroundStyle(SVTheme.textSecondary)
+                    Spacer()
+                    Text("Owner optional")
+                        .font(.caption2)
+                        .foregroundStyle(SVTheme.textTertiary)
                 }
             }
 
@@ -667,11 +699,19 @@ struct NoteReviewView: View {
                                 get: { editableActionItems[index] },
                                 set: { editableActionItems[index] = $0 }
                             ),
+                            isApproved: approvedActionItemIds.contains(item.id),
+                            onApprove: {
+                                approvedActionItemIds.insert(item.id)
+                            },
+                            onUnapprove: {
+                                approvedActionItemIds.remove(item.id)
+                            },
                             onAssign: {
                                 assigningActionId = item.id
                                 showAssignSheet = true
                             },
                             onDelete: {
+                                approvedActionItemIds.remove(item.id)
                                 editableActionItems.removeAll { $0.id == item.id }
                             }
                         )
@@ -729,7 +769,7 @@ struct NoteReviewView: View {
                             Image(systemName: "paperplane.fill")
                                 .font(.subheadline)
                         }
-                        Text("Send to Team")
+                        Text("Approve & Send")
                             .font(.subheadline.weight(.semibold))
                     }
                     .foregroundStyle(.white)
@@ -768,6 +808,12 @@ struct NoteReviewView: View {
 
     private func publishNote() {
         publishValidationError = nil
+
+        let unapprovedCount = editableActionItems.count - approvedActionItemIds.count
+        if unapprovedCount > 0 {
+            publishValidationError = unapprovedCount == 1 ? "Approve the remaining action item before sending." : "Approve all action items before sending."
+            return
+        }
 
         let validation = InputValidator.validateShiftNote(
             summary: summary,
@@ -834,6 +880,18 @@ struct NoteReviewView: View {
         }
 
         recordingFailureState = viewModel.recording.recordingFailureState
+    }
+
+    private var approvedActionItemsStatusText: String {
+        let total = editableActionItems.count
+        let approved = approvedActionItemIds.count
+        if total == 0 {
+            return "No action items"
+        }
+        if approved == total {
+            return "All \(total) action items approved"
+        }
+        return "\(approved) of \(total) approved"
     }
 
     private func formatDuration(_ duration: TimeInterval) -> String {
@@ -988,6 +1046,9 @@ struct EditableCategorizedItemRow: View {
 
 struct EditableActionItemRow: View {
     @Binding var item: EditableActionItem
+    let isApproved: Bool
+    let onApprove: () -> Void
+    let onUnapprove: () -> Void
     let onAssign: () -> Void
     let onDelete: () -> Void
     @State private var isEditing: Bool = false
@@ -1081,9 +1142,9 @@ struct EditableActionItemRow: View {
                     onAssign()
                 } label: {
                     HStack(spacing: 6) {
-                        Image(systemName: item.assignee != nil ? "person.fill" : "person.badge.plus")
+                        Image(systemName: item.assignee != nil ? "person.fill" : "person")
                             .font(.system(size: 11, weight: .medium))
-                        Text(item.assignee ?? "Assign")
+                        Text(item.assignee ?? "Unassigned")
                             .font(.subheadline.weight(.medium))
                     }
                     .padding(.horizontal, 12)
@@ -1095,11 +1156,32 @@ struct EditableActionItemRow: View {
 
                 Spacer()
 
+                Button {
+                    if isApproved {
+                        onUnapprove()
+                    } else {
+                        onApprove()
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: isApproved ? "checkmark.circle.fill" : "checkmark.circle")
+                            .font(.caption.weight(.semibold))
+                        Text(isApproved ? "Approved" : "Approve")
+                            .font(.subheadline.weight(.semibold))
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .foregroundStyle(isApproved ? .white : SVTheme.accent)
+                    .background(isApproved ? SVTheme.accent : SVTheme.accent.opacity(0.08))
+                    .clipShape(.rect(cornerRadius: 9))
+                }
+                .sensoryFeedback(.success, trigger: isApproved)
+
                 Menu {
                     Button {
                         isEditing.toggle()
                     } label: {
-                        Label("Edit", systemImage: "pencil")
+                        Label("Refine wording", systemImage: "pencil")
                     }
                     Divider()
                     Button(role: .destructive) { onDelete() } label: {

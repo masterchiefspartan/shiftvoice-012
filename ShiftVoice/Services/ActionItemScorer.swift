@@ -26,10 +26,6 @@ nonisolated enum ActionItemScorer {
             }
         }
 
-        if item.urgency == .immediate && item.assignee == nil {
-            return .needsWork("Urgent item with no assignee — consider assigning someone")
-        }
-
         return .good
     }
 

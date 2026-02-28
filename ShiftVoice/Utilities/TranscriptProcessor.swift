@@ -69,19 +69,21 @@ enum TranscriptProcessor {
 
     static func generateActionItems(from categorized: [CategorizedItem]) -> [ActionItem] {
         categorized.compactMap { item in
-            let snippet = String(item.content.prefix(80))
+            let snippet = String(item.content.prefix(80)).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !snippet.isEmpty else { return nil }
+
             let taskDescription: String
             switch item.category {
-            case .equipment: taskDescription = "Inspect and resolve: \(snippet)"
-            case .inventory: taskDescription = "Restock inventory for: \(snippet)"
-            case .maintenance: taskDescription = "Repair and verify: \(snippet)"
-            case .healthSafety: taskDescription = "Resolve safety issue: \(snippet)"
-            case .staffNote: taskDescription = "Follow up with staff on: \(snippet)"
-            case .guestIssue: taskDescription = "Resolve guest concern: \(snippet)"
-            case .eightySixed: taskDescription = "Restock 86'd item: \(snippet)"
-            case .reservation: taskDescription = "Confirm reservation details for: \(snippet)"
-            case .incident: taskDescription = "Document and resolve incident: \(snippet)"
-            case .general: taskDescription = "Review and address: \(snippet)"
+            case .equipment: taskDescription = "Inspect equipment and resolve \(snippet)"
+            case .inventory: taskDescription = "Restock inventory for \(snippet)"
+            case .maintenance: taskDescription = "Repair and verify \(snippet)"
+            case .healthSafety: taskDescription = "Resolve safety issue for \(snippet)"
+            case .staffNote: taskDescription = "Follow up with staff about \(snippet)"
+            case .guestIssue: taskDescription = "Resolve guest concern about \(snippet)"
+            case .eightySixed: taskDescription = "Restock 86'd item for \(snippet)"
+            case .reservation: taskDescription = "Confirm reservation details for \(snippet)"
+            case .incident: taskDescription = "Document and resolve incident for \(snippet)"
+            case .general: taskDescription = "Review and address \(snippet)"
             }
             return ActionItem(
                 task: polishActionTask(taskDescription),
@@ -94,17 +96,22 @@ enum TranscriptProcessor {
 
     static func polishActionTask(_ task: String) -> String {
         let trimmed = task.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return "Review and follow up" }
+        guard !trimmed.isEmpty else { return "Review and follow up." }
 
         let collapsedWhitespace = trimmed.replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
         let cleanedPunctuation = collapsedWhitespace.replacingOccurrences(of: #"\s*([:;,])\s*"#, with: "$1 ", options: .regularExpression)
-        let normalized = cleanedPunctuation.replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression).trimmingCharacters(in: .whitespacesAndNewlines)
+        let fillerReduced = cleanedPunctuation
+            .replacingOccurrences(of: #"\b(please|just|kind of|sort of|maybe)\b"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalized = fillerReduced.replacingOccurrences(of: #"\bneed to\b"#, with: "", options: [.regularExpression, .caseInsensitive])
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
 
-        guard let first = normalized.first else { return "Review and follow up" }
+        guard let first = normalized.first else { return "Review and follow up." }
         let sentenceCased = String(first).uppercased() + normalized.dropFirst()
         let withoutTrailingJunk = sentenceCased.replacingOccurrences(of: #"[\s\.,;:!\?]+$"#, with: "", options: .regularExpression)
-
-        return withoutTrailingJunk
+        return withoutTrailingJunk + "."
     }
 
     static func splitTranscriptIntoSegments(_ transcript: String) -> [String] {
