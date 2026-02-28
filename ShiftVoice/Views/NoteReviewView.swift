@@ -299,10 +299,30 @@ struct NoteReviewView: View {
     private var emptyStateView: some View {
         VStack(alignment: .leading, spacing: 12) {
             ContentUnavailableView {
-                Label("Nothing to Review Yet", systemImage: "text.badge.xmark")
+                Label("Empty Recording", systemImage: "waveform.slash")
             } description: {
-                Text("No transcript or structured note content was generated. Retry transcription or discard this recording.")
+                Text(transcriptionFailureMessage ?? "No speech was detected in the recording. Retry transcription or discard this recording.")
             }
+
+            Button {
+                Task {
+                    await retryTranscription()
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    if viewModel.recording.isRetryingTranscription {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
+                    Text(viewModel.recording.isRetryingTranscription ? "Retrying…" : "Retry Transcription")
+                        .font(.subheadline.weight(.semibold))
+                }
+                .frame(maxWidth: .infinity)
+                .frame(height: 44)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(SVTheme.accent)
+            .disabled(viewModel.recording.isRetryingTranscription)
 
             Button {
                 showDiscardAlert = true

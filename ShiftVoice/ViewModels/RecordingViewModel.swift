@@ -157,8 +157,9 @@ final class RecordingViewModel {
                 transcriptionFailed: false
             )
         } else {
-            transcriptionFailed = true
-            transcriptionFailureMessage = transcriptionService.failureReason?.userMessage ?? "Transcription failed. Please try again."
+            let reason = transcriptionService.failureReason
+            transcriptionFailed = !(reason?.isEmptyRecording ?? false)
+            transcriptionFailureMessage = reason?.userMessage ?? "Transcription failed. Please try again."
         }
         isRetryingTranscription = false
     }
@@ -212,8 +213,9 @@ final class RecordingViewModel {
                 if let result = await transcriptionService.transcribeAudioFile(at: audioURL, authToken: authToken, userId: userId) {
                     transcript = result
                 } else {
-                    didTranscriptionFail = true
-                    failMessage = transcriptionService.failureReason?.userMessage
+                    let reason = transcriptionService.failureReason
+                    didTranscriptionFail = !(reason?.isEmptyRecording ?? false)
+                    failMessage = reason?.userMessage
                 }
             } else {
                 didTranscriptionFail = true

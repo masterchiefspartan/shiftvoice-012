@@ -16,6 +16,15 @@ nonisolated enum TranscriptionFailureReason: Sendable {
     case localFailed(String)
     case noResult
 
+    var isEmptyRecording: Bool {
+        switch self {
+        case .emptyAudioFile, .noResult:
+            return true
+        default:
+            return false
+        }
+    }
+
     var userMessage: String {
         switch self {
         case .noAudioFile:
