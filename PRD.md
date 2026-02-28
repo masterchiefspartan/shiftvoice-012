@@ -98,7 +98,7 @@ Organization
 
 ## Feature Requirements
 
-### Tier 1: Core Platform (Current + In Progress)
+### Tier 1: Core Platform (Current State)
 
 #### 1.1 Voice Capture & AI Structuring
 **Status:** Implemented, recently improved
@@ -146,30 +146,39 @@ This is the single highest-risk feature in the product. If a 30-second recording
 - Sync status indicator and retry on failure
 
 #### 1.4 Action Item Dashboard
-**Status:** Implemented
+**Status:** Implemented, recently expanded
 
 - Kanban-style view of all action items across notes
-- Filter by urgency, status, location, category, date range
+- Filter by urgency, status, location, category, assignee, and date range
+- Assignee filter uses real team member data and composes with other active filters
 - Inline status updates (Open → In Progress → Resolved)
 - Urgency counts (Immediate, Open, In Progress, Resolved)
 - Recurring issue detection (basic)
+- Assignee avatar/initials on cards; unassigned items show a dashed unassigned indicator
+- Avatar tap applies assignee filtering for fast drill-down
 
 #### 1.5 Team & Organization Management
-**Status:** Implemented
+**Status:** Implemented, recently expanded
 
 - Organization creation with industry type
 - Multi-location support
 - Team member invites with role-based permissions (Owner, GM, Manager, Shift Lead)
+- Location management supports add/edit/remove flows
+- Add Location form includes name, address, timezone picker, and shift time configuration
+- Add Location validates required fields and enforces plan limits with clear upgrade messaging
+- Location list updates immediately after successful add/edit/remove
 - Customizable shift schedules per location
 - Customizable categories per industry
 
 #### 1.6 Authentication & Data Sync
-**Status:** Implemented, being hardened (Phases 4-6)
+**Status:** Implemented, hardening delivered through Phases 4 and 6
 
 - Email/password authentication with Keychain storage
 - Google Sign-In
 - Backend sync with offline-first architecture
-- Pending offline queue with reconnect sync
+- Persistent pending operation tracking with reconnect reconciliation
+- Per-field conflict detection/merge support for collaborative action item updates
+- Sync diagnostics and conflict indicators surfaced in product UI
 - Subscription management via RevenueCat
 
 ---
@@ -308,7 +317,7 @@ The ±30 min buffer assumes clean shift boundaries. In practice, shifts bleed in
 ### Reliability
 - Offline-first: all core features work without network
 - Zero data loss: notes never lost, even on crash during recording
-- Sync conflict resolution: newest-wins with user notification
+- Sync conflict handling: per-field merge for action item collaboration, with explicit conflict indicators
 - 99.9% API uptime target
 
 **⚠️ DEVIL'S ADVOCATE — Sync Conflict Resolution:**
@@ -362,7 +371,7 @@ The jump from Free to Starter ($39/loc/mo) is steep for the primary persona — 
 ### Client (iOS)
 - **Language:** Swift 6, SwiftUI
 - **Architecture:** MVVM with @Observable
-- **Persistence:** Local JSON via PersistenceService (offline-first)
+- **Data Layer:** Firestore real-time listeners with offline cache + local persistence for sync metadata and app state
 - **Auth:** Keychain + backend JWT tokens
 - **Audio:** AVFoundation recording, Speech framework transcription
 - **Payments:** RevenueCat
@@ -421,8 +430,8 @@ iOS App ←→ Hono API ←→ Storage (KV/R2)
 | Time to first structured note | Time from signup to first voice note fully structured | <3 minutes |
 | Activation rate | % of signups who record 3+ notes in first 7 days | >30% |
 
-**⚠️ DEVIL'S ADVOCATE — Missing Activation Metrics:**
-The metrics above track engaged users but nothing about the signup-to-value gap. If a user downloads the app, creates an org, and never records a note — you've lost them forever. "Time to first structured note" is arguably the most important metric in the product. If onboarding doesn't get a user to record, see the AI structure it, and feel the "magic moment" within 3 minutes, conversion will suffer. Consider a guided first-run experience that walks the user through recording a sample note.
+**⚠️ DEVIL'S ADVOCATE — Activation Execution:**
+The activation metrics are now explicitly tracked and a guided first-run experience has been shipped. The current risk is execution consistency: ensure users reliably reach the recording CTA, complete their first structured note quickly, and that this flow continues to convert as onboarding and paywall logic evolve.
 
 ---
 
