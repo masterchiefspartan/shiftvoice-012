@@ -29,6 +29,8 @@ struct ShiftVoiceApp: App {
                 } else if !authService.isSignedIn {
                     SignInView(authService: authService)
                         .transition(.opacity)
+                } else if appViewModel.isLoadingUserData {
+                    LaunchLoadingView()
                 } else if hasCompletedOnboarding {
                     ContentView(authService: authService, viewModel: appViewModel)
                         .transition(.opacity)
@@ -46,6 +48,7 @@ struct ShiftVoiceApp: App {
             }
             .animation(.easeOut(duration: 0.25), value: authService.isLoading)
             .animation(.easeOut(duration: 0.25), value: authService.isSignedIn)
+            .animation(.easeOut(duration: 0.25), value: appViewModel.isLoadingUserData)
             .animation(.easeOut(duration: 0.25), value: hasCompletedOnboarding)
             .onChange(of: authService.isSignedIn) { oldValue, isSignedIn in
                 if isSignedIn, let userId = authService.currentUserId {
@@ -56,7 +59,6 @@ struct ShiftVoiceApp: App {
                     subscriptionService.setUserId(userId)
                 } else if oldValue && !isSignedIn {
                     appViewModel.clearAuthenticatedUser()
-                    hasCompletedOnboarding = false
                 }
             }
             .onChange(of: authService.currentUserId) { _, userId in
@@ -70,6 +72,11 @@ struct ShiftVoiceApp: App {
             .onChange(of: authService.backendToken) { _, token in
                 if authService.isSignedIn, let token, let userId = authService.currentUserId {
                     appViewModel.setBackendAuth(token: token, userId: userId)
+                }
+            }
+            .onChange(of: appViewModel.hasExistingOrganization) { _, hasExistingOrganization in
+                if hasExistingOrganization {
+                    hasCompletedOnboarding = true
                 }
             }
             .onAppear {

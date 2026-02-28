@@ -58,6 +58,8 @@ final class AppViewModel {
 
     // MARK: - Loading State
     var isInitialLoading: Bool = true
+    var isLoadingUserData: Bool = false
+    var hasExistingOrganization: Bool = false
 
     // MARK: - Action Items Pagination
     private let actionPageSize = 30
@@ -351,6 +353,8 @@ final class AppViewModel {
 
     func setAuthenticatedUser(_ userId: String, name: String = "", email: String = "") {
         authenticatedUserId = userId
+        isLoadingUserData = true
+        hasExistingOrganization = false
 
         if !name.isEmpty {
             let parts = name.split(separator: " ")
@@ -398,10 +402,13 @@ final class AppViewModel {
         lastWriteError = nil
         isDataFromCache = true
         isInitialLoading = true
+        isLoadingUserData = false
+        hasExistingOrganization = false
         updateSyncState()
     }
 
     private func loadUserData(_ userId: String) async {
+        defer { isLoadingUserData = false }
         do {
             if let persistedPending = persistence.loadPendingSyncState(for: userId) {
                 pendingSyncState = persistedPending
@@ -416,6 +423,7 @@ final class AppViewModel {
             let (profile, orgId, locId) = try await firestore.fetchUserData(userId)
             if let profile { self.userProfile = profile }
             self.organizationId = orgId
+            hasExistingOrganization = orgId != nil
             if let locId { self.selectedLocationId = locId }
             syncError = nil
             if let orgId {
@@ -424,6 +432,7 @@ final class AppViewModel {
                 loadDemoData()
             }
         } catch {
+            hasExistingOrganization = false
             syncError = "Could not load your data. Tap to retry."
             isInitialLoading = false
             loadDemoData()
@@ -883,6 +892,8 @@ final class AppViewModel {
     // MARK: - Onboarding
 
     func applyOnboardingData(businessType: BusinessType, locationName: String, timezone: String, teamInvites: [TeamInvite]) {
+        guard organizationId == nil else { return }
+
         let industryType: IndustryType = switch businessType {
         case .restaurant: .restaurant
         case .barPub: .bar
