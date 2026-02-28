@@ -69,26 +69,42 @@ enum TranscriptProcessor {
 
     static func generateActionItems(from categorized: [CategorizedItem]) -> [ActionItem] {
         categorized.compactMap { item in
+            let snippet = String(item.content.prefix(80))
             let taskDescription: String
             switch item.category {
-            case .equipment: taskDescription = "Check and address: \(item.content.prefix(80))"
-            case .inventory: taskDescription = "Restock: \(item.content.prefix(80))"
-            case .maintenance: taskDescription = "Fix: \(item.content.prefix(80))"
-            case .healthSafety: taskDescription = "Resolve safety issue: \(item.content.prefix(80))"
-            case .staffNote: taskDescription = "Follow up: \(item.content.prefix(80))"
-            case .guestIssue: taskDescription = "Guest concern: \(item.content.prefix(80))"
-            case .eightySixed: taskDescription = "86'd - restock: \(item.content.prefix(80))"
-            case .reservation: taskDescription = "Reservation follow-up: \(item.content.prefix(80))"
-            case .incident: taskDescription = "Incident follow-up: \(item.content.prefix(80))"
-            case .general: taskDescription = "Review: \(item.content.prefix(80))"
+            case .equipment: taskDescription = "Inspect and resolve: \(snippet)"
+            case .inventory: taskDescription = "Restock inventory for: \(snippet)"
+            case .maintenance: taskDescription = "Repair and verify: \(snippet)"
+            case .healthSafety: taskDescription = "Resolve safety issue: \(snippet)"
+            case .staffNote: taskDescription = "Follow up with staff on: \(snippet)"
+            case .guestIssue: taskDescription = "Resolve guest concern: \(snippet)"
+            case .eightySixed: taskDescription = "Restock 86'd item: \(snippet)"
+            case .reservation: taskDescription = "Confirm reservation details for: \(snippet)"
+            case .incident: taskDescription = "Document and resolve incident: \(snippet)"
+            case .general: taskDescription = "Review and address: \(snippet)"
             }
             return ActionItem(
-                task: taskDescription,
+                task: polishActionTask(taskDescription),
                 category: item.category,
                 categoryTemplateId: item.categoryTemplateId,
                 urgency: item.urgency
             )
         }
+    }
+
+    static func polishActionTask(_ task: String) -> String {
+        let trimmed = task.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "Review and follow up" }
+
+        let collapsedWhitespace = trimmed.replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+        let cleanedPunctuation = collapsedWhitespace.replacingOccurrences(of: #"\s*([:;,])\s*"#, with: "$1 ", options: .regularExpression)
+        let normalized = cleanedPunctuation.replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression).trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard let first = normalized.first else { return "Review and follow up" }
+        let sentenceCased = String(first).uppercased() + normalized.dropFirst()
+        let withoutTrailingJunk = sentenceCased.replacingOccurrences(of: #"[\s\.,;:!\?]+$"#, with: "", options: .regularExpression)
+
+        return withoutTrailingJunk
     }
 
     static func splitTranscriptIntoSegments(_ transcript: String) -> [String] {

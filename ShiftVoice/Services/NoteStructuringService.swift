@@ -174,7 +174,7 @@ final class NoteStructuringService {
 
             if item.actionRequired, let task = item.actionTask, !task.isEmpty {
                 actionItems.append(ActionItem(
-                    task: task,
+                    task: TranscriptProcessor.polishActionTask(task),
                     category: category,
                     categoryTemplateId: templateId,
                     urgency: urgency

@@ -901,7 +901,7 @@ struct EditableActionItem: Identifiable, Equatable {
     func toActionItem() -> ActionItem {
         ActionItem(
             id: id,
-            task: task,
+            task: TranscriptProcessor.polishActionTask(task),
             category: category,
             categoryTemplateId: categoryTemplateId,
             urgency: urgency,
