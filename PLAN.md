@@ -209,6 +209,101 @@ ShiftHandoff {
 
 ---
 
+## Review Hub & Agentic Workflow Map (Added)
+
+### Purpose
+Review is the command center where the agent proposes structured changes and users approve, edit, or reject before publish.
+
+### Information Architecture
+- **Capture:** `RecordView`
+- **Propose + Reconcile:** `NoteReviewView` / conflict surfaces
+- **Publish + Monitor:** `DashboardView`, `ShiftFeedView`
+
+### Core Review Sub-Features
+1. **Draft Summary**
+   - Agent-generated shift summary
+   - Confidence + missing-information flags
+2. **Structured Extraction**
+   - Proposed fields (owner, priority, due date, incidents, handoff items)
+   - Per-field accept/edit/reject
+3. **Change Proposals Queue**
+   - Diff-style before/after presentation
+   - Bulk approve for safe deterministic edits
+4. **Conflict Resolution**
+   - Side-by-side conflict context
+   - Recommended resolution + one-tap apply
+5. **Action Item Assignment**
+   - Auto-generated tasks with suggested assignee and urgency
+6. **Follow-up Questions**
+   - High-value clarifying prompts only
+   - Answer now or defer
+7. **Approval Workflow**
+   - Approve all / section / item
+   - Commit gate with audit trail
+8. **Learning Loop**
+   - Feedback on bad suggestions
+   - Org/location preference memory
+
+### New Bottom Tab Recommendation
+Add a dedicated **Review** tab (using the open slot near Profile) to host the agent inbox and pending decisions.
+
+### Execution Order (MVP → Expansion)
+1. Workspace/session memory stabilization (prevent re-onboarding)
+2. Review queue + approvals
+3. Conflict diff + bulk resolve
+4. Daily brief + proactive triggers
+5. Review tab polish + metrics
+
+### Screen-by-Screen Build Map
+
+#### A) Review Tab (New)
+Sections:
+- Needs Acknowledgment
+- Pending Confirmations
+- Unassigned Action Items
+- Stale/Overdue Items
+
+Primary CTAs:
+- Approve Safe Changes
+- Resolve Conflicts
+- Open Note Detail
+
+#### B) Note Review View (Existing, Enhanced)
+Sections:
+- Summary Draft Card
+- Structured Fields Card
+- Proposed Changes Card
+- Follow-up Questions Card
+
+Primary CTAs:
+- Accept Field
+- Edit Field
+- Reject Proposal
+- Commit Changes
+
+#### C) Conflict Detail View (Existing, Enhanced)
+Sections:
+- Why conflict happened
+- Before/After values
+- Recommended resolution
+
+Primary CTAs:
+- Accept Current
+- Apply Recommendation
+- Manual Edit + Save
+
+#### D) Dashboard/Feed Integration
+- Surface “changes published from review” markers
+- Surface review-generated action items with owner + due state
+
+### Success Metrics
+- Time to publish reviewed note
+- % of notes resolved without manual rewrite
+- Conflict resolution time
+- Re-onboarding rate after relogin
+
+---
+
 ### Phase 10: Photo/Video Attachment on Voice Notes
 **Priority:** 🟠 High | **Effort:** Medium | **Target:** 1-2 weeks
 
