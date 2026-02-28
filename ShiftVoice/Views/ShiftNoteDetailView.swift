@@ -16,6 +16,7 @@ struct ShiftNoteDetailView: View {
     @State private var isAcknowledging: Bool = false
     @State private var showConflictSheet: Bool = false
     @State private var showQuickAppend: Bool = false
+    @State private var showPromoteConfirmation: Bool = false
 
     private var note: ShiftNote? {
         viewModel.shiftNotes.first { $0.id == noteId }
@@ -97,8 +98,11 @@ struct ShiftNoteDetailView: View {
     private func noteContent(_ note: ShiftNote) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
+                if note.isPrivate {
+                    privateNoteBanner
+                }
                 headerSection(note)
-                if viewModel.featureFlags.conflictUIEnabled, !viewModel.activeConflictsForNote(note.id).isEmpty {
+                if !note.isPrivate, viewModel.featureFlags.conflictUIEnabled, !viewModel.activeConflictsForNote(note.id).isEmpty {
                     conflictSection(note.id)
                 }
                 summarySection(note)
@@ -109,14 +113,16 @@ struct ShiftNoteDetailView: View {
                 if !note.actionItems.isEmpty {
                     actionItemsSection(note)
                 }
-                if !note.acknowledgments.isEmpty {
+                if !note.isPrivate, !note.acknowledgments.isEmpty {
                     acknowledgmentsSection(note)
                 }
-                if !note.voiceReplies.isEmpty {
+                if !note.isPrivate, !note.voiceReplies.isEmpty {
                     repliesSection(note)
                 }
                 quickAppendButton
-                if !isAcknowledged {
+                if note.isPrivate {
+                    shareWithTeamButton
+                } else if !isAcknowledged {
                     acknowledgeButton
                 }
             }
@@ -380,22 +386,23 @@ struct ShiftNoteDetailView: View {
                             HStack(spacing: 8) {
                                 UrgencyBadge(urgency: item.urgency)
 
-                                Button {
-                                    assigningActionId = item.id
-                                    showAssignSheet = true
-                                } label: {
-
-                                    HStack(spacing: 4) {
-                                        Image(systemName: item.assignee != nil ? "person.fill" : "person.badge.plus")
-                                            .font(.system(size: 10))
-                                        Text(item.assignee ?? "Assign")
-                                            .font(.caption2.weight(.medium))
+                                if !note.isPrivate {
+                                    Button {
+                                        assigningActionId = item.id
+                                        showAssignSheet = true
+                                    } label: {
+                                        HStack(spacing: 4) {
+                                            Image(systemName: item.assignee != nil ? "person.fill" : "person.badge.plus")
+                                                .font(.system(size: 10))
+                                            Text(item.assignee ?? "Assign")
+                                                .font(.caption2.weight(.medium))
+                                        }
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 4)
+                                        .foregroundStyle(item.assignee != nil ? SVTheme.accent : SVTheme.textTertiary)
+                                        .background(item.assignee != nil ? SVTheme.accent.opacity(0.08) : SVTheme.iconBackground)
+                                        .clipShape(.rect(cornerRadius: 6))
                                     }
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 4)
-                                    .foregroundStyle(item.assignee != nil ? SVTheme.accent : SVTheme.textTertiary)
-                                    .background(item.assignee != nil ? SVTheme.accent.opacity(0.08) : SVTheme.iconBackground)
-                                    .clipShape(.rect(cornerRadius: 6))
                                 }
                             }
                         }
@@ -523,6 +530,62 @@ struct ShiftNoteDetailView: View {
                 RoundedRectangle(cornerRadius: 8)
                     .stroke(SVTheme.accent.opacity(0.2), lineWidth: 1)
             )
+        }
+    }
+
+    private var privateNoteBanner: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "lock.fill")
+                .font(.subheadline)
+                .foregroundStyle(.indigo)
+                .frame(width: 32, height: 32)
+                .background(Color.indigo.opacity(0.12))
+                .clipShape(Circle())
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Private Note")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(SVTheme.textPrimary)
+                Text("Only you can see this note")
+                    .font(.caption)
+                    .foregroundStyle(SVTheme.textSecondary)
+            }
+
+            Spacer()
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.indigo.opacity(0.06))
+        .clipShape(.rect(cornerRadius: 12))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color.indigo.opacity(0.15), lineWidth: 1)
+        )
+    }
+
+    private var shareWithTeamButton: some View {
+        Button {
+            showPromoteConfirmation = true
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "person.2.fill")
+                    .font(.subheadline.weight(.semibold))
+                Text("Share with Team")
+                    .font(.subheadline.weight(.semibold))
+            }
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity)
+            .frame(height: 48)
+            .background(SVTheme.accent)
+            .clipShape(.rect(cornerRadius: 8))
+        }
+        .confirmationDialog("Share with Team?", isPresented: $showPromoteConfirmation, titleVisibility: .visible) {
+            Button("Share with Team") {
+                viewModel.promoteNoteToTeam(noteId)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This will make the note visible to your entire team. This can’t be undone.")
         }
     }
 

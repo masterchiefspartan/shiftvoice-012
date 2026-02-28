@@ -53,6 +53,7 @@ struct SettingsView: View {
                     profileSection
                     syncSection
                     notificationSection
+                    notesSection
                     organizationSection
                     locationSection
                     teamSection
@@ -491,6 +492,70 @@ struct SettingsView: View {
         }
         .onAppear {
             pushEnabled = pushService.isAuthorized
+        }
+    }
+
+    @AppStorage("defaultNoteVisibility") private var defaultVisibility: String = "team"
+
+    private var notesSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("NOTES")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(SVTheme.textTertiary)
+                .tracking(0.5)
+
+            VStack(spacing: 0) {
+                HStack {
+                    Text("Default Visibility")
+                        .font(.subheadline)
+                        .foregroundStyle(SVTheme.textPrimary)
+                    Spacer()
+                    Menu {
+                        Button {
+                            defaultVisibility = "team"
+                        } label: {
+                            Label("Team", systemImage: "person.2.fill")
+                        }
+                        Button {
+                            defaultVisibility = "private"
+                        } label: {
+                            Label("Private", systemImage: "lock.fill")
+                        }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: defaultVisibility == "private" ? "lock.fill" : "person.2.fill")
+                                .font(.caption)
+                            Text(defaultVisibility == "private" ? "Private" : "Team")
+                                .font(.subheadline.weight(.medium))
+                            Image(systemName: "chevron.up.chevron.down")
+                                .font(.system(size: 10, weight: .medium))
+                        }
+                        .foregroundStyle(SVTheme.accent)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+
+                Rectangle().fill(SVTheme.divider).frame(height: 1).padding(.leading, 16)
+
+                HStack {
+                    Text("Private Notes")
+                        .font(.subheadline)
+                        .foregroundStyle(SVTheme.textPrimary)
+                    Spacer()
+                    Text("\(viewModel.personalNotes.count)")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(SVTheme.textSecondary)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+            }
+            .background(SVTheme.cardBackground)
+            .clipShape(.rect(cornerRadius: 12))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(SVTheme.surfaceBorder, lineWidth: 1)
+            )
         }
     }
 

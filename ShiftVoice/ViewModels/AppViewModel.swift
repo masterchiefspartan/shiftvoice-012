@@ -1,6 +1,11 @@
 import SwiftUI
 import FirebaseAuth
 
+nonisolated enum FeedScope: String, Sendable {
+    case team
+    case personal
+}
+
 @Observable
 final class AppViewModel {
     var shiftNotes: [ShiftNote] = [] {
@@ -41,8 +46,12 @@ final class AppViewModel {
     var pendingOfflineCount: Int { pendingNoteIds.count }
     var hasPendingSyncIndicators: Bool { hasPendingWrites || !pendingNoteIds.isEmpty }
 
+    // MARK: - Feed Scope
+    var feedScope: FeedScope = .team
+
     // MARK: - Cached Computed Properties
     private(set) var feedNotes: [ShiftNote] = []
+    private(set) var personalNotes: [ShiftNote] = []
     private(set) var allActionItemsWithDate: [(item: ActionItem, noteId: String, authorName: String, locationId: String, createdAt: Date)] = []
     private(set) var notesThisMonth: Int = 0
     private(set) var conflictedActionItemsCache: [(item: ActionItem, noteId: String)] = []
@@ -75,7 +84,8 @@ final class AppViewModel {
         guard !searchQuery.isEmpty else { return [] }
         let q = searchQuery.lowercased()
         var results: [ShiftNote] = []
-        for note in feedNotes {
+        let source = activeFeedSource
+        for note in source {
             if results.count >= maxSearchResults { break }
             if note.rawTranscript.lowercased().localizedStandardContains(q) ||
                note.summary.lowercased().localizedStandardContains(q) ||
@@ -272,10 +282,15 @@ final class AppViewModel {
     // MARK: - Cache Invalidation
 
     private func invalidateCaches() {
+        let uid = currentUserId
         let newFeedNotes = shiftNotes
-            .filter { $0.locationId == selectedLocationId }
+            .filter { $0.locationId == selectedLocationId && $0.visibility == .team }
             .sorted { $0.syncOrderingDate > $1.syncOrderingDate }
         feedNotes = newFeedNotes
+
+        personalNotes = shiftNotes
+            .filter { $0.visibility == .personal && $0.authorId == uid }
+            .sorted { $0.syncOrderingDate > $1.syncOrderingDate }
 
         allActionItemsWithDate = shiftNotes.flatMap { note in
             note.actionItems.map { (
@@ -293,7 +308,6 @@ final class AppViewModel {
 
         let calendar = Calendar.current
         let now = Date()
-        let uid = currentUserId
         notesThisMonth = shiftNotes.filter {
             $0.authorId == uid &&
             calendar.isDate($0.createdAt, equalTo: now, toGranularity: .month)
@@ -306,11 +320,16 @@ final class AppViewModel {
         refreshPaginatedNotes()
     }
 
+    var activeFeedSource: [ShiftNote] {
+        feedScope == .team ? feedNotes : personalNotes
+    }
+
     // MARK: - Pagination
 
     private func filteredSource(for shiftFilter: String?) -> [ShiftNote] {
-        guard let filter = shiftFilter else { return feedNotes }
-        return feedNotes.filter { $0.shiftDisplayInfo.id == filter }
+        let base = feedScope == .team ? feedNotes : personalNotes
+        guard let filter = shiftFilter else { return base }
+        return base.filter { $0.shiftDisplayInfo.id == filter }
     }
 
     private func refreshPaginatedNotes() {
@@ -662,7 +681,7 @@ final class AppViewModel {
         writeShiftNote(mutableNote, operation: .create)
 
         if !isOffline {
-            showToast("Shift note published", isError: false)
+            showToast(mutableNote.isPrivate ? "Saved to your private notes" : "Shift note published", isError: false)
         }
     }
 
@@ -701,6 +720,17 @@ final class AppViewModel {
 
     func notesForLocation(_ locationId: String) -> [ShiftNote] {
         shiftNotes.filter { $0.locationId == locationId }
+    }
+
+    func promoteNoteToTeam(_ noteId: String) {
+        guard let index = shiftNotes.firstIndex(where: { $0.id == noteId }) else { return }
+        guard shiftNotes[index].visibility == .personal else { return }
+        let now = Date()
+        shiftNotes[index].visibility = .team
+        shiftNotes[index].updatedAt = now
+        shiftNotes[index].updatedAtClient = now
+        writeShiftNote(shiftNotes[index], operation: .edit)
+        showToast("Note shared with team", isError: false)
     }
 
     // MARK: - Action Items

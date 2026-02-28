@@ -13,18 +13,26 @@ struct ShiftFeedView: View {
     @State private var showConflictSheet: Bool = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    private var isPersonalScope: Bool {
+        viewModel.feedScope == .personal
+    }
+
     var body: some View {
         NavigationStack(path: $navPath) {
             ScrollView {
                 VStack(spacing: 24) {
-                    locationHeader
+                    feedScopeToggle
                         .padding(.horizontal, 24)
+                    if !isPersonalScope {
+                        locationHeader
+                            .padding(.horizontal, 24)
+                    }
                     searchBar
                         .padding(.horizontal, 24)
-                    if !isSearchActive {
+                    if !isSearchActive && !isPersonalScope {
                         filterBar
                     }
-                    if viewModel.featureFlags.conflictUIEnabled, viewModel.hasActiveConflicts {
+                    if !isPersonalScope, viewModel.featureFlags.conflictUIEnabled, viewModel.hasActiveConflicts {
                         conflictSummaryBanner
                             .padding(.horizontal, 24)
                     }
@@ -98,6 +106,56 @@ struct ShiftFeedView: View {
                     .padding(.top, -1)
             }
         }
+    }
+
+    private var feedScopeToggle: some View {
+        HStack(spacing: 0) {
+            Button {
+                withAnimation(.easeOut(duration: 0.2)) {
+                    viewModel.feedScope = .team
+                    viewModel.loadFirstPage(shiftFilter: selectedShiftFilter?.id)
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "person.2.fill")
+                        .font(.caption2)
+                    Text("Team Feed")
+                        .font(.subheadline.weight(.medium))
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+                .foregroundStyle(viewModel.feedScope == .team ? .white : SVTheme.textSecondary)
+                .background(viewModel.feedScope == .team ? SVTheme.textPrimary : Color.clear)
+                .clipShape(.rect(cornerRadius: 8))
+            }
+
+            Button {
+                withAnimation(.easeOut(duration: 0.2)) {
+                    viewModel.feedScope = .personal
+                    viewModel.loadFirstPage(shiftFilter: nil)
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "lock.fill")
+                        .font(.caption2)
+                    Text("My Notes")
+                        .font(.subheadline.weight(.medium))
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+                .foregroundStyle(viewModel.feedScope == .personal ? .white : SVTheme.textSecondary)
+                .background(viewModel.feedScope == .personal ? Color.indigo : Color.clear)
+                .clipShape(.rect(cornerRadius: 8))
+            }
+        }
+        .padding(3)
+        .background(SVTheme.surface)
+        .clipShape(.rect(cornerRadius: 10))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(SVTheme.surfaceBorder, lineWidth: 1)
+        )
+        .sensoryFeedback(.selection, trigger: viewModel.feedScope)
     }
 
     private var locationHeader: some View {
@@ -381,13 +439,13 @@ struct ShiftFeedView: View {
 
     private var emptyState: some View {
         VStack(spacing: 12) {
-            Image(systemName: "tray")
+            Image(systemName: isPersonalScope ? "lock.doc" : "tray")
                 .font(.system(size: 36))
-                .foregroundStyle(SVTheme.textTertiary)
-            Text("No shift notes yet")
+                .foregroundStyle(isPersonalScope ? Color.indigo.opacity(0.5) : SVTheme.textTertiary)
+            Text(isPersonalScope ? "No private notes yet" : "No shift notes yet")
                 .font(.headline)
                 .foregroundStyle(SVTheme.textSecondary)
-            Text("Tap the mic button to record your first shift note")
+            Text(isPersonalScope ? "Your private notes will appear here. Tap the mic to capture your first thought." : "Tap the mic button to record your first shift note")
                 .font(.subheadline)
                 .foregroundStyle(SVTheme.textTertiary)
                 .multilineTextAlignment(.center)

@@ -17,4 +17,5 @@ struct PendingNoteReviewData {
     var usedAI: Bool = true
     var structuringWarning: String? = nil
     var recordingFailureState: RecordingFailureState = .none
+    var visibility: NoteVisibility = .team
 }

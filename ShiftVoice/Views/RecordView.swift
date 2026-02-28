@@ -17,8 +17,14 @@ struct RecordView: View {
     @Environment(\.dismiss) private var dismiss
     private let subscription = SubscriptionService.shared
     @State private var shouldResumeRecordingAfterPaywall: Bool = false
+    @AppStorage("defaultNoteVisibility") private var defaultVisibility: String = "team"
+    @State private var selectedVisibility: NoteVisibility = .team
 
     private var recording: RecordingViewModel { viewModel.recording }
+
+    private var resolvedDefaultVisibility: NoteVisibility {
+        NoteVisibility(rawValue: defaultVisibility) ?? .team
+    }
 
     private var currentShiftDisplay: ShiftDisplayInfo {
         selectedShiftDisplay ?? viewModel.currentShiftDisplayInfo
@@ -65,6 +71,7 @@ struct RecordView: View {
                         summary: reviewData.summary,
                         categorizedItems: reviewData.categorizedItems,
                         actionItems: reviewData.actionItems,
+                        visibility: selectedVisibility,
                         structuringWarning: reviewData.structuringWarning,
                         recordingFailureState: reviewData.recordingFailureState,
                         onDiscard: {
@@ -105,6 +112,7 @@ struct RecordView: View {
             .task {
                 let granted = await recording.requestRecordingPermissions()
                 permissionGranted = granted
+                selectedVisibility = resolvedDefaultVisibility
             }
             .onChange(of: recording.audioRecorder.didAutoStop) { _, didAutoStop in
                 if didAutoStop {
@@ -168,6 +176,9 @@ struct RecordView: View {
                 }
             }
             .padding(.top, 24)
+
+            visibilityToggle
+                .padding(.top, 16)
 
             Spacer()
 
@@ -436,16 +447,50 @@ struct RecordView: View {
                 .symbolEffect(.bounce, value: showSuccess)
 
             VStack(spacing: 6) {
-                Text("Shift Note Sent")
+                Text(selectedVisibility == .personal ? "Note Saved" : "Shift Note Sent")
                     .font(.system(.title3, design: .serif, weight: .bold))
                     .foregroundStyle(SVTheme.textPrimary)
-                Text("Your team will be notified")
+                Text(selectedVisibility == .personal ? "Saved to your private notes" : "Your team will be notified")
                     .font(.subheadline)
                     .foregroundStyle(SVTheme.textTertiary)
             }
 
             Spacer()
         }
+    }
+
+    private var visibilityToggle: some View {
+        HStack(spacing: 0) {
+            ForEach(NoteVisibility.allCases, id: \.rawValue) { vis in
+                Button {
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        selectedVisibility = vis
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: vis.icon)
+                            .font(.caption2)
+                        Text(vis.label)
+                            .font(.caption.weight(.medium))
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .frame(maxWidth: .infinity)
+                    .foregroundStyle(selectedVisibility == vis ? .white : SVTheme.textSecondary)
+                    .background(selectedVisibility == vis ? (vis == .personal ? Color.indigo : SVTheme.textPrimary) : Color.clear)
+                    .clipShape(.rect(cornerRadius: 8))
+                }
+            }
+        }
+        .padding(3)
+        .background(SVTheme.surface)
+        .clipShape(.rect(cornerRadius: 10))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(SVTheme.surfaceBorder, lineWidth: 1)
+        )
+        .padding(.horizontal, 24)
+        .sensoryFeedback(.selection, trigger: selectedVisibility)
     }
 
     private func tipItem(icon: String, text: String) -> some View {

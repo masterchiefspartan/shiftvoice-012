@@ -1,5 +1,24 @@
 import Foundation
 
+nonisolated enum NoteVisibility: String, Codable, Sendable, CaseIterable {
+    case team = "team"
+    case personal = "private"
+
+    var label: String {
+        switch self {
+        case .team: return "Team"
+        case .personal: return "Private"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .team: return "person.2.fill"
+        case .personal: return "lock.fill"
+        }
+    }
+}
+
 nonisolated enum ShiftType: String, CaseIterable, Identifiable, Codable, Sendable {
     case opening = "Opening"
     case mid = "Mid"
@@ -219,8 +238,12 @@ nonisolated struct ShiftNote: Identifiable, Codable, Sendable {
     var lastClientMutationId: String?
     var conflictState: String?
     var conflictSummary: String?
+    var visibility: NoteVisibility
     var isSynced: Bool
     var isDirty: Bool
+
+    var isPrivate: Bool { visibility == .personal }
+    var isTeam: Bool { visibility == .team }
 
     init(
         id: String = UUID().uuidString,
@@ -247,6 +270,7 @@ nonisolated struct ShiftNote: Identifiable, Codable, Sendable {
         lastClientMutationId: String? = nil,
         conflictState: String? = nil,
         conflictSummary: String? = nil,
+        visibility: NoteVisibility = .team,
         isSynced: Bool = true,
         isDirty: Bool = false
     ) {
@@ -275,6 +299,7 @@ nonisolated struct ShiftNote: Identifiable, Codable, Sendable {
         self.lastClientMutationId = lastClientMutationId
         self.conflictState = conflictState
         self.conflictSummary = conflictSummary
+        self.visibility = visibility
         self.isSynced = isSynced
         self.isDirty = isDirty
     }

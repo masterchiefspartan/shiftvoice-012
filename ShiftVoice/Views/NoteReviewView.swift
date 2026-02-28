@@ -36,6 +36,7 @@ struct NoteReviewView: View {
     @State private var recordingFailureState: RecordingFailureState
     @State private var approvedActionItemIds: Set<String>
     @State private var showUnsavedExitDialog: Bool = false
+    @State private var noteVisibility: NoteVisibility
     @Environment(\.dismiss) private var dismiss
 
     private let initialSummary: String
@@ -55,6 +56,7 @@ struct NoteReviewView: View {
         summary: String,
         categorizedItems: [CategorizedItem],
         actionItems: [ActionItem],
+        visibility: NoteVisibility = .team,
         structuringWarning: String? = nil,
         recordingFailureState: RecordingFailureState = .none,
         onDiscard: @escaping () -> Void,
@@ -83,6 +85,7 @@ struct NoteReviewView: View {
         let initialApprovedActionItemIds: Set<String> = []
         _approvedActionItemIds = State(initialValue: initialApprovedActionItemIds)
         self.initialApprovedActionItemIds = initialApprovedActionItemIds
+        _noteVisibility = State(initialValue: visibility)
     }
 
     private func structuringWarningBanner(_ warning: String) -> some View {
@@ -127,6 +130,7 @@ struct NoteReviewView: View {
                     case .error(let message):
                         errorStateView(message)
                     case .ready, .publishing, .success:
+                        visibilityBadge
                         if case .transcriptionFailed = recordingFailureState {
                             transcriptionFailedBanner
                         }
@@ -430,6 +434,39 @@ struct NoteReviewView: View {
         }
     }
 
+    private var visibilityBadge: some View {
+        HStack(spacing: 0) {
+            ForEach(NoteVisibility.allCases, id: \.rawValue) { vis in
+                Button {
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        noteVisibility = vis
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: vis.icon)
+                            .font(.caption2)
+                        Text(vis.label)
+                            .font(.caption.weight(.medium))
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .frame(maxWidth: .infinity)
+                    .foregroundStyle(noteVisibility == vis ? .white : SVTheme.textSecondary)
+                    .background(noteVisibility == vis ? (vis == .personal ? Color.indigo : SVTheme.textPrimary) : Color.clear)
+                    .clipShape(.rect(cornerRadius: 8))
+                }
+            }
+        }
+        .padding(3)
+        .background(SVTheme.surface)
+        .clipShape(.rect(cornerRadius: 10))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(SVTheme.surfaceBorder, lineWidth: 1)
+        )
+        .sensoryFeedback(.selection, trigger: noteVisibility)
+    }
+
     private var headerInfo: some View {
         HStack(spacing: 12) {
             Text(viewModel.currentUserInitials)
@@ -667,9 +704,11 @@ struct NoteReviewView: View {
                         .font(.caption)
                         .foregroundStyle(SVTheme.textSecondary)
                     Spacer()
-                    Text("Owner optional")
-                        .font(.caption2)
-                        .foregroundStyle(SVTheme.textTertiary)
+                    if noteVisibility == .team {
+                        Text("Owner optional")
+                            .font(.caption2)
+                            .foregroundStyle(SVTheme.textTertiary)
+                    }
                 }
             }
 
@@ -700,6 +739,7 @@ struct NoteReviewView: View {
                                 set: { editableActionItems[index] = $0 }
                             ),
                             isApproved: approvedActionItemIds.contains(item.id),
+                            hideAssignee: noteVisibility == .personal,
                             onApprove: {
                                 approvedActionItemIds.insert(item.id)
                             },
@@ -766,10 +806,10 @@ struct NoteReviewView: View {
                                 .tint(.white)
                                 .scaleEffect(0.85)
                         } else {
-                            Image(systemName: "paperplane.fill")
+                            Image(systemName: noteVisibility == .personal ? "square.and.arrow.down.fill" : "paperplane.fill")
                                 .font(.subheadline)
                         }
-                        Text("Approve & Send")
+                        Text(noteVisibility == .personal ? "Save to My Notes" : "Approve & Send")
                             .font(.subheadline.weight(.semibold))
                     }
                     .foregroundStyle(.white)
@@ -848,7 +888,8 @@ struct NoteReviewView: View {
             audioDuration: audioDuration,
             summary: sanitizedSummary,
             categorizedItems: categorizedItems,
-            actionItems: actionItems
+            actionItems: actionItems,
+            visibility: noteVisibility
         )
 
         let didPublish = onPublish(note)
@@ -1047,6 +1088,7 @@ struct EditableCategorizedItemRow: View {
 struct EditableActionItemRow: View {
     @Binding var item: EditableActionItem
     let isApproved: Bool
+    var hideAssignee: Bool = false
     let onApprove: () -> Void
     let onUnapprove: () -> Void
     let onAssign: () -> Void
@@ -1138,20 +1180,22 @@ struct EditableActionItemRow: View {
                     }
                 }
 
-                Button {
-                    onAssign()
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: item.assignee != nil ? "person.fill" : "person")
-                            .font(.system(size: 11, weight: .medium))
-                        Text(item.assignee ?? "Unassigned")
-                            .font(.subheadline.weight(.medium))
+                if !hideAssignee {
+                    Button {
+                        onAssign()
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: item.assignee != nil ? "person.fill" : "person")
+                                .font(.system(size: 11, weight: .medium))
+                            Text(item.assignee ?? "Unassigned")
+                                .font(.subheadline.weight(.medium))
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .foregroundStyle(item.assignee != nil ? SVTheme.accent : SVTheme.textTertiary)
+                        .background(item.assignee != nil ? SVTheme.accent.opacity(0.1) : SVTheme.iconBackground)
+                        .clipShape(.rect(cornerRadius: 9))
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .foregroundStyle(item.assignee != nil ? SVTheme.accent : SVTheme.textTertiary)
-                    .background(item.assignee != nil ? SVTheme.accent.opacity(0.1) : SVTheme.iconBackground)
-                    .clipShape(.rect(cornerRadius: 9))
                 }
 
                 Spacer()

@@ -41,6 +41,19 @@ struct ShiftNoteCardView: View {
                     Spacer()
 
                     HStack(spacing: 8) {
+                        if note.isPrivate {
+                            HStack(spacing: 4) {
+                                Image(systemName: "lock.fill")
+                                    .font(.system(size: 10))
+                                Text("Private")
+                                    .font(.system(size: 11, weight: .medium))
+                            }
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .foregroundStyle(.indigo)
+                            .background(Color.indigo.opacity(0.1))
+                            .clipShape(.rect(cornerRadius: 6))
+                        }
                         statusBadge
                         ShiftTypeBadge(info: note.shiftDisplayInfo)
                     }
