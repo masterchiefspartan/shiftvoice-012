@@ -84,8 +84,26 @@ final class RecordingViewModel {
     }
 
     func retryTranscription(authToken: String?, userId: String?, businessType: String) async {
-        guard let reviewData = pendingReviewData,
-              let audioFilename = reviewData.audioUrl else { return }
+        guard let reviewData = pendingReviewData else {
+            recordingFailureState = .transcriptionFailed(message: "Couldn't retry because no review data is available.")
+            return
+        }
+        guard let audioFilename = reviewData.audioUrl, !audioFilename.isEmpty else {
+            recordingFailureState = .transcriptionFailed(message: "Original audio file is unavailable. Please record a new note.")
+            pendingReviewData = PendingNoteReviewData(
+                rawTranscript: reviewData.rawTranscript,
+                audioDuration: reviewData.audioDuration,
+                audioUrl: reviewData.audioUrl,
+                shiftInfo: reviewData.shiftInfo,
+                summary: reviewData.summary,
+                categorizedItems: reviewData.categorizedItems,
+                actionItems: reviewData.actionItems,
+                usedAI: reviewData.usedAI,
+                structuringWarning: reviewData.structuringWarning,
+                recordingFailureState: recordingFailureState
+            )
+            return
+        }
 
         let recordingDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("ShiftVoiceRecordings", isDirectory: true)
