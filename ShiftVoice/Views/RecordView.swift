@@ -66,8 +66,7 @@ struct RecordView: View {
                         categorizedItems: reviewData.categorizedItems,
                         actionItems: reviewData.actionItems,
                         structuringWarning: reviewData.structuringWarning,
-                        transcriptionFailed: reviewData.transcriptionFailed,
-                        transcriptionFailureMessage: reviewData.transcriptionFailureMessage,
+                        recordingFailureState: reviewData.recordingFailureState,
                         onDiscard: {
                             showReview = false
                             recording.discardPendingNote()

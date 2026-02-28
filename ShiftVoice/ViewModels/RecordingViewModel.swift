@@ -21,8 +21,7 @@ final class RecordingViewModel {
     var structuringWarning: String?
     var pendingReviewData: PendingNoteReviewData?
     var processingElapsed: TimeInterval = 0
-    var transcriptionFailed: Bool = false
-    var transcriptionFailureMessage: String?
+    var recordingFailureState: RecordingFailureState = .none
     var isRetryingTranscription: Bool = false
     private var hasUserEditedReview: Bool = false
     private var processingTimer: Task<Void, Never>?
@@ -65,8 +64,7 @@ final class RecordingViewModel {
         processingStage = .transcribing
         hasUserEditedReview = false
         structuringWarning = nil
-        transcriptionFailed = false
-        transcriptionFailureMessage = nil
+        recordingFailureState = .none
         processingElapsed = 0
         startProcessingTimer()
 
@@ -94,15 +92,13 @@ final class RecordingViewModel {
         let audioURL = recordingDir.appendingPathComponent(audioFilename)
 
         isRetryingTranscription = true
-        transcriptionFailed = false
-        transcriptionFailureMessage = nil
+        recordingFailureState = .none
 
         let isValid = await transcriptionService.validateBeforeTranscription(at: audioURL)
         guard isValid else {
             logger.error("Retry transcription blocked by validation for file \(audioURL.lastPathComponent, privacy: .public)")
             let reason = transcriptionService.failureReason
-            transcriptionFailed = !(reason?.isEmptyRecording ?? false)
-            transcriptionFailureMessage = reason?.userMessage ?? "Transcription failed. Please try again."
+            recordingFailureState = failureState(from: reason)
             isRetryingTranscription = false
             return
         }
@@ -167,12 +163,11 @@ final class RecordingViewModel {
                 actionItems: actionItems,
                 usedAI: usedAI,
                 structuringWarning: warning,
-                transcriptionFailed: false
+                recordingFailureState: .none
             )
         } else {
             let reason = transcriptionService.failureReason
-            transcriptionFailed = !(reason?.isEmptyRecording ?? false)
-            transcriptionFailureMessage = reason?.userMessage ?? "Transcription failed. Please try again."
+            recordingFailureState = failureState(from: reason)
         }
         isRetryingTranscription = false
     }
@@ -200,7 +195,7 @@ final class RecordingViewModel {
                 actionItems: instantActions,
                 usedAI: instantUsedAI,
                 structuringWarning: instantWarning,
-                transcriptionFailed: false
+                recordingFailureState: .none
             )
             stopProcessingTimer()
             processingStage = nil
@@ -217,8 +212,7 @@ final class RecordingViewModel {
             }
         } else {
             var transcript = ""
-            var didTranscriptionFail = false
-            var failMessage: String?
+            var currentFailureState: RecordingFailureState = .none
 
             processingStage = .transcribing
 
@@ -230,18 +224,15 @@ final class RecordingViewModel {
                         transcript = result
                     } else {
                         let reason = transcriptionService.failureReason
-                        didTranscriptionFail = !(reason?.isEmptyRecording ?? false)
-                        failMessage = reason?.userMessage
+                        currentFailureState = failureState(from: reason)
                     }
                 } else {
                     logger.error("Process recording blocked by validation for file \(audioURL.lastPathComponent, privacy: .public)")
                     let reason = transcriptionService.failureReason
-                    didTranscriptionFail = !(reason?.isEmptyRecording ?? false)
-                    failMessage = reason?.userMessage
+                    currentFailureState = failureState(from: reason)
                 }
             } else {
-                didTranscriptionFail = true
-                failMessage = "No audio file was recorded."
+                currentFailureState = .transcriptionFailed(message: "No audio file was recorded.")
             }
 
             var summary: String
@@ -263,8 +254,7 @@ final class RecordingViewModel {
 
             processingStage = .finalizing
 
-            transcriptionFailed = didTranscriptionFail
-            transcriptionFailureMessage = failMessage
+            recordingFailureState = currentFailureState
 
             pendingReviewData = PendingNoteReviewData(
                 rawTranscript: transcript,
@@ -276,8 +266,7 @@ final class RecordingViewModel {
                 actionItems: actionItems,
                 usedAI: usedAI,
                 structuringWarning: warning,
-                transcriptionFailed: didTranscriptionFail,
-                transcriptionFailureMessage: failMessage
+                recordingFailureState: currentFailureState
             )
             stopProcessingTimer()
             processingStage = nil
@@ -365,7 +354,7 @@ final class RecordingViewModel {
             actionItems: actionItems,
             usedAI: usedAI,
             structuringWarning: warning,
-            transcriptionFailed: false
+            recordingFailureState: .none
         )
     }
 
@@ -399,5 +388,15 @@ final class RecordingViewModel {
     private func stopProcessingTimer() {
         processingTimer?.cancel()
         processingTimer = nil
+    }
+
+    private func failureState(from reason: TranscriptionFailureReason?) -> RecordingFailureState {
+        guard let reason else {
+            return .transcriptionFailed(message: "Couldn't process audio. Please retry transcription.")
+        }
+        if reason.isEmptyRecording {
+            return .emptyRecording(message: reason.userMessage)
+        }
+        return .transcriptionFailed(message: reason.userMessage)
     }
 }

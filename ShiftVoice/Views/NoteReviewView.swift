@@ -33,8 +33,7 @@ struct NoteReviewView: View {
     @State private var isPublishing: Bool = false
     @State private var publishSucceeded: Bool = false
     @State private var structuringWarning: String?
-    @State private var transcriptionFailed: Bool
-    @State private var transcriptionFailureMessage: String?
+    @State private var recordingFailureState: RecordingFailureState
     @State private var showUnsavedExitDialog: Bool = false
     @Environment(\.dismiss) private var dismiss
 
@@ -55,8 +54,7 @@ struct NoteReviewView: View {
         categorizedItems: [CategorizedItem],
         actionItems: [ActionItem],
         structuringWarning: String? = nil,
-        transcriptionFailed: Bool = false,
-        transcriptionFailureMessage: String? = nil,
+        recordingFailureState: RecordingFailureState = .none,
         onDiscard: @escaping () -> Void,
         onPublish: @escaping (ShiftNote) -> Bool
     ) {
@@ -79,8 +77,7 @@ struct NoteReviewView: View {
         self.initialCategorizedItems = initialCategorizedItems
         self.initialActionItems = initialActionItems
         _structuringWarning = State(initialValue: structuringWarning)
-        _transcriptionFailed = State(initialValue: transcriptionFailed)
-        _transcriptionFailureMessage = State(initialValue: transcriptionFailureMessage)
+        _recordingFailureState = State(initialValue: recordingFailureState)
     }
 
     private func structuringWarningBanner(_ warning: String) -> some View {
@@ -125,7 +122,7 @@ struct NoteReviewView: View {
                     case .error(let message):
                         errorStateView(message)
                     case .ready, .publishing, .success:
-                        if transcriptionFailed {
+                        if case .transcriptionFailed = recordingFailureState {
                             transcriptionFailedBanner
                         }
                         if let warning = structuringWarning {
@@ -265,13 +262,60 @@ struct NoteReviewView: View {
         let hasAnyContent: Bool = hasTranscript || hasSummary || hasCategorizedItems || hasActionItems
 
         if !hasAnyContent {
-            if transcriptionFailed {
-                return .error(transcriptionFailureMessage ?? "Transcription failed. Retry transcription or discard this note.")
+            switch recordingFailureState {
+            case .none, .emptyRecording:
+                return .empty
+            case .transcriptionFailed(let message):
+                return .error(message)
             }
-            return .empty
         }
 
         return .ready
+    }
+
+    private var emptyRecordingMessage: String {
+        switch recordingFailureState {
+        case .emptyRecording(let message):
+            return message
+        case .transcriptionFailed, .none:
+            return "No speech was detected in the recording. Retry transcription or discard this recording."
+        }
+    }
+
+    private var transcriptionFailureMessage: String {
+        switch recordingFailureState {
+        case .transcriptionFailed(let message):
+            return message
+        case .emptyRecording, .none:
+            return "Couldn't process audio. Please retry transcription."
+        }
+    }
+
+    private var transcriptStatusSymbol: String {
+        switch recordingFailureState {
+        case .transcriptionFailed:
+            return "exclamationmark.triangle"
+        case .emptyRecording, .none:
+            return "waveform.slash"
+        }
+    }
+
+    private var transcriptStatusText: String {
+        switch recordingFailureState {
+        case .transcriptionFailed:
+            return "Transcription failed — tap Retry above"
+        case .emptyRecording, .none:
+            return "No speech detected in recording"
+        }
+    }
+
+    private var transcriptStatusColor: Color {
+        switch recordingFailureState {
+        case .transcriptionFailed:
+            return SVTheme.urgentRed
+        case .emptyRecording, .none:
+            return SVTheme.textTertiary
+        }
     }
 
     private var loadingStateView: some View {
@@ -301,7 +345,7 @@ struct NoteReviewView: View {
             ContentUnavailableView {
                 Label("Empty Recording", systemImage: "waveform.slash")
             } description: {
-                Text(transcriptionFailureMessage ?? "No speech was detected in the recording. Retry transcription or discard this recording.")
+                Text(emptyRecordingMessage)
             }
 
             Button {
@@ -457,7 +501,7 @@ struct NoteReviewView: View {
                     Text("Transcription Failed")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(SVTheme.textPrimary)
-                    Text(transcriptionFailureMessage ?? "Could not transcribe audio.")
+                    Text(transcriptionFailureMessage)
                         .font(.caption)
                         .foregroundStyle(SVTheme.textSecondary)
                 }
@@ -512,12 +556,12 @@ struct NoteReviewView: View {
 
             if rawTranscript.isEmpty {
                 HStack(spacing: 6) {
-                    Image(systemName: transcriptionFailed ? "exclamationmark.triangle" : "waveform.slash")
+                    Image(systemName: transcriptStatusSymbol)
                         .font(.caption)
-                    Text(transcriptionFailed ? "Transcription failed — tap Retry above" : "No speech detected in recording")
+                    Text(transcriptStatusText)
                         .font(.caption)
                 }
-                .foregroundStyle(transcriptionFailed ? SVTheme.urgentRed : SVTheme.textTertiary)
+                .foregroundStyle(transcriptStatusColor)
             } else {
                 Text(rawTranscript)
                     .font(.caption)
@@ -786,14 +830,10 @@ struct NoteReviewView: View {
             editableCategorizedItems = updated.categorizedItems.map { EditableCategorizedItem(from: $0) }
             editableActionItems = updated.actionItems.map { EditableActionItem(from: $0) }
             structuringWarning = updated.structuringWarning
-            transcriptionFailed = updated.transcriptionFailed
-            transcriptionFailureMessage = updated.transcriptionFailureMessage
+            recordingFailureState = updated.recordingFailureState
         }
 
-        if viewModel.recording.transcriptionFailed {
-            transcriptionFailed = true
-            transcriptionFailureMessage = viewModel.recording.transcriptionFailureMessage
-        }
+        recordingFailureState = viewModel.recording.recordingFailureState
     }
 
     private func formatDuration(_ duration: TimeInterval) -> String {

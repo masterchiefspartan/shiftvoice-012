@@ -1,5 +1,11 @@
 import Foundation
 
+nonisolated enum RecordingFailureState: Sendable {
+    case none
+    case emptyRecording(message: String)
+    case transcriptionFailed(message: String)
+}
+
 struct PendingNoteReviewData {
     let rawTranscript: String
     let audioDuration: TimeInterval
@@ -10,6 +16,5 @@ struct PendingNoteReviewData {
     let actionItems: [ActionItem]
     var usedAI: Bool = true
     var structuringWarning: String? = nil
-    var transcriptionFailed: Bool = false
-    var transcriptionFailureMessage: String? = nil
+    var recordingFailureState: RecordingFailureState = .none
 }
