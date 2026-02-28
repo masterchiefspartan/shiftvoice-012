@@ -39,7 +39,7 @@ struct ShiftFeedView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .principal) {
-                    Text("Inbox")
+                    Text("Feed")
                         .font(.system(size: 17, weight: .semibold))
                         .foregroundStyle(SVTheme.textPrimary)
                 }
@@ -103,7 +103,7 @@ struct ShiftFeedView: View {
     private var locationHeader: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .top) {
-                Text("Your Inbox")
+                Text("Team Feed")
                     .font(.system(.largeTitle, design: .serif, weight: .bold))
                     .foregroundStyle(SVTheme.textPrimary)
                     .tracking(-0.5)

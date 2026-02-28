@@ -3,13 +3,13 @@ import SwiftUI
 struct ContentView: View {
     let authService: AuthenticationService
     let viewModel: AppViewModel
-    @State private var selectedTab: AppTab = .inbox
-    @State private var tabsLoaded: Set<AppTab> = [.inbox]
+    @State private var selectedTab: AppTab = .feed
+    @State private var tabsLoaded: Set<AppTab> = [.feed]
     @State private var showRecordSheet: Bool = false
 
     @AppStorage("hasSeenFirstRunGuide") private var hasSeenFirstRunGuide: Bool = false
     @State private var showFirstRunGuide: Bool = false
-    @State private var inboxNavPath: NavigationPath = NavigationPath()
+    @State private var feedNavPath: NavigationPath = NavigationPath()
     @State private var actionsNavPath: NavigationPath = NavigationPath()
     @State private var reviewNavPath: NavigationPath = NavigationPath()
     private let subscription = SubscriptionService.shared
@@ -17,10 +17,10 @@ struct ContentView: View {
     var body: some View {
         ZStack(alignment: .bottom) {
             ZStack {
-                if tabsLoaded.contains(.inbox) {
-                    ShiftFeedView(viewModel: viewModel, navPath: $inboxNavPath)
-                        .opacity(selectedTab == .inbox ? 1 : 0)
-                        .allowsHitTesting(selectedTab == .inbox)
+                if tabsLoaded.contains(.feed) {
+                    ShiftFeedView(viewModel: viewModel, navPath: $feedNavPath)
+                        .opacity(selectedTab == .feed ? 1 : 0)
+                        .allowsHitTesting(selectedTab == .feed)
                 }
 
                 if tabsLoaded.contains(.actions) {
@@ -69,11 +69,12 @@ struct ContentView: View {
         }
         .onChange(of: viewModel.pendingNoteId) { _, noteId in
             guard let noteId else { return }
-            inboxNavPath = NavigationPath()
-            selectedTab = .inbox
+            viewModel.loadFirstPage(shiftFilter: nil)
+            feedNavPath = NavigationPath()
+            selectedTab = .feed
             Task {
                 try? await Task.sleep(for: .milliseconds(300))
-                inboxNavPath.append(AppRoute.shiftNoteDetail(noteId: noteId))
+                feedNavPath.append(AppRoute.shiftNoteDetail(noteId: noteId))
                 viewModel.pendingNoteId = nil
             }
         }
@@ -148,7 +149,7 @@ struct ContentView: View {
         VStack(spacing: 0) {
             Rectangle().fill(SVTheme.divider).frame(height: 1 / UIScreen.main.scale)
             HStack(spacing: 0) {
-                tabButton(tab: .inbox, icon: "tray.fill", inactiveIcon: "tray", label: "Inbox", badge: viewModel.unacknowledgedCount)
+                tabButton(tab: .feed, icon: "tray.fill", inactiveIcon: "tray", label: "Feed", badge: viewModel.unacknowledgedCount)
                 tabButton(tab: .actions, icon: "bolt.fill", inactiveIcon: "bolt", label: "Actions", badge: 0)
                 recordButton
                 tabButton(tab: .review, icon: "sparkles.rectangle.stack.fill", inactiveIcon: "sparkles.rectangle.stack", label: "Review", badge: viewModel.reviewBadgeCount)
@@ -219,7 +220,7 @@ struct ContentView: View {
 }
 
 nonisolated enum AppTab: Hashable, Sendable {
-    case inbox
+    case feed
     case actions
     case review
     case profile
