@@ -1,5 +1,6 @@
 import SwiftUI
 import AVFoundation
+import OSLog
 
 enum ProcessingStage: Sendable {
     case transcribing
@@ -13,6 +14,7 @@ final class RecordingViewModel {
     let transcriptionService = TranscriptionService()
     private let noteStructuring = NoteStructuringService.shared
     private let structuringCache = StructuringCache.shared
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "ShiftVoice", category: "RecordingFlow")
 
     var isProcessing: Bool = false
     var processingStage: ProcessingStage? = nil
@@ -94,6 +96,17 @@ final class RecordingViewModel {
         isRetryingTranscription = true
         transcriptionFailed = false
         transcriptionFailureMessage = nil
+
+        let isValid = await transcriptionService.validateBeforeTranscription(at: audioURL)
+        guard isValid else {
+            logger.error("Retry transcription blocked by validation for file \(audioURL.lastPathComponent, privacy: .public)")
+            let reason = transcriptionService.failureReason
+            transcriptionFailed = !(reason?.isEmptyRecording ?? false)
+            transcriptionFailureMessage = reason?.userMessage ?? "Transcription failed. Please try again."
+            isRetryingTranscription = false
+            return
+        }
+        logger.info("Retry transcription validation passed for file \(audioURL.lastPathComponent, privacy: .public)")
 
         if let result = await transcriptionService.transcribeAudioFile(at: audioURL, authToken: authToken, userId: userId) {
             let aiResult = await withTaskGroup(of: Result<StructuringResult, StructuringError>?.self) { group -> Result<StructuringResult, StructuringError>? in
@@ -210,9 +223,18 @@ final class RecordingViewModel {
             processingStage = .transcribing
 
             if let audioURL {
-                if let result = await transcriptionService.transcribeAudioFile(at: audioURL, authToken: authToken, userId: userId) {
-                    transcript = result
+                let isValid = await transcriptionService.validateBeforeTranscription(at: audioURL)
+                if isValid {
+                    logger.info("Process recording validation passed for file \(audioURL.lastPathComponent, privacy: .public)")
+                    if let result = await transcriptionService.transcribeAudioFile(at: audioURL, authToken: authToken, userId: userId) {
+                        transcript = result
+                    } else {
+                        let reason = transcriptionService.failureReason
+                        didTranscriptionFail = !(reason?.isEmptyRecording ?? false)
+                        failMessage = reason?.userMessage
+                    }
                 } else {
+                    logger.error("Process recording blocked by validation for file \(audioURL.lastPathComponent, privacy: .public)")
                     let reason = transcriptionService.failureReason
                     didTranscriptionFail = !(reason?.isEmptyRecording ?? false)
                     failMessage = reason?.userMessage
@@ -313,6 +335,13 @@ final class RecordingViewModel {
     }
 
     private func refineWithFullTranscription(audioURL: URL, duration: TimeInterval, shiftInfo: ShiftDisplayInfo, businessType: String, authToken: String?, userId: String?, previousTranscript: String) async {
+        let isValid = await transcriptionService.validateBeforeTranscription(at: audioURL)
+        guard isValid else {
+            logger.error("Background refinement blocked by validation for file \(audioURL.lastPathComponent, privacy: .public)")
+            return
+        }
+        logger.info("Background refinement validation passed for file \(audioURL.lastPathComponent, privacy: .public)")
+
         guard let fullTranscript = await transcriptionService.transcribeAudioFile(at: audioURL, authToken: authToken, userId: userId) else { return }
 
         let trimmedFull = fullTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
