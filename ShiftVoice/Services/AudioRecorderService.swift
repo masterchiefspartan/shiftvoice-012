@@ -1,5 +1,6 @@
 import AVFoundation
 import Accelerate
+import UIKit
 
 @Observable
 final class AudioRecorderService: NSObject, AVAudioRecorderDelegate {
@@ -19,6 +20,9 @@ final class AudioRecorderService: NSObject, AVAudioRecorderDelegate {
     private var silentFrameCount: Int = 0
     private let silentThreshold: CGFloat = 0.08
     private let silentFrameLimit: Int = 60 // 3 seconds at 20fps metering
+    private var recordingStartedAt: Date?
+    private var didEmitAutoStopWarning: Bool = false
+    private var lifecycleObservers: [NSObjectProtocol] = []
 
     private var recordingDirectory: URL {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
@@ -39,6 +43,7 @@ final class AudioRecorderService: NSObject, AVAudioRecorderDelegate {
         autoStopWarningActive = false
         micSilent = false
         silentFrameCount = 0
+        didEmitAutoStopWarning = false
 
         do {
             try FileManager.default.createDirectory(at: recordingDirectory, withIntermediateDirectories: true)
@@ -74,9 +79,11 @@ final class AudioRecorderService: NSObject, AVAudioRecorderDelegate {
             currentAudioURL = fileURL
             isRecording = true
             recordingDuration = 0
+            recordingStartedAt = Date()
             levelHistory = []
             startMetering()
             startDurationTimer()
+            registerLifecycleObserversIfNeeded()
         } catch {
             errorMessage = "Could not start recording."
         }
@@ -89,6 +96,9 @@ final class AudioRecorderService: NSObject, AVAudioRecorderDelegate {
         durationTimer = nil
         audioRecorder?.stop()
         isRecording = false
+        autoStopWarningActive = false
+        recordingStartedAt = nil
+        unregisterLifecycleObservers()
 
         do {
             try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
@@ -135,17 +145,53 @@ final class AudioRecorderService: NSObject, AVAudioRecorderDelegate {
         durationTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self, self.isRecording else { return }
-                self.recordingDuration += 1
-                if self.recordingDuration == 150 {
-                    self.autoStopWarningActive = true
-                }
-                if self.recordingDuration >= 180 {
-                    self.autoStopWarningActive = false
-                    self.didAutoStop = true
-                    self.stopRecording()
-                }
+                self.syncRecordingTimeAndThresholds()
             }
         }
+    }
+
+    private func syncRecordingTimeAndThresholds() {
+        guard isRecording else { return }
+
+        let elapsedFromWallClock = recordingStartedAt.map { Date().timeIntervalSince($0) } ?? 0
+        recordingDuration = max(recordingDuration, elapsedFromWallClock)
+
+        if recordingDuration >= 180 {
+            autoStopWarningActive = false
+            didAutoStop = true
+            stopRecording()
+            return
+        }
+
+        if recordingDuration >= 150 {
+            autoStopWarningActive = true
+            didEmitAutoStopWarning = true
+        }
+    }
+
+    private func registerLifecycleObserversIfNeeded() {
+        guard lifecycleObservers.isEmpty else { return }
+
+        let notificationCenter = NotificationCenter.default
+        let names: [NSNotification.Name] = [
+            UIApplication.didBecomeActiveNotification,
+            UIApplication.willEnterForegroundNotification
+        ]
+
+        lifecycleObservers = names.map { name in
+            notificationCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                guard let self, self.isRecording else { return }
+                self.syncRecordingTimeAndThresholds()
+            }
+        }
+    }
+
+    private func unregisterLifecycleObservers() {
+        let notificationCenter = NotificationCenter.default
+        for observer in lifecycleObservers {
+            notificationCenter.removeObserver(observer)
+        }
+        lifecycleObservers.removeAll()
     }
 
     func deleteRecording(at url: URL) {
@@ -155,6 +201,9 @@ final class AudioRecorderService: NSObject, AVAudioRecorderDelegate {
     nonisolated func audioRecorderDidFinishRecording(_ recorder: AVAudioRecorder, successfully flag: Bool) {
         Task { @MainActor in
             isRecording = false
+            autoStopWarningActive = false
+            recordingStartedAt = nil
+            unregisterLifecycleObservers()
             if !flag {
                 errorMessage = "Recording finished unexpectedly."
             }
