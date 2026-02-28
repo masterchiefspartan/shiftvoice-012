@@ -18,7 +18,6 @@ struct RecordView: View {
     private let subscription = SubscriptionService.shared
     @State private var shouldResumeRecordingAfterPaywall: Bool = false
     @AppStorage("defaultNoteVisibility") private var defaultVisibility: String = "team"
-    @State private var selectedVisibility: NoteVisibility = .team
 
     private var recording: RecordingViewModel { viewModel.recording }
 
@@ -71,7 +70,7 @@ struct RecordView: View {
                         summary: reviewData.summary,
                         categorizedItems: reviewData.categorizedItems,
                         actionItems: reviewData.actionItems,
-                        visibility: selectedVisibility,
+                        visibility: recording.selectedVisibility,
                         structuringWarning: reviewData.structuringWarning,
                         recordingFailureState: reviewData.recordingFailureState,
                         onDiscard: {
@@ -112,7 +111,7 @@ struct RecordView: View {
             .task {
                 let granted = await recording.requestRecordingPermissions()
                 permissionGranted = granted
-                selectedVisibility = resolvedDefaultVisibility
+                recording.selectedVisibility = resolvedDefaultVisibility
             }
             .onChange(of: recording.audioRecorder.didAutoStop) { _, didAutoStop in
                 if didAutoStop {
@@ -447,10 +446,10 @@ struct RecordView: View {
                 .symbolEffect(.bounce, value: showSuccess)
 
             VStack(spacing: 6) {
-                Text(selectedVisibility == .personal ? "Note Saved" : "Shift Note Sent")
+                Text(recording.selectedVisibility == .personal ? "Note Saved" : "Shift Note Sent")
                     .font(.system(.title3, design: .serif, weight: .bold))
                     .foregroundStyle(SVTheme.textPrimary)
-                Text(selectedVisibility == .personal ? "Saved to your private notes" : "Your team will be notified")
+                Text(recording.selectedVisibility == .personal ? "Saved to your private notes" : "Your team will be notified")
                     .font(.subheadline)
                     .foregroundStyle(SVTheme.textTertiary)
             }
@@ -464,7 +463,7 @@ struct RecordView: View {
             ForEach(NoteVisibility.allCases, id: \.rawValue) { vis in
                 Button {
                     withAnimation(.easeOut(duration: 0.2)) {
-                        selectedVisibility = vis
+                        recording.selectedVisibility = vis
                     }
                 } label: {
                     HStack(spacing: 6) {
@@ -476,8 +475,8 @@ struct RecordView: View {
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)
                     .frame(maxWidth: .infinity)
-                    .foregroundStyle(selectedVisibility == vis ? .white : SVTheme.textSecondary)
-                    .background(selectedVisibility == vis ? (vis == .personal ? Color.indigo : SVTheme.textPrimary) : Color.clear)
+                    .foregroundStyle(recording.selectedVisibility == vis ? .white : SVTheme.textSecondary)
+                    .background(recording.selectedVisibility == vis ? (vis == .personal ? Color.indigo : SVTheme.textPrimary) : Color.clear)
                     .clipShape(.rect(cornerRadius: 8))
                 }
             }
@@ -490,7 +489,7 @@ struct RecordView: View {
                 .stroke(SVTheme.surfaceBorder, lineWidth: 1)
         )
         .padding(.horizontal, 24)
-        .sensoryFeedback(.selection, trigger: selectedVisibility)
+        .sensoryFeedback(.selection, trigger: recording.selectedVisibility)
     }
 
     private func tipItem(icon: String, text: String) -> some View {

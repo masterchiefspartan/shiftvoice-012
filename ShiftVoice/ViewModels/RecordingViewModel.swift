@@ -23,6 +23,7 @@ final class RecordingViewModel {
     var processingElapsed: TimeInterval = 0
     var recordingFailureState: RecordingFailureState = .none
     var isRetryingTranscription: Bool = false
+    var selectedVisibility: NoteVisibility = .team
     private var hasUserEditedReview: Bool = false
     private var processingTimer: Task<Void, Never>?
     private var lastStopParams: StopParams?
