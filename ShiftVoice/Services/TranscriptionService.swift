@@ -279,18 +279,69 @@ final class TranscriptionService {
         private var hasResumed = false
         private let lock = NSLock()
         private let continuation: CheckedContinuation<T, Never>
+        private let onResume: (() -> Void)?
 
-        init(_ continuation: CheckedContinuation<T, Never>) {
+        init(_ continuation: CheckedContinuation<T, Never>, onResume: (() -> Void)? = nil) {
             self.continuation = continuation
+            self.onResume = onResume
         }
 
         func resume(returning value: T) {
             lock.lock()
-            defer { lock.unlock() }
-            guard !hasResumed else { return }
-            hasResumed = true
+            let shouldResume = !hasResumed
+            if shouldResume {
+                hasResumed = true
+            }
+            lock.unlock()
+
+            guard shouldResume else { return }
+            onResume?()
             continuation.resume(returning: value)
         }
+    }
+
+    private var activeLocalContinuation: ContinuationGuard<String?>?
+    private var localRecognitionTimeoutTask: Task<Void, Never>?
+    private let localRecognitionTimeout: Duration = .seconds(20)
+
+    deinit {
+        localRecognitionTimeoutTask?.cancel()
+        recognitionTask?.cancel()
+        activeLocalContinuation?.resume(returning: nil)
+    }
+
+    private func finishLocalRecognition(with value: String?) {
+        localRecognitionTimeoutTask?.cancel()
+        localRecognitionTimeoutTask = nil
+        recognitionTask = nil
+        activeLocalContinuation?.resume(returning: value)
+        activeLocalContinuation = nil
+    }
+
+    private func failLocalRecognition(_ reason: TranscriptionFailureReason) {
+        failureReason = reason
+        errorMessage = reason.userMessage
+        finishLocalRecognition(with: nil)
+    }
+
+    private func startLocalRecognitionTimeout() {
+        localRecognitionTimeoutTask?.cancel()
+        localRecognitionTimeoutTask = Task { [weak self] in
+            do {
+                try await Task.sleep(for: self?.localRecognitionTimeout ?? .seconds(20))
+            } catch {
+                return
+            }
+            await MainActor.run {
+                guard let self, self.activeLocalContinuation != nil else { return }
+                self.failLocalRecognition(.localFailed("Transcription timed out. Please try again."))
+            }
+        }
+    }
+
+    private func handleLocalRecognitionCancellation() {
+        recognitionTask?.cancel()
+        failLocalRecognition(.localFailed("Transcription was cancelled."))
     }
 
     private func transcribeLocally(at url: URL) async -> String? {
@@ -302,26 +353,47 @@ final class TranscriptionService {
 
         recognitionTask?.cancel()
         recognitionTask = nil
+        localRecognitionTimeoutTask?.cancel()
+        localRecognitionTimeoutTask = nil
+        activeLocalContinuation = nil
 
         let request = SFSpeechURLRecognitionRequest(url: url)
         request.shouldReportPartialResults = false
         request.addsPunctuation = true
 
-        return await withCheckedContinuation { continuation in
-            let guard_ = ContinuationGuard<String?>(continuation)
-            recognitionTask = speechRecognizer.recognitionTask(with: request) { [weak self] result, error in
-                Task { @MainActor [weak self] in
-                    if let result {
-                        self?.transcribedText = result.bestTranscription.formattedString
-                        if result.isFinal {
-                            guard_.resume(returning: result.bestTranscription.formattedString)
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                let continuationGuard = ContinuationGuard<String?>(continuation) { [weak self] in
+                    self?.localRecognitionTimeoutTask?.cancel()
+                    self?.localRecognitionTimeoutTask = nil
+                }
+                activeLocalContinuation = continuationGuard
+                startLocalRecognitionTimeout()
+
+                recognitionTask = speechRecognizer.recognitionTask(with: request) { [weak self] result, error in
+                    Task { @MainActor [weak self] in
+                        guard let self else {
+                            continuationGuard.resume(returning: nil)
+                            return
                         }
-                    } else if let error {
-                        self?.failureReason = .localFailed("Transcription failed: \(error.localizedDescription)")
-                        self?.errorMessage = "Transcription failed: \(error.localizedDescription)"
-                        guard_.resume(returning: nil)
+
+                        if let result {
+                            self.transcribedText = result.bestTranscription.formattedString
+                            if result.isFinal {
+                                self.finishLocalRecognition(with: result.bestTranscription.formattedString)
+                            }
+                            return
+                        }
+
+                        if let error {
+                            self.failLocalRecognition(.localFailed("Transcription failed: \(error.localizedDescription)"))
+                        }
                     }
                 }
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                self?.handleLocalRecognitionCancellation()
             }
         }
     }

@@ -196,9 +196,16 @@ struct QuickAppendView: View {
             transcript = liveText
         } else {
             processingStage = .transcribing
-            if let url = audioURL,
-               let result = await transcription.transcribeAudioFile(at: url, authToken: viewModel.backendAuthToken, userId: viewModel.currentUserId) {
-                transcript = result
+            if let url = audioURL {
+                let isValid = await transcription.validateBeforeTranscription(at: url)
+                guard isValid else {
+                    errorMessage = transcription.failureReason?.userMessage ?? "Unable to transcribe this recording."
+                    isProcessing = false
+                    return
+                }
+                if let result = await transcription.transcribeAudioFile(at: url, authToken: viewModel.backendAuthToken, userId: viewModel.currentUserId) {
+                    transcript = result
+                }
             }
         }
 
