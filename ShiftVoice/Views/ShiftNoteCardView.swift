@@ -17,7 +17,7 @@ struct ShiftNoteCardView: View {
     var body: some View {
         HStack(spacing: 0) {
             Rectangle()
-                .fill(SVTheme.urgencyColor(note.highestUrgency))
+                .fill(note.isPrivate ? Color.indigo.opacity(0.7) : SVTheme.urgencyColor(note.highestUrgency))
                 .frame(width: 3)
 
             VStack(alignment: .leading, spacing: 10) {
@@ -30,9 +30,16 @@ struct ShiftNoteCardView: View {
                         .clipShape(Circle())
 
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(note.authorName)
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(SVTheme.textPrimary)
+                        HStack(spacing: 6) {
+                            Text(note.authorName)
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(SVTheme.textPrimary)
+                            if note.isPrivate {
+                                Image(systemName: "lock.fill")
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .foregroundStyle(.indigo)
+                            }
+                        }
                         Text(note.createdAt, style: .relative)
                             .font(.caption)
                             .foregroundStyle(SVTheme.textTertiary)
@@ -41,19 +48,6 @@ struct ShiftNoteCardView: View {
                     Spacer()
 
                     HStack(spacing: 8) {
-                        if note.isPrivate {
-                            HStack(spacing: 4) {
-                                Image(systemName: "lock.fill")
-                                    .font(.system(size: 10))
-                                Text("Private")
-                                    .font(.system(size: 11, weight: .medium))
-                            }
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .foregroundStyle(.indigo)
-                            .background(Color.indigo.opacity(0.1))
-                            .clipShape(.rect(cornerRadius: 6))
-                        }
                         statusBadge
                         ShiftTypeBadge(info: note.shiftDisplayInfo)
                     }

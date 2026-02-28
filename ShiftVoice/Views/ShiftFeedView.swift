@@ -72,13 +72,20 @@ struct ShiftFeedView: View {
                 }
             }
             .onAppear {
-                viewModel.loadFirstPage(shiftFilter: selectedShiftFilter?.id)
+                let shiftFilterId = isPersonalScope ? nil : selectedShiftFilter?.id
+                viewModel.loadFirstPage(shiftFilter: shiftFilterId)
             }
             .onChange(of: viewModel.selectedLocationId) { _, _ in
-                viewModel.loadFirstPage(shiftFilter: selectedShiftFilter?.id)
+                let shiftFilterId = isPersonalScope ? nil : selectedShiftFilter?.id
+                viewModel.loadFirstPage(shiftFilter: shiftFilterId)
             }
             .onChange(of: selectedShiftFilter) { _, newValue in
-                viewModel.loadFirstPage(shiftFilter: newValue?.id)
+                let shiftFilterId = isPersonalScope ? nil : newValue?.id
+                viewModel.loadFirstPage(shiftFilter: shiftFilterId)
+            }
+            .onChange(of: viewModel.feedScope) { _, newValue in
+                let shiftFilterId = newValue == .personal ? nil : selectedShiftFilter?.id
+                viewModel.loadFirstPage(shiftFilter: shiftFilterId)
             }
             .onChange(of: searchText) { _, newValue in
                 searchDebounceTask?.cancel()
@@ -97,7 +104,7 @@ struct ShiftFeedView: View {
                 }
             }
             .refreshable {
-                viewModel.loadFirstPage(shiftFilter: selectedShiftFilter?.id)
+                viewModel.loadFirstPage(shiftFilter: isPersonalScope ? nil : selectedShiftFilter?.id)
             }
             .safeAreaInset(edge: .top, spacing: 0) {
                 Rectangle()
@@ -113,7 +120,6 @@ struct ShiftFeedView: View {
             Button {
                 withAnimation(.easeOut(duration: 0.2)) {
                     viewModel.feedScope = .team
-                    viewModel.loadFirstPage(shiftFilter: selectedShiftFilter?.id)
                 }
             } label: {
                 HStack(spacing: 6) {
@@ -132,7 +138,6 @@ struct ShiftFeedView: View {
             Button {
                 withAnimation(.easeOut(duration: 0.2)) {
                     viewModel.feedScope = .personal
-                    viewModel.loadFirstPage(shiftFilter: nil)
                 }
             } label: {
                 HStack(spacing: 6) {
@@ -319,7 +324,7 @@ struct ShiftFeedView: View {
                         .buttonStyle(.plain)
                         .onAppear {
                             if note.id == notes.last?.id && viewModel.hasMoreNotes {
-                                viewModel.loadNextPage(shiftFilter: selectedShiftFilter?.id)
+                                viewModel.loadNextPage(shiftFilter: isPersonalScope ? nil : selectedShiftFilter?.id)
                             }
                         }
 
