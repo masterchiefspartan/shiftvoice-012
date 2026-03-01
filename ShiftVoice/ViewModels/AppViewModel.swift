@@ -998,10 +998,13 @@ final class AppViewModel {
             )
         ]
 
-        for invite in teamInvites where !invite.email.isEmpty {
+        for invite in teamInvites where !invite.contact.isEmpty {
+            let contactValue = invite.contact.trimmingCharacters(in: .whitespaces)
+            let isEmail = contactValue.contains("@")
+            let displayName = isEmail ? (contactValue.components(separatedBy: "@").first ?? contactValue) : contactValue
             let member = TeamMember(
-                name: invite.email.components(separatedBy: "@").first ?? invite.email,
-                email: invite.email,
+                name: displayName,
+                email: isEmail ? contactValue : "",
                 role: .manager,
                 roleTemplateId: invite.roleTemplate.id,
                 locationIds: [newLocation.id],

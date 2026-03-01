@@ -34,14 +34,46 @@ nonisolated enum BusinessType: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
+nonisolated enum OnboardingRole: String, CaseIterable, Identifiable, Sendable {
+    case shiftLead = "shift_lead"
+    case gmOwner = "gm_owner"
+    case multiUnit = "multi_unit"
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .shiftLead: return "Shift Lead / Floor Manager"
+        case .gmOwner: return "General Manager / Owner"
+        case .multiUnit: return "Operations / Multi-Unit"
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .shiftLead: return "You run the shift day-to-day"
+        case .gmOwner: return "You oversee the full operation"
+        case .multiUnit: return "You manage across locations"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .shiftLead: return "person.badge.clock"
+        case .gmOwner: return "building.2"
+        case .multiUnit: return "map"
+        }
+    }
+}
+
 nonisolated struct TeamInvite: Identifiable, Sendable {
     let id: String
-    var email: String
+    var contact: String
     var roleTemplate: RoleTemplate
 
-    init(id: String = UUID().uuidString, email: String = "", roleTemplate: RoleTemplate) {
+    init(id: String = UUID().uuidString, contact: String = "", roleTemplate: RoleTemplate) {
         self.id = id
-        self.email = email
+        self.contact = contact
         self.roleTemplate = roleTemplate
     }
 }
@@ -49,8 +81,9 @@ nonisolated struct TeamInvite: Identifiable, Sendable {
 @Observable
 final class OnboardingViewModel {
     var currentStep: Int = 0
-    let totalSteps: Int = 4
+    let totalSteps: Int = 6
 
+    var selectedRole: OnboardingRole?
     var businessType: BusinessType = .restaurant
     var locationName: String = ""
     var detectedTimezone: String = TimeZone.current.identifier
@@ -59,32 +92,36 @@ final class OnboardingViewModel {
     var selectedShiftTemplates: [ShiftTemplate] = IndustrySeed.restaurant.defaultShifts
     var availableRoleTemplates: [RoleTemplate] = IndustrySeed.restaurant.defaultRoles
 
-    var requireAcknowledgment: Bool = true
-
     var teamInvites: [TeamInvite] = []
 
     var locationNameError: String?
-    var categoryError: String?
     var inviteErrors: [String: String] = [:]
+
+    var paywallSkipped: Bool = false
 
     var selectedCategories: Set<NoteCategory> {
         let mapped = selectedCategoryTemplates.compactMap { NoteCategory.fromTemplate($0) }
         return Set(mapped)
     }
 
+    var progress: Double {
+        Double(currentStep + 1) / Double(totalSteps)
+    }
+
     var canAdvance: Bool {
         switch currentStep {
-        case 0:
-            return !locationName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        case 1:
-            return !selectedCategoryTemplates.isEmpty
-        case 2:
-            return true
-        case 3:
-            return true
-        default:
-            return true
+        case 0: return selectedRole != nil
+        case 1: return true
+        case 2: return !locationName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        case 3: return true
+        case 4: return true
+        case 5: return true
+        default: return true
         }
+    }
+
+    func selectRole(_ role: OnboardingRole) {
+        selectedRole = role
     }
 
     func selectBusinessType(_ type: BusinessType) {
@@ -97,11 +134,14 @@ final class OnboardingViewModel {
 
     func validateCurrentStep() -> Bool {
         locationNameError = nil
-        categoryError = nil
         inviteErrors = [:]
 
         switch currentStep {
         case 0:
+            return selectedRole != nil
+        case 1:
+            return true
+        case 2:
             let trimmed = locationName.trimmingCharacters(in: .whitespacesAndNewlines)
             if trimmed.isEmpty {
                 locationNameError = "Give your \(businessType.terminology.location.lowercased()) a name to continue"
@@ -116,27 +156,19 @@ final class OnboardingViewModel {
                 return false
             }
             return true
-        case 1:
-            if selectedCategoryTemplates.isEmpty {
-                categoryError = "Select at least one category"
-                return false
-            }
-            return true
-        case 2:
-            return true
         case 3:
             var valid = true
-            var seenEmails = Set<String>()
-            for invite in teamInvites where !invite.email.isEmpty {
-                let lower = invite.email.lowercased().trimmingCharacters(in: .whitespaces)
-                if !isValidEmail(lower) {
-                    inviteErrors[invite.id] = "Enter a valid email address"
+            var seenContacts = Set<String>()
+            for invite in teamInvites where !invite.contact.isEmpty {
+                let lower = invite.contact.lowercased().trimmingCharacters(in: .whitespaces)
+                if !isValidContact(lower) {
+                    inviteErrors[invite.id] = "Enter a valid email or phone number"
                     valid = false
-                } else if seenEmails.contains(lower) {
-                    inviteErrors[invite.id] = "Duplicate email"
+                } else if seenContacts.contains(lower) {
+                    inviteErrors[invite.id] = "Duplicate contact"
                     valid = false
                 } else {
-                    seenEmails.insert(lower)
+                    seenContacts.insert(lower)
                 }
             }
             return valid
@@ -175,11 +207,6 @@ final class OnboardingViewModel {
         }
     }
 
-    private func isValidEmail(_ email: String) -> Bool {
-        let pattern = #"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$"#
-        return email.range(of: pattern, options: .regularExpression) != nil
-    }
-
     var formattedTimezone: String {
         let tz = TimeZone(identifier: detectedTimezone) ?? .current
         let abbreviation = tz.abbreviation() ?? ""
@@ -187,9 +214,16 @@ final class OnboardingViewModel {
         return "\(name) (\(abbreviation))"
     }
 
-    var shiftTimeFormatter: DateFormatter {
-        let f = DateFormatter()
-        f.dateFormat = "h:mm a"
-        return f
+    private func isValidContact(_ contact: String) -> Bool {
+        let emailPattern = #"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$"#
+        if contact.range(of: emailPattern, options: .regularExpression) != nil {
+            return true
+        }
+        let digits = contact.filter(\.isNumber)
+        return digits.count >= 7 && digits.count <= 15
+    }
+
+    var validInvites: [TeamInvite] {
+        teamInvites.filter { !$0.contact.isEmpty }
     }
 }

@@ -23,7 +23,11 @@ final class SubscriptionService {
     var isProUser: Bool { currentTier == .pro || currentTier == .team }
     var isTeamUser: Bool { currentTier == .team }
 
+    var hasTrialStarted: Bool = false
+    var isInTrial: Bool = false
+
     private let freeMonthlyNoteLimit = 5
+    private let proAccessEntitlementId = "pro_access"
     private let proEntitlementId = "pro"
     private let teamEntitlementId = "team"
 
@@ -122,12 +126,28 @@ final class SubscriptionService {
     }
 
     private func updateTier(from customerInfo: CustomerInfo) {
-        if customerInfo.entitlements[teamEntitlementId]?.isActive == true {
-            currentTier = .team
-        } else if customerInfo.entitlements[proEntitlementId]?.isActive == true {
-            currentTier = .pro
+        let proAccess = customerInfo.entitlements[proAccessEntitlementId]
+        let proLegacy = customerInfo.entitlements[proEntitlementId]
+        let teamAccess = customerInfo.entitlements[teamEntitlementId]
+
+        let activeEntitlement = proAccess?.isActive == true ? proAccess
+            : proLegacy?.isActive == true ? proLegacy
+            : teamAccess?.isActive == true ? teamAccess
+            : nil
+
+        if let activeEntitlement {
+            if teamAccess?.isActive == true {
+                currentTier = .team
+            } else {
+                currentTier = .pro
+            }
+            hasTrialStarted = true
+            isInTrial = activeEntitlement.periodType == .trial
         } else {
             currentTier = .free
+            let anyEntitlement = proAccess ?? proLegacy ?? teamAccess
+            hasTrialStarted = anyEntitlement != nil
+            isInTrial = false
         }
     }
 }

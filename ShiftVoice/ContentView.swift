@@ -9,6 +9,7 @@ struct ContentView: View {
 
     @AppStorage("hasSeenFirstRunGuide") private var hasSeenFirstRunGuide: Bool = false
     @State private var showFirstRunGuide: Bool = false
+    @State private var showTrialPaywall: Bool = false
     @State private var feedNavPath: NavigationPath = NavigationPath()
     @State private var actionsNavPath: NavigationPath = NavigationPath()
     @State private var reviewNavPath: NavigationPath = NavigationPath()
@@ -16,7 +17,13 @@ struct ContentView: View {
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            ZStack {
+            VStack(spacing: 0) {
+                if !subscription.isProUser && !subscription.hasTrialStarted {
+                    trialBanner
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
+
+                ZStack {
                 if tabsLoaded.contains(.feed) {
                     ShiftFeedView(viewModel: viewModel, navPath: $feedNavPath)
                         .opacity(selectedTab == .feed ? 1 : 0)
@@ -45,6 +52,7 @@ struct ContentView: View {
             .onChange(of: selectedTab) { _, newTab in
                 tabsLoaded.insert(newTab)
             }
+            }
 
             VStack(spacing: 0) {
                 if viewModel.featureFlags.syncBannersEnabled, viewModel.isOffline {
@@ -65,6 +73,9 @@ struct ContentView: View {
             get: { viewModel.showPaywall },
             set: { if !$0 { viewModel.dismissPaywall() } }
         )) {
+            PaywallView()
+        }
+        .sheet(isPresented: $showTrialPaywall) {
             PaywallView()
         }
         .onChange(of: viewModel.pendingNoteId) { _, noteId in
@@ -109,6 +120,40 @@ struct ContentView: View {
                 }
             }
         }
+    }
+
+    private var trialBanner: some View {
+        Button {
+            showTrialPaywall = true
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(SVTheme.accent)
+
+                Text("Start your 7-day free trial to unlock all features")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(SVTheme.textPrimary)
+                    .lineLimit(1)
+
+                Spacer(minLength: 0)
+
+                Text("Start")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 5)
+                    .background(SVTheme.accent)
+                    .clipShape(Capsule())
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(SVTheme.accent.opacity(0.06))
+            .overlay(alignment: .bottom) {
+                Rectangle().fill(SVTheme.accent.opacity(0.15)).frame(height: 1)
+            }
+        }
+        .buttonStyle(.plain)
     }
 
     private var offlineBanner: some View {

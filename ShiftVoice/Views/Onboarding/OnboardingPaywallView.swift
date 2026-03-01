@@ -1,93 +1,100 @@
 import SwiftUI
 import RevenueCat
 
-struct PaywallView: View {
-    @Environment(\.dismiss) private var dismiss
+struct OnboardingPaywallView: View {
+    @Bindable var viewModel: OnboardingViewModel
+    let onSkip: () -> Void
+    let onPurchaseSuccess: () -> Void
+
+    @State private var selectedBilling: OnboardingBillingPeriod = .annual
     @State private var offerings: Offerings?
     @State private var isLoading: Bool = true
     @State private var isPurchasing: Bool = false
-    @State private var selectedBilling: BillingPeriod = .annual
     @State private var showError: Bool = false
     @State private var errorMessage: String = ""
-    @State private var purchaseSuccess: Bool = false
-    @State private var subscriptionsUnavailable: Bool = false
+    @State private var appeared: Bool = false
 
     private let subscription = SubscriptionService.shared
 
     var body: some View {
-        NavigationStack {
-            ZStack {
-                SVTheme.background.ignoresSafeArea()
+        ScrollView {
+            VStack(spacing: 24) {
+                Spacer(minLength: 8)
 
-                if isLoading {
-                    ProgressView()
-                        .tint(SVTheme.accent)
-                } else if subscriptionsUnavailable {
-                    unavailableView
-                } else {
-                    ScrollView {
-                        VStack(spacing: 24) {
-                            headerSection
-                            billingToggle
-                            planCard
-                            featuresSection
-                            ctaButton
-                            restoreButton
-                            legalText
-                        }
-                        .padding(.horizontal, 24)
-                        .padding(.top, 8)
-                        .padding(.bottom, 40)
-                    }
-                }
+                hookSection
+                    .opacity(appeared ? 1 : 0)
+                    .offset(y: appeared ? 0 : 16)
+
+                billingToggle
+                    .opacity(appeared ? 1 : 0)
+                    .offset(y: appeared ? 0 : 12)
+                    .animation(.easeOut(duration: 0.4).delay(0.1), value: appeared)
+
+                planCard
+                    .opacity(appeared ? 1 : 0)
+                    .offset(y: appeared ? 0 : 12)
+                    .animation(.easeOut(duration: 0.4).delay(0.15), value: appeared)
+
+                featuresSection
+                    .opacity(appeared ? 1 : 0)
+                    .offset(y: appeared ? 0 : 12)
+                    .animation(.easeOut(duration: 0.4).delay(0.2), value: appeared)
+
+                ctaSection
+                    .opacity(appeared ? 1 : 0)
+                    .animation(.easeOut(duration: 0.4).delay(0.25), value: appeared)
+
+                skipSection
+                    .opacity(appeared ? 1 : 0)
+                    .animation(.easeOut(duration: 0.4).delay(0.3), value: appeared)
+
+                Spacer(minLength: 40)
             }
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button {
-                        dismiss()
-                    } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(SVTheme.textTertiary)
-                            .frame(width: 32, height: 32)
-                            .background(SVTheme.iconBackground)
-                            .clipShape(Circle())
-                    }
-                }
-            }
-            .alert("Something went wrong", isPresented: $showError) {
-                Button("OK") {}
-            } message: {
-                Text(errorMessage)
-            }
-            .onChange(of: purchaseSuccess) { _, success in
-                if success { dismiss() }
-            }
+            .padding(.horizontal, 24)
         }
+        .background(SVTheme.background)
         .task {
             await fetchOfferings()
         }
+        .onAppear {
+            withAnimation(.easeOut(duration: 0.5)) {
+                appeared = true
+            }
+        }
+        .alert("Something went wrong", isPresented: $showError) {
+            Button("OK") {}
+        } message: {
+            Text(errorMessage)
+        }
     }
 
-    private var headerSection: some View {
+    private var hookSection: some View {
         VStack(spacing: 12) {
-            Image(systemName: "waveform.circle.fill")
-                .font(.system(size: 56))
-                .foregroundStyle(SVTheme.accent)
-                .symbolEffect(.pulse, options: .repeating)
+            if !viewModel.locationName.isEmpty {
+                HStack(spacing: 8) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 14))
+                        .foregroundStyle(SVTheme.accentGreen)
+                    Text("\(viewModel.locationName) is ready to go")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(SVTheme.accentGreen)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(SVTheme.accentGreen.opacity(0.08))
+                .clipShape(Capsule())
+            }
 
-            Text("ShiftVoice Pro")
-                .font(.system(.title, design: .serif, weight: .bold))
+            Text("Keep your operations\nrunning.")
+                .font(.system(size: 28, weight: .bold, design: .serif))
                 .foregroundStyle(SVTheme.textPrimary)
+                .multilineTextAlignment(.center)
 
-            Text("Start your 7-day free trial. Full access to every feature, no limits.")
-                .font(.subheadline)
+            Text("Start your 7-day free trial. Full access, no limits.")
+                .font(.system(size: 15))
                 .foregroundStyle(SVTheme.textSecondary)
                 .multilineTextAlignment(.center)
-                .lineSpacing(2)
         }
-        .padding(.top, 8)
     }
 
     private var billingToggle: some View {
@@ -100,7 +107,7 @@ struct PaywallView: View {
         .clipShape(.rect(cornerRadius: 10))
     }
 
-    private func billingOption(period: BillingPeriod, label: String) -> some View {
+    private func billingOption(period: OnboardingBillingPeriod, label: String) -> some View {
         Button {
             withAnimation(.spring(duration: 0.2)) {
                 selectedBilling = period
@@ -130,6 +137,12 @@ struct PaywallView: View {
 
     private var planCard: some View {
         VStack(spacing: 16) {
+            Text("ShiftVoice Pro")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(SVTheme.accent)
+                .tracking(0.5)
+                .textCase(.uppercase)
+
             if selectedBilling == .annual {
                 VStack(spacing: 4) {
                     HStack(alignment: .firstTextBaseline, spacing: 4) {
@@ -143,10 +156,6 @@ struct PaywallView: View {
                     Text("That's just $33/month")
                         .font(.caption)
                         .foregroundStyle(SVTheme.successGreen)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 4)
-                        .background(SVTheme.successGreen.opacity(0.1))
-                        .clipShape(Capsule())
                 }
             } else {
                 VStack(spacing: 4) {
@@ -210,46 +219,60 @@ struct PaywallView: View {
         )
     }
 
-    private var ctaButton: some View {
-        Button {
-            Task { await handlePurchase() }
-        } label: {
-            HStack(spacing: 8) {
-                if isPurchasing {
-                    ProgressView()
-                        .tint(.white)
-                } else {
-                    Text("Start 7-Day Free Trial")
-                        .font(.headline)
+    private var ctaSection: some View {
+        VStack(spacing: 12) {
+            Button {
+                Task { await handlePurchase() }
+            } label: {
+                HStack(spacing: 8) {
+                    if isPurchasing {
+                        ProgressView()
+                            .tint(.white)
+                    } else {
+                        Text("Start 7-Day Free Trial")
+                            .font(.system(size: 16, weight: .semibold))
+                    }
                 }
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .frame(height: 54)
+                .background(SVTheme.accent)
+                .clipShape(.rect(cornerRadius: 14))
+                .shadow(color: SVTheme.accent.opacity(0.3), radius: 12, y: 6)
             }
-            .foregroundStyle(.white)
-            .frame(maxWidth: .infinity)
-            .frame(height: 54)
-            .background(SVTheme.accent)
-            .clipShape(.rect(cornerRadius: 14))
-            .shadow(color: SVTheme.accent.opacity(0.3), radius: 12, y: 6)
+            .disabled(isPurchasing)
+            .sensoryFeedback(.impact(weight: .medium), trigger: isPurchasing)
+
+            Text("No charge for 7 days. Cancel anytime in Settings.")
+                .font(.system(size: 12))
+                .foregroundStyle(SVTheme.textTertiary)
+                .multilineTextAlignment(.center)
+
+            Button {
+                Task { await handleRestore() }
+            } label: {
+                Text("Restore Purchases")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(SVTheme.textSecondary)
+            }
+
+            Text("By continuing, you agree to our Terms of Service and Privacy Policy.")
+                .font(.system(size: 10))
+                .foregroundStyle(SVTheme.textTertiary)
+                .multilineTextAlignment(.center)
+                .lineSpacing(1.5)
         }
-        .disabled(isPurchasing)
-        .sensoryFeedback(.impact(weight: .medium), trigger: isPurchasing)
     }
 
-    private var restoreButton: some View {
+    private var skipSection: some View {
         Button {
-            Task { await handleRestore() }
+            onSkip()
         } label: {
-            Text("Restore Purchases")
-                .font(.footnote.weight(.medium))
-                .foregroundStyle(SVTheme.textSecondary)
+            Text("Continue without trial")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(SVTheme.textTertiary)
+                .underline()
         }
-    }
-
-    private var legalText: some View {
-        Text("No charge for 7 days. Cancel anytime in Settings. Subscriptions auto-renew. By subscribing you agree to our Terms of Service and Privacy Policy.")
-            .font(.system(size: 10))
-            .foregroundStyle(SVTheme.textTertiary)
-            .multilineTextAlignment(.center)
-            .lineSpacing(1.5)
     }
 
     private let features: [String] = [
@@ -288,38 +311,10 @@ struct PaywallView: View {
         selectedBilling == .annual ? annualPackage : monthlyPackage
     }
 
-    private var unavailableView: some View {
-        VStack(spacing: 20) {
-            Image(systemName: "cart.badge.questionmark")
-                .font(.system(size: 48))
-                .foregroundStyle(SVTheme.textTertiary)
-            Text("Subscriptions Unavailable")
-                .font(.title3.weight(.semibold))
-                .foregroundStyle(SVTheme.textPrimary)
-            Text("In-app purchases are not available at this time. Please try again later.")
-                .font(.subheadline)
-                .foregroundStyle(SVTheme.textSecondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 32)
-            Button("Close") { dismiss() }
-                .font(.headline)
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity)
-                .frame(height: 50)
-                .background(SVTheme.accent)
-                .clipShape(.rect(cornerRadius: 14))
-                .padding(.horizontal, 32)
-                .padding(.top, 8)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
     private func fetchOfferings() async {
         isLoading = true
         do {
             offerings = try await subscription.fetchOfferings()
-        } catch is SubscriptionServiceError {
-            subscriptionsUnavailable = true
         } catch {}
         isLoading = false
     }
@@ -335,7 +330,7 @@ struct PaywallView: View {
         do {
             let success = try await subscription.purchase(package: package)
             if success {
-                purchaseSuccess = true
+                onPurchaseSuccess()
             }
         } catch {
             if let rcError = error as? RevenueCat.ErrorCode, rcError == .purchaseCancelledError {
@@ -352,7 +347,7 @@ struct PaywallView: View {
         do {
             try await subscription.restorePurchases()
             if subscription.isProUser {
-                purchaseSuccess = true
+                onPurchaseSuccess()
             }
         } catch {
             errorMessage = error.localizedDescription
@@ -362,6 +357,6 @@ struct PaywallView: View {
     }
 }
 
-private enum BillingPeriod {
+private enum OnboardingBillingPeriod {
     case monthly, annual
 }

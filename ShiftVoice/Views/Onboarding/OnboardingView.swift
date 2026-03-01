@@ -7,72 +7,59 @@ struct OnboardingView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            headerBar
-
-            progressBar
-                .padding(.horizontal, 24)
-                .padding(.top, 12)
-
-            TabView(selection: $viewModel.currentStep) {
-                OnboardingPropertyView(viewModel: viewModel)
-                    .tag(0)
-
-                OnboardingCategoriesView(viewModel: viewModel)
-                    .tag(1)
-
-                OnboardingScheduleView(viewModel: viewModel)
-                    .tag(2)
-
-                OnboardingTeamView(viewModel: viewModel, onComplete: completeOnboarding)
-                    .tag(3)
+            if viewModel.currentStep < 5 {
+                progressBar
+                    .padding(.horizontal, 24)
+                    .padding(.top, 12)
             }
-            .tabViewStyle(.page(indexDisplayMode: .never))
-            .animation(.easeOut(duration: 0.25), value: viewModel.currentStep)
 
-            if viewModel.currentStep < 3 {
+            Group {
+                switch viewModel.currentStep {
+                case 0:
+                    OnboardingRoleView(viewModel: viewModel)
+                case 1:
+                    OnboardingIndustryView(viewModel: viewModel)
+                case 2:
+                    OnboardingWorkspaceView(viewModel: viewModel)
+                case 3:
+                    OnboardingTeamView(viewModel: viewModel)
+                case 4:
+                    OnboardingPaywallView(viewModel: viewModel, onSkip: {
+                        viewModel.paywallSkipped = true
+                        withAnimation(.easeOut(duration: 0.3)) {
+                            viewModel.currentStep = 5
+                        }
+                    }, onPurchaseSuccess: {
+                        withAnimation(.easeOut(duration: 0.3)) {
+                            viewModel.currentStep = 5
+                        }
+                    })
+                case 5:
+                    OnboardingCompletionView(viewModel: viewModel, onFinish: completeOnboarding)
+                default:
+                    EmptyView()
+                }
+            }
+            .animation(.easeOut(duration: 0.3), value: viewModel.currentStep)
+
+            if shouldShowBottomActions {
                 bottomActions
             }
         }
         .background(SVTheme.background)
     }
 
-    private var headerBar: some View {
-        HStack {
-            if viewModel.currentStep > 0 {
-                Button {
-                    withAnimation(.easeOut(duration: 0.2)) {
-                        viewModel.goBack()
-                    }
-                } label: {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(SVTheme.textPrimary)
-                        .frame(width: 44, height: 44)
-                }
-            } else {
-                Spacer().frame(width: 44, height: 44)
-            }
-
-            Spacer()
-
-            Text("Step \(viewModel.currentStep + 1) of \(viewModel.totalSteps)")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(SVTheme.textTertiary)
-                .tracking(0.5)
-                .textCase(.uppercase)
-
-            Spacer()
-
-            Spacer().frame(width: 44, height: 44)
+    private var shouldShowBottomActions: Bool {
+        switch viewModel.currentStep {
+        case 0: return false
+        case 4, 5: return false
+        default: return true
         }
-        .padding(.horizontal, 8)
-        .padding(.top, 8)
     }
 
     private var progressBar: some View {
         GeometryReader { geo in
             let width = geo.size.width
-            let segmentWidth = width / CGFloat(viewModel.totalSteps)
 
             ZStack(alignment: .leading) {
                 RoundedRectangle(cornerRadius: 2)
@@ -81,7 +68,7 @@ struct OnboardingView: View {
 
                 RoundedRectangle(cornerRadius: 2)
                     .fill(SVTheme.accent)
-                    .frame(width: segmentWidth * CGFloat(viewModel.currentStep + 1), height: 3)
+                    .frame(width: width * viewModel.progress, height: 3)
                     .animation(.easeOut(duration: 0.3), value: viewModel.currentStep)
             }
         }
@@ -106,7 +93,17 @@ struct OnboardingView: View {
             .disabled(!viewModel.canAdvance)
             .sensoryFeedback(.impact(weight: .light), trigger: viewModel.currentStep)
 
-
+            if viewModel.currentStep > 0 {
+                Button {
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        viewModel.goBack()
+                    }
+                } label: {
+                    Text("Back")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(SVTheme.textTertiary)
+                }
+            }
         }
         .padding(.horizontal, 24)
         .padding(.bottom, 16)
