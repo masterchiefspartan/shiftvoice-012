@@ -69,29 +69,18 @@ struct OnboardingPaywallView: View {
 
     private var hookSection: some View {
         VStack(spacing: 12) {
-            if !viewModel.locationName.isEmpty {
-                HStack(spacing: 8) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 14))
-                        .foregroundStyle(SVTheme.accentGreen)
-                    Text("\(viewModel.locationName) is ready to go")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(SVTheme.accentGreen)
-                }
+            Text("Your first note is already structured and waiting in your feed. ✓")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(SVTheme.accentGreen)
+                .multilineTextAlignment(.center)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 8)
                 .background(SVTheme.accentGreen.opacity(0.08))
                 .clipShape(Capsule())
-            }
 
-            Text("Keep your operations\nrunning.")
+            Text("Keep your operations running.")
                 .font(.system(size: 28, weight: .bold, design: .serif))
                 .foregroundStyle(SVTheme.textPrimary)
-                .multilineTextAlignment(.center)
-
-            Text("Start your 7-day free trial. Full access, no limits.")
-                .font(.system(size: 15))
-                .foregroundStyle(SVTheme.textSecondary)
                 .multilineTextAlignment(.center)
         }
     }
@@ -144,31 +133,27 @@ struct OnboardingPaywallView: View {
 
             if selectedBilling == .annual {
                 VStack(spacing: 4) {
-                    HStack(alignment: .firstTextBaseline, spacing: 4) {
-                        Text(annualPrice)
-                            .font(.system(size: 40, weight: .bold, design: .rounded))
-                            .foregroundStyle(SVTheme.textPrimary)
-                        Text("/year")
-                            .font(.subheadline)
-                            .foregroundStyle(SVTheme.textSecondary)
-                    }
-                    Text("Equivalent to about $33/month")
-                        .font(.caption)
-                        .foregroundStyle(SVTheme.successGreen)
+                    Text("\(annualPrice)/year ($33/mo)")
+                        .font(.system(size: 34, weight: .bold, design: .rounded))
+                        .foregroundStyle(SVTheme.textPrimary)
+                    Text("\(monthlyPrice)/month")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(SVTheme.textSecondary)
                 }
             } else {
                 VStack(spacing: 4) {
-                    HStack(alignment: .firstTextBaseline, spacing: 4) {
-                        Text(monthlyPrice)
-                            .font(.system(size: 40, weight: .bold, design: .rounded))
-                            .foregroundStyle(SVTheme.textPrimary)
-                        Text("/month")
-                            .font(.subheadline)
-                            .foregroundStyle(SVTheme.textSecondary)
+                    Text("\(monthlyPrice)/month")
+                        .font(.system(size: 34, weight: .bold, design: .rounded))
+                        .foregroundStyle(SVTheme.textPrimary)
+                    Button {
+                        withAnimation(.spring(duration: 0.2)) {
+                            selectedBilling = .annual
+                        }
+                    } label: {
+                        Text("Save $189/year with annual →")
+                            .font(.caption)
+                            .foregroundStyle(SVTheme.accent)
                     }
-                    Text("Save $189/year with annual")
-                        .font(.caption)
-                        .foregroundStyle(SVTheme.accent)
                 }
             }
         }
@@ -241,19 +226,25 @@ struct OnboardingPaywallView: View {
                 .foregroundStyle(SVTheme.textTertiary)
                 .multilineTextAlignment(.center)
 
-            Button {
-                Task { await handleRestore() }
-            } label: {
-                Text("Restore Purchases")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(SVTheme.textSecondary)
-            }
+            HStack(spacing: 16) {
+                Button {
+                    Task { await handleRestore() }
+                } label: {
+                    Text("Restore purchase")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(SVTheme.textSecondary)
+                }
 
-            Text("By continuing, you agree to our Terms of Service and Privacy Policy.")
-                .font(.system(size: 10))
-                .foregroundStyle(SVTheme.textTertiary)
-                .multilineTextAlignment(.center)
-                .lineSpacing(1.5)
+                Button {
+                    if let url = URL(string: "https://shiftvoice.app/terms") {
+                        UIApplication.shared.open(url)
+                    }
+                } label: {
+                    Text("Terms of Service / Privacy Policy")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(SVTheme.textSecondary)
+                }
+            }
         }
     }
 
@@ -261,7 +252,7 @@ struct OnboardingPaywallView: View {
         Button {
             onSkip()
         } label: {
-            Text("Continue without trial")
+            Text("Maybe later")
                 .font(.system(size: 14, weight: .medium))
                 .foregroundStyle(SVTheme.textTertiary)
                 .underline()
@@ -272,9 +263,11 @@ struct OnboardingPaywallView: View {
         "Unlimited voice notes",
         "AI-powered structuring",
         "Shift handoff reports",
+        "@Mentions & escalation",
         "Action item tracking",
         "Unlimited team members",
-        "Offline mode — works anywhere"
+        "Offline mode — works anywhere",
+        "Full access, no limits"
     ]
 
     private var monthlyPrice: String {
@@ -292,11 +285,17 @@ struct OnboardingPaywallView: View {
     }
 
     private var monthlyPackage: Package? {
-        offerings?.current?.package(identifier: "monthly")
+        if let byIdentifier = offerings?.current?.package(identifier: "monthly") {
+            return byIdentifier
+        }
+        return offerings?.current?.availablePackages.first(where: { $0.storeProduct.productIdentifier == "shiftvoice_pro_monthly" })
     }
 
     private var annualPackage: Package? {
-        offerings?.current?.package(identifier: "annual")
+        if let byIdentifier = offerings?.current?.package(identifier: "annual") {
+            return byIdentifier
+        }
+        return offerings?.current?.availablePackages.first(where: { $0.storeProduct.productIdentifier == "shiftvoice_pro_annual" })
     }
 
     private var selectedPackage: Package? {

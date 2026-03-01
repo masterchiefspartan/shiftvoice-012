@@ -787,10 +787,10 @@ struct SettingsView: View {
 
                     VStack(spacing: 10) {
                         HStack(spacing: 8) {
-                            Image(systemName: "waveform")
+                            Image(systemName: "hourglass")
                                 .font(.caption)
                                 .foregroundStyle(SVTheme.textTertiary)
-                            Text("\(viewModel.notesThisMonth)/\(subscription.remainingFreeNotes) notes this month")
+                            Text("Trial not started yet")
                                 .font(.caption)
                                 .foregroundStyle(SVTheme.textSecondary)
                             Spacer()
@@ -800,9 +800,9 @@ struct SettingsView: View {
                             viewModel.presentPaywall(reason: .manualUpgrade)
                         } label: {
                             HStack(spacing: 6) {
-                                Image(systemName: "crown.fill")
+                                Image(systemName: "sparkles")
                                     .font(.caption)
-                                Text("Upgrade to Pro")
+                                Text("Start 7-Day Free Trial")
                                     .font(.subheadline.weight(.semibold))
                             }
                             .foregroundStyle(.white)
@@ -850,19 +850,14 @@ struct SettingsView: View {
     }
 
     private var subscriptionTierName: String {
-        switch subscription.currentTier {
-        case .free: return "Free Plan"
-        case .pro: return "Pro Plan"
-        case .team: return "Team Plan"
-        }
+        "ShiftVoice Pro"
     }
 
     private var subscriptionTierDetail: String {
-        switch subscription.currentTier {
-        case .free: return "5 notes/month"
-        case .pro: return "Unlimited notes"
-        case .team: return "Unlimited notes + team features"
+        if subscription.isProUser {
+            return "Active"
         }
+        return "7-day free trial available"
     }
 
     private var aboutSection: some View {

@@ -26,7 +26,6 @@ final class SubscriptionService {
     var hasTrialStarted: Bool = false
     var isInTrial: Bool = false
 
-    private let freeMonthlyNoteLimit = 5
     private let proAccessEntitlementId = "pro_access"
     private let proEntitlementId = "pro"
     private let teamEntitlementId = "team"
@@ -109,12 +108,11 @@ final class SubscriptionService {
     }
 
     func canRecordNote(currentMonthNoteCount: Int) -> Bool {
-        if isProUser { return true }
-        return currentMonthNoteCount < freeMonthlyNoteLimit
+        true
     }
 
     var remainingFreeNotes: Int {
-        freeMonthlyNoteLimit
+        .max
     }
 
     var correspondingPlan: SubscriptionPlan {

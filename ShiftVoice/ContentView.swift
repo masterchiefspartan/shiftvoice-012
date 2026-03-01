@@ -131,14 +131,14 @@ struct ContentView: View {
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(SVTheme.accent)
 
-                Text("Start your 7-day free trial to unlock all features")
+                Text("Your trial hasn't started. Start your 7-day free trial →")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(SVTheme.textPrimary)
                     .lineLimit(1)
 
                 Spacer(minLength: 0)
 
-                Text("Start")
+                Text("Start trial")
                     .font(.system(size: 12, weight: .bold))
                     .foregroundStyle(.white)
                     .padding(.horizontal, 12)

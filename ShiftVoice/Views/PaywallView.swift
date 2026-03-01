@@ -72,20 +72,19 @@ struct PaywallView: View {
 
     private var headerSection: some View {
         VStack(spacing: 12) {
-            Image(systemName: "waveform.circle.fill")
-                .font(.system(size: 56))
-                .foregroundStyle(SVTheme.accent)
-                .symbolEffect(.pulse, options: .repeating)
-
-            Text("ShiftVoice Pro")
-                .font(.system(.title, design: .serif, weight: .bold))
-                .foregroundStyle(SVTheme.textPrimary)
-
-            Text("Start your 7-day free trial. Full access to every feature, no limits.")
-                .font(.subheadline)
-                .foregroundStyle(SVTheme.textSecondary)
+            Text("Your first note is already structured and waiting in your feed. ✓")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(SVTheme.accentGreen)
                 .multilineTextAlignment(.center)
-                .lineSpacing(2)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(SVTheme.accentGreen.opacity(0.08))
+                .clipShape(Capsule())
+
+            Text("Keep your operations running.")
+                .font(.system(size: 28, weight: .bold, design: .serif))
+                .foregroundStyle(SVTheme.textPrimary)
+                .multilineTextAlignment(.center)
         }
         .padding(.top, 8)
     }
@@ -130,34 +129,26 @@ struct PaywallView: View {
 
     private var planCard: some View {
         VStack(spacing: 16) {
+            Text("ShiftVoice Pro")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(SVTheme.accent)
+                .tracking(0.5)
+                .textCase(.uppercase)
+
             if selectedBilling == .annual {
                 VStack(spacing: 4) {
-                    HStack(alignment: .firstTextBaseline, spacing: 4) {
-                        Text(annualPrice)
-                            .font(.system(size: 40, weight: .bold, design: .rounded))
-                            .foregroundStyle(SVTheme.textPrimary)
-                        Text("/year")
-                            .font(.subheadline)
-                            .foregroundStyle(SVTheme.textSecondary)
-                    }
-                    Text("That's just $33/month")
-                        .font(.caption)
-                        .foregroundStyle(SVTheme.successGreen)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 4)
-                        .background(SVTheme.successGreen.opacity(0.1))
-                        .clipShape(Capsule())
+                    Text("\(annualPrice)/year ($33/mo)")
+                        .font(.system(size: 34, weight: .bold, design: .rounded))
+                        .foregroundStyle(SVTheme.textPrimary)
+                    Text("\(monthlyPrice)/month")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(SVTheme.textSecondary)
                 }
             } else {
                 VStack(spacing: 4) {
-                    HStack(alignment: .firstTextBaseline, spacing: 4) {
-                        Text(monthlyPrice)
-                            .font(.system(size: 40, weight: .bold, design: .rounded))
-                            .foregroundStyle(SVTheme.textPrimary)
-                        Text("/month")
-                            .font(.subheadline)
-                            .foregroundStyle(SVTheme.textSecondary)
-                    }
+                    Text("\(monthlyPrice)/month")
+                        .font(.system(size: 34, weight: .bold, design: .rounded))
+                        .foregroundStyle(SVTheme.textPrimary)
                     Button {
                         withAnimation(.spring(duration: 0.2)) {
                             selectedBilling = .annual
@@ -235,21 +226,32 @@ struct PaywallView: View {
     }
 
     private var restoreButton: some View {
-        Button {
-            Task { await handleRestore() }
-        } label: {
-            Text("Restore Purchases")
-                .font(.footnote.weight(.medium))
-                .foregroundStyle(SVTheme.textSecondary)
+        HStack(spacing: 16) {
+            Button {
+                Task { await handleRestore() }
+            } label: {
+                Text("Restore purchase")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(SVTheme.textSecondary)
+            }
+
+            Button {
+                if let url = URL(string: "https://shiftvoice.app/terms") {
+                    UIApplication.shared.open(url)
+                }
+            } label: {
+                Text("Terms of Service / Privacy Policy")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(SVTheme.textSecondary)
+            }
         }
     }
 
     private var legalText: some View {
-        Text("No charge for 7 days. Cancel anytime in Settings. Subscriptions auto-renew. By subscribing you agree to our Terms of Service and Privacy Policy.")
-            .font(.system(size: 10))
+        Text("No charge for 7 days. Cancel anytime in Settings.")
+            .font(.system(size: 12))
             .foregroundStyle(SVTheme.textTertiary)
             .multilineTextAlignment(.center)
-            .lineSpacing(1.5)
     }
 
     private let features: [String] = [
@@ -260,6 +262,7 @@ struct PaywallView: View {
         "Action item tracking",
         "Unlimited team members",
         "Offline mode — works anywhere",
+        "Full access, no limits"
     ]
 
     private var monthlyPrice: String {
@@ -277,11 +280,17 @@ struct PaywallView: View {
     }
 
     private var monthlyPackage: Package? {
-        offerings?.current?.package(identifier: "monthly")
+        if let byIdentifier = offerings?.current?.package(identifier: "monthly") {
+            return byIdentifier
+        }
+        return offerings?.current?.availablePackages.first(where: { $0.storeProduct.productIdentifier == "shiftvoice_pro_monthly" })
     }
 
     private var annualPackage: Package? {
-        offerings?.current?.package(identifier: "annual")
+        if let byIdentifier = offerings?.current?.package(identifier: "annual") {
+            return byIdentifier
+        }
+        return offerings?.current?.availablePackages.first(where: { $0.storeProduct.productIdentifier == "shiftvoice_pro_annual" })
     }
 
     private var selectedPackage: Package? {
