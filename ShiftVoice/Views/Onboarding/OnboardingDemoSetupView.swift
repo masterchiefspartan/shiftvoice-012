@@ -25,7 +25,7 @@ struct OnboardingDemoSetupView: View {
             VStack(spacing: 12) {
                 Button {
                     withAnimation(.easeOut(duration: 0.25)) {
-                        viewModel.continueFromDemoSetup()
+                        viewModel.continueFromDemoSetup(useSample: false)
                     }
                 } label: {
                     Text("Start Recording")
@@ -39,7 +39,7 @@ struct OnboardingDemoSetupView: View {
 
                 Button {
                     withAnimation(.easeOut(duration: 0.25)) {
-                        viewModel.continueFromDemoSetup()
+                        viewModel.continueFromDemoSetup(useSample: true)
                     }
                 } label: {
                     Text("See a sample instead")

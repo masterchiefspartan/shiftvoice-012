@@ -38,9 +38,11 @@ struct ShiftVoiceApp: App {
                     OnboardingView(hasCompletedOnboarding: $hasCompletedOnboarding) { onboardingVM in
                         appViewModel.applyOnboardingData(
                             businessType: onboardingVM.businessType,
+                            selectedIndustry: onboardingVM.selectedIndustry,
                             locationName: onboardingVM.locationName,
                             timezone: onboardingVM.detectedTimezone,
-                            teamInvites: onboardingVM.teamInvites
+                            teamInvites: onboardingVM.teamInvites,
+                            usedSamplePath: onboardingVM.usedSamplePath
                         )
                     }
                     .transition(.opacity)

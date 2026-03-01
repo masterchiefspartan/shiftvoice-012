@@ -120,7 +120,7 @@ struct OnboardingWorkspaceView: View {
 
     private var locationPlaceholder: String {
         switch viewModel.businessType {
-        case .restaurant, .barPub: return "e.g. Riverfront Grill"
+        case .restaurant, .barPub: return "e.g., The Blue Ox Kitchen"
         case .hotel: return "e.g. Grand Meridian Hotel"
         case .healthcare: return "e.g. Cedar Valley Medical"
         case .manufacturing: return "e.g. Westside Distribution Center"

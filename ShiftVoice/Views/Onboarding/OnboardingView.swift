@@ -2,6 +2,7 @@ import SwiftUI
 
 struct OnboardingView: View {
     @State private var viewModel = OnboardingViewModel()
+    @State private var blackTransitionOpacity: Double = 0
     @Binding var hasCompletedOnboarding: Bool
     var onComplete: ((OnboardingViewModel) -> Void)?
 
@@ -49,6 +50,24 @@ struct OnboardingView: View {
             }
         }
         .background(SVTheme.background)
+        .overlay {
+            Color.black
+                .opacity(blackTransitionOpacity)
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+        }
+        .onChange(of: viewModel.currentStep) { oldValue, newValue in
+            guard oldValue == 3, newValue == 4 else { return }
+            Task {
+                withAnimation(.easeInOut(duration: 0.16)) {
+                    blackTransitionOpacity = 1
+                }
+                try? await Task.sleep(for: .milliseconds(180))
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    blackTransitionOpacity = 0
+                }
+            }
+        }
     }
 
     private var shouldShowBottomActions: Bool {

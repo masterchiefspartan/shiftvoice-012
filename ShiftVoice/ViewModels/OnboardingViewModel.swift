@@ -130,13 +130,23 @@ nonisolated enum OnboardingPainPoint: String, CaseIterable, Identifiable, Sendab
 }
 
 nonisolated enum OnboardingCurrentTool: String, CaseIterable, Identifiable, Sendable {
+    case talkItThrough = "We just talk it through"
     case notesApp = "Notes app"
-    case whatsapp = "WhatsApp"
-    case textMessage = "Text messages"
+    case groupChat = "Group chat"
     case paperLog = "Paper log"
-    case none = "Nothing formal"
+    case other = "Other"
 
     var id: String { rawValue }
+
+    var mirrorPhrase: String {
+        switch self {
+        case .talkItThrough: return "talking it through"
+        case .notesApp: return "using a notes app"
+        case .groupChat: return "relying on group chat"
+        case .paperLog: return "using a paper log"
+        case .other: return "using your current process"
+        }
+    }
 }
 
 @Observable
@@ -163,6 +173,7 @@ final class OnboardingViewModel {
     var inviteErrors: [String: String] = [:]
 
     var paywallSkipped: Bool = false
+    var usedSamplePath: Bool = false
     var recordingSeconds: Int = 0
 
     var selectedCategories: Set<NoteCategory> {
@@ -260,8 +271,12 @@ final class OnboardingViewModel {
         }
     }
 
-    func continueFromDemoSetup() {
-        if currentStep == 4 {
+    func continueFromDemoSetup(useSample: Bool) {
+        guard currentStep == 4 else { return }
+        usedSamplePath = useSample
+        if useSample {
+            currentStep = 6
+        } else {
             currentStep = 5
             recordingSeconds = 0
         }
@@ -288,14 +303,28 @@ final class OnboardingViewModel {
     }
 
     var mirrorMomentText: String {
-        let role = selectedRole?.title ?? "Operator"
-        let pain = selectedPainPoints.map(\.rawValue).sorted().joined(separator: ", ").lowercased()
-        let tool = selectedTool?.rawValue ?? "your current workflow"
-        let industry = selectedIndustry.rawValue
-        if pain.isEmpty {
-            return "As a \(role) in \(industry), relying on \(tool) makes handoffs harder than they should be."
+        let role = selectedRole?.title ?? "operator"
+        let industry = selectedIndustry == .restaurantBar ? "Restaurant" : selectedIndustry.rawValue
+        let toolPhrase = selectedTool?.mirrorPhrase ?? "using your current process"
+        let points: [OnboardingPainPoint] = [
+            .forgottenHandoffs,
+            .buriedInfo,
+            .recurringIssues,
+            .firefighting
+        ]
+        let selectedOrdered = points.filter { selectedPainPoints.contains($0) }
+        let painPhrase: String
+        if selectedOrdered.isEmpty {
+            painPhrase = "handoff issues"
+        } else if selectedOrdered.count == 1 {
+            painPhrase = selectedOrdered[0].rawValue.lowercased()
+        } else if selectedOrdered.count == 2 {
+            painPhrase = "\(selectedOrdered[0].rawValue.lowercased()) and \(selectedOrdered[1].rawValue.lowercased())"
+        } else {
+            let prefix = selectedOrdered.dropLast().map { $0.rawValue.lowercased() }.joined(separator: ", ")
+            painPhrase = "\(prefix), and \(selectedOrdered.last?.rawValue.lowercased() ?? "")"
         }
-        return "As a \(role) in \(industry), relying on \(tool) is why \(pain) keeps showing up at shift change."
+        return "As a \(role) in \(industry), \(toolPhrase) keeps creating \(painPhrase)."
     }
 
     func addInviteFromInput() {

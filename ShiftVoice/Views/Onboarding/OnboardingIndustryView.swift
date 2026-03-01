@@ -52,6 +52,12 @@ struct OnboardingIndustryView: View {
             withAnimation(.easeOut(duration: 0.15)) {
                 viewModel.selectIndustry(industry)
             }
+            Task {
+                try? await Task.sleep(for: .milliseconds(350))
+                withAnimation(.easeOut(duration: 0.2)) {
+                    viewModel.advance()
+                }
+            }
         } label: {
             HStack(spacing: 10) {
                 Image(systemName: industry.icon)

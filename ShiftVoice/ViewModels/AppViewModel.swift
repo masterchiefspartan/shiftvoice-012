@@ -957,7 +957,7 @@ final class AppViewModel {
 
     // MARK: - Onboarding
 
-    func applyOnboardingData(businessType: BusinessType, locationName: String, timezone: String, teamInvites: [TeamInvite]) {
+    func applyOnboardingData(businessType: BusinessType, selectedIndustry: OnboardingIndustry, locationName: String, timezone: String, teamInvites: [TeamInvite], usedSamplePath: Bool) {
         guard organizationId == nil else { return }
 
         let industryType: IndustryType = switch businessType {
@@ -977,10 +977,17 @@ final class AppViewModel {
         organization = org
         organizationId = org.id
 
+        let defaultShiftTimes: (opening: String, mid: String, closing: String) = selectedIndustry == .restaurantBar
+            ? ("06:00", "11:00", "16:00")
+            : ("06:00", "14:00", "22:00")
+
         let newLocation = Location(
             name: locationName,
             address: "",
             timezone: timezone,
+            openingTime: defaultShiftTimes.opening,
+            midTime: defaultShiftTimes.mid,
+            closingTime: defaultShiftTimes.closing,
             managerIds: [currentUserId]
         )
         locations = [newLocation]
@@ -1015,12 +1022,15 @@ final class AppViewModel {
 
         teamMembers = members
         hasTeamMembersLoaded = true
-        shiftNotes = []
+        shiftNotes = usedSamplePath ? [onboardingSampleNote(for: newLocation)] : []
         recurringIssues = []
 
         writeOrganization(org)
         writeLocation(newLocation)
         for member in members { writeTeamMember(member) }
+        if usedSamplePath, let sampleNote = shiftNotes.first {
+            writeShiftNote(sampleNote, operation: .create)
+        }
         Task {
             try? await firestore.updateUserPreferences(
                 userId: currentUserId,
@@ -1029,6 +1039,29 @@ final class AppViewModel {
             )
         }
         startListeners(orgId: org.id)
+    }
+
+    private func onboardingSampleNote(for location: Location) -> ShiftNote {
+        ShiftNote(
+            authorId: currentUserId,
+            authorName: currentUserName,
+            authorInitials: currentUserInitials,
+            locationId: location.id,
+            shiftType: .opening,
+            rawTranscript: "Cooler temp hit 43°F for 12 minutes after delivery. 20lb salmon pan is not date-labeled. Sarah needs expo training before dinner push.",
+            summary: "Opening sample handoff with food safety and training follow-ups",
+            categorizedItems: [
+                CategorizedItem(category: .equipment, categoryTemplateId: "cat_kitchen", content: "Walk-in cooler peaked at 43°F for 12 minutes after delivery unload", urgency: .immediate),
+                CategorizedItem(category: .inventory, categoryTemplateId: "cat_inventory", content: "20lb salmon pan in prep cooler is missing date label", urgency: .nextShift),
+                CategorizedItem(category: .staffNote, categoryTemplateId: "cat_staff", content: "Sarah needs one expo shadow shift before tonight's dinner rush", urgency: .thisWeek)
+            ],
+            actionItems: [
+                ActionItem(task: "Log cooler exception and verify temp is below 41°F before 7:30 AM", category: .equipment, categoryTemplateId: "cat_kitchen", urgency: .immediate),
+                ActionItem(task: "Relabel or discard unlabeled salmon pan before service", category: .inventory, categoryTemplateId: "cat_inventory", urgency: .nextShift),
+                ActionItem(task: "Assign Sarah to shadow expo with Marco for first hour", category: .staffNote, categoryTemplateId: "cat_staff", urgency: .thisWeek)
+            ],
+            visibility: .team
+        )
     }
 
     private func updateSyncState() {
