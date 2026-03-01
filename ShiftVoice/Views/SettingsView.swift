@@ -497,6 +497,28 @@ struct SettingsView: View {
 
     @AppStorage("defaultNoteVisibility") private var defaultVisibility: String = "team"
 
+    private var defaultVisibilityLabel: String {
+        switch defaultVisibility {
+        case "ask":
+            return "Always ask"
+        case "private":
+            return "Private"
+        default:
+            return "Team"
+        }
+    }
+
+    private var defaultVisibilityIcon: String {
+        switch defaultVisibility {
+        case "ask":
+            return "questionmark.circle"
+        case "private":
+            return "lock.fill"
+        default:
+            return "person.2.fill"
+        }
+    }
+
     private var notesSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("NOTES")
@@ -506,11 +528,16 @@ struct SettingsView: View {
 
             VStack(spacing: 0) {
                 HStack {
-                    Text("Default Visibility")
+                    Text("Default Note Visibility")
                         .font(.subheadline)
                         .foregroundStyle(SVTheme.textPrimary)
                     Spacer()
                     Menu {
+                        Button {
+                            defaultVisibility = "ask"
+                        } label: {
+                            Label("Always ask", systemImage: "questionmark.circle")
+                        }
                         Button {
                             defaultVisibility = "team"
                         } label: {
@@ -523,9 +550,9 @@ struct SettingsView: View {
                         }
                     } label: {
                         HStack(spacing: 6) {
-                            Image(systemName: defaultVisibility == "private" ? "lock.fill" : "person.2.fill")
+                            Image(systemName: defaultVisibilityIcon)
                                 .font(.caption)
-                            Text(defaultVisibility == "private" ? "Private" : "Team")
+                            Text(defaultVisibilityLabel)
                                 .font(.subheadline.weight(.medium))
                             Image(systemName: "chevron.up.chevron.down")
                                 .font(.system(size: 10, weight: .medium))

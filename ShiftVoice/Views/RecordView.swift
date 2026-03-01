@@ -17,12 +17,22 @@ struct RecordView: View {
     @Environment(\.dismiss) private var dismiss
     private let subscription = SubscriptionService.shared
     @State private var shouldResumeRecordingAfterPaywall: Bool = false
+    @State private var allowVisibilityOverrideForThisRecording: Bool = false
     @AppStorage("defaultNoteVisibility") private var defaultVisibility: String = "team"
 
     private var recording: RecordingViewModel { viewModel.recording }
 
     private var resolvedDefaultVisibility: NoteVisibility {
-        NoteVisibility(rawValue: defaultVisibility) ?? .team
+        switch defaultVisibility {
+        case "private":
+            return .personal
+        default:
+            return .team
+        }
+    }
+
+    private var shouldShowVisibilityToggle: Bool {
+        defaultVisibility == "ask" || allowVisibilityOverrideForThisRecording
     }
 
     private var currentShiftDisplay: ShiftDisplayInfo {
@@ -140,6 +150,15 @@ struct RecordView: View {
                 let granted = await recording.requestRecordingPermissions()
                 permissionGranted = granted
                 recording.selectedVisibility = resolvedDefaultVisibility
+                allowVisibilityOverrideForThisRecording = false
+            }
+            .onChange(of: defaultVisibility) { _, newValue in
+                if newValue == "ask" {
+                    allowVisibilityOverrideForThisRecording = false
+                    return
+                }
+                recording.selectedVisibility = resolvedDefaultVisibility
+                allowVisibilityOverrideForThisRecording = false
             }
             .onChange(of: recording.audioRecorder.didAutoStop) { _, didAutoStop in
                 if didAutoStop {
@@ -214,8 +233,14 @@ struct RecordView: View {
             }
             .padding(.top, 24)
 
-            visibilityToggle
-                .padding(.top, 16)
+            Group {
+                if shouldShowVisibilityToggle {
+                    visibilityToggle
+                } else {
+                    lockedVisibilitySummary
+                }
+            }
+            .padding(.top, 16)
 
             if isPrivateMode {
                 HStack(spacing: 8) {
@@ -536,6 +561,32 @@ struct RecordView: View {
 
             Spacer()
         }
+    }
+
+    private var lockedVisibilitySummary: some View {
+        HStack(spacing: 10) {
+            Image(systemName: recording.selectedVisibility.icon)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(recordingModeAccent)
+            Text("Default: \(recording.selectedVisibility == .team ? "Team" : "Private")")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(SVTheme.textPrimary)
+            Spacer()
+            Button("Change") {
+                allowVisibilityOverrideForThisRecording = true
+            }
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(SVTheme.accent)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(SVTheme.surface)
+        .clipShape(.rect(cornerRadius: 12))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(SVTheme.surfaceBorder, lineWidth: 1)
+        )
+        .padding(.horizontal, 24)
     }
 
     private var visibilityToggle: some View {
