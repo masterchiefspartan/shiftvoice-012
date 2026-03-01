@@ -43,9 +43,9 @@ nonisolated enum OnboardingRole: String, CaseIterable, Identifiable, Sendable {
 
     var title: String {
         switch self {
-        case .shiftLead: return "Shift Lead/Floor Manager"
-        case .gmOwner: return "GM/Owner"
-        case .multiUnit: return "Operations/Multi-Unit"
+        case .shiftLead: return "Shift Lead / Floor Manager"
+        case .gmOwner: return "General Manager / Owner"
+        case .multiUnit: return "Operations / Multi-Unit"
         }
     }
 
