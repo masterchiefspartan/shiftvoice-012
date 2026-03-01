@@ -79,21 +79,32 @@ nonisolated struct TeamInvite: Identifiable, Sendable {
 }
 
 nonisolated enum OnboardingIndustry: String, CaseIterable, Identifiable, Sendable {
-    case restaurantBar = "Restaurant/Bar"
-    case hotelHospitality = "Hotel/Hospitality"
-    case facilitiesMaintenance = "Facilities/Maintenance"
-    case warehouseLogistics = "Warehouse/Logistics"
-    case healthcare = "Healthcare"
-    case other = "Other"
+    case restaurant = "restaurant"
+    case hotel = "hotel"
+    case facilities = "facilities"
+    case warehouse = "warehouse"
+    case healthcare = "healthcare"
+    case other = "other"
 
     var id: String { rawValue }
 
+    var title: String {
+        switch self {
+        case .restaurant: return "Restaurant / Bar"
+        case .hotel: return "Hotel / Hospitality"
+        case .facilities: return "Facilities / Maintenance"
+        case .warehouse: return "Warehouse / Logistics"
+        case .healthcare: return "Healthcare"
+        case .other: return "Other"
+        }
+    }
+
     var icon: String {
         switch self {
-        case .restaurantBar: return "fork.knife"
-        case .hotelHospitality: return "bed.double.fill"
-        case .facilitiesMaintenance: return "wrench.and.screwdriver.fill"
-        case .warehouseLogistics: return "shippingbox.fill"
+        case .restaurant: return "fork.knife"
+        case .hotel: return "bed.double.fill"
+        case .facilities: return "wrench.and.screwdriver.fill"
+        case .warehouse: return "shippingbox.fill"
         case .healthcare: return "cross.case.fill"
         case .other: return "square.grid.2x2.fill"
         }
@@ -101,12 +112,43 @@ nonisolated enum OnboardingIndustry: String, CaseIterable, Identifiable, Sendabl
 
     var businessType: BusinessType {
         switch self {
-        case .restaurantBar: return .restaurant
-        case .hotelHospitality: return .hotel
-        case .facilitiesMaintenance: return .security
-        case .warehouseLogistics: return .manufacturing
+        case .restaurant: return .restaurant
+        case .hotel: return .hotel
+        case .facilities: return .security
+        case .warehouse: return .manufacturing
         case .healthcare: return .healthcare
         case .other: return .other
+        }
+    }
+
+    var defaultShiftNames: [String] {
+        switch self {
+        case .restaurant: return ["Opening", "Mid", "Closing"]
+        case .hotel: return ["Morning", "Afternoon", "Night"]
+        case .facilities, .warehouse: return ["Day", "Swing", "Night"]
+        case .healthcare: return ["Day", "Evening", "Night"]
+        case .other: return ["Morning", "Afternoon", "Evening"]
+        }
+    }
+
+    var defaultShiftHours: [Int] {
+        switch self {
+        case .restaurant: return [6, 11, 16]
+        case .hotel: return [7, 15, 23]
+        case .facilities, .warehouse: return [6, 14, 22]
+        case .healthcare: return [7, 15, 23]
+        case .other: return [8, 12, 16]
+        }
+    }
+
+    var locationPlaceholder: String {
+        switch self {
+        case .restaurant: return "e.g., The Blue Ox Kitchen"
+        case .hotel: return "e.g., Downtown Marriott"
+        case .facilities: return "e.g., Building A — Main Campus"
+        case .warehouse: return "e.g., West Distribution Center"
+        case .healthcare: return "e.g., St. Mary's — East Wing"
+        case .other: return "e.g., Main Office"
         }
     }
 }
@@ -155,7 +197,7 @@ final class OnboardingViewModel {
     let totalSteps: Int = 9
 
     var selectedRole: OnboardingRole?
-    var selectedIndustry: OnboardingIndustry = .restaurantBar
+    var selectedIndustry: OnboardingIndustry = .restaurant
     var businessType: BusinessType = .restaurant
     var selectedPainPoints: Set<OnboardingPainPoint> = []
     var selectedTool: OnboardingCurrentTool?
@@ -209,7 +251,13 @@ final class OnboardingViewModel {
         businessType = industry.businessType
         let template = businessType.industryTemplate
         selectedCategoryTemplates = Set(template.defaultCategories)
-        selectedShiftTemplates = template.defaultShifts
+
+        let shiftIds = ["shift_1", "shift_2", "shift_3"]
+        let shiftIcons = ["sunrise.fill", "sun.max.fill", "moon.stars.fill"]
+        selectedShiftTemplates = zip(zip(shiftIds, industry.defaultShiftNames), zip(shiftIcons, industry.defaultShiftHours)).map { left, right in
+            ShiftTemplate(id: left.0, name: left.1, icon: right.0, defaultStartHour: right.1)
+        }
+
         availableRoleTemplates = template.defaultRoles
     }
 
@@ -304,7 +352,7 @@ final class OnboardingViewModel {
 
     var mirrorMomentText: String {
         let role = selectedRole?.title ?? "operator"
-        let industry = selectedIndustry == .restaurantBar ? "Restaurant" : selectedIndustry.rawValue
+        let industry = selectedIndustry == .restaurant ? "Restaurant" : selectedIndustry.title
         let toolPhrase = selectedTool?.mirrorPhrase ?? "using your current process"
         let points: [OnboardingPainPoint] = [
             .forgottenHandoffs,

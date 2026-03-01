@@ -119,14 +119,7 @@ struct OnboardingWorkspaceView: View {
     }
 
     private var locationPlaceholder: String {
-        switch viewModel.businessType {
-        case .restaurant, .barPub: return "e.g., The Blue Ox Kitchen"
-        case .hotel: return "e.g. Grand Meridian Hotel"
-        case .healthcare: return "e.g. Cedar Valley Medical"
-        case .manufacturing: return "e.g. Westside Distribution Center"
-        case .security: return "e.g. Riverside Campus"
-        default: return "e.g. My Location"
-        }
+        viewModel.selectedIndustry.locationPlaceholder
     }
 
     private func shiftRow(_ shift: ShiftTemplate) -> some View {

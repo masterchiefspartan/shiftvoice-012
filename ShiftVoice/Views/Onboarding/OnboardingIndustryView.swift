@@ -53,7 +53,7 @@ struct OnboardingIndustryView: View {
                 viewModel.selectIndustry(industry)
             }
             Task {
-                try? await Task.sleep(for: .milliseconds(350))
+                try? await Task.sleep(for: .milliseconds(400))
                 withAnimation(.easeOut(duration: 0.2)) {
                     viewModel.advance()
                 }
@@ -67,7 +67,7 @@ struct OnboardingIndustryView: View {
                     .background(isSelected ? SVTheme.accent.opacity(0.1) : SVTheme.iconBackground)
                     .clipShape(.rect(cornerRadius: 8))
 
-                Text(industry.rawValue)
+                Text(industry.title)
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(isSelected ? SVTheme.textPrimary : SVTheme.textSecondary)
                     .lineLimit(1)

@@ -72,7 +72,7 @@ struct OnboardingView: View {
 
     private var shouldShowBottomActions: Bool {
         switch viewModel.currentStep {
-        case 0, 4, 5, 6, 8:
+        case 0, 1, 4, 5, 6, 8:
             return false
         default:
             return true

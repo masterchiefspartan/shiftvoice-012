@@ -977,9 +977,19 @@ final class AppViewModel {
         organization = org
         organizationId = org.id
 
-        let defaultShiftTimes: (opening: String, mid: String, closing: String) = selectedIndustry == .restaurantBar
-            ? ("06:00", "11:00", "16:00")
-            : ("06:00", "14:00", "22:00")
+        let defaultShiftTimes: (opening: String, mid: String, closing: String)
+        switch selectedIndustry {
+        case .restaurant:
+            defaultShiftTimes = ("06:00", "11:00", "16:00")
+        case .hotel:
+            defaultShiftTimes = ("07:00", "15:00", "23:00")
+        case .facilities, .warehouse:
+            defaultShiftTimes = ("06:00", "14:00", "22:00")
+        case .healthcare:
+            defaultShiftTimes = ("07:00", "15:00", "23:00")
+        case .other:
+            defaultShiftTimes = ("08:00", "12:00", "16:00")
+        }
 
         let newLocation = Location(
             name: locationName,
