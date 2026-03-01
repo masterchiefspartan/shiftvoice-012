@@ -292,7 +292,11 @@ final class AppViewModel {
             .filter { $0.visibility == .personal && $0.authorId == uid }
             .sorted { $0.syncOrderingDate > $1.syncOrderingDate }
 
-        allActionItemsWithDate = shiftNotes.flatMap { note in
+        let visibleActionNoteSource = shiftNotes.filter { note in
+            note.visibility == .team || note.authorId == uid
+        }
+
+        allActionItemsWithDate = visibleActionNoteSource.flatMap { note in
             note.actionItems.map { (
                 item: $0,
                 noteId: note.id,
@@ -302,7 +306,7 @@ final class AppViewModel {
             ) }
         }
 
-        conflictedActionItemsCache = shiftNotes.flatMap { note in
+        conflictedActionItemsCache = visibleActionNoteSource.flatMap { note in
             note.actionItems.filter { $0.hasConflict }.map { (item: $0, noteId: note.id) }
         }
 
@@ -489,6 +493,11 @@ final class AppViewModel {
         hasPendingWrites = event.hasPendingWrites
         isDataFromCache = event.isFromCache
 
+        let currentUserId = self.currentUserId
+        let visibleNotes = event.notes.filter { note in
+            note.visibility == .team || note.authorId == currentUserId
+        }
+
         let isFirstServerSnapshotAfterReconnect = !event.isFromCache && !hasServerSnapshotSinceReconnect
         if !event.isFromCache {
             hasServerSnapshotSinceReconnect = true
@@ -497,7 +506,7 @@ final class AppViewModel {
             lastSyncDate = now
         }
 
-        let reconciledNotes = event.notes.map { note in
+        let reconciledNotes = visibleNotes.map { note in
             var mutableNote = note
             if !event.isFromCache {
                 mutableNote.updatedAtServer = note.updatedAt
