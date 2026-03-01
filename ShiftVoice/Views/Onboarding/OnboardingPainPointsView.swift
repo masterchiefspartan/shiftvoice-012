@@ -44,14 +44,22 @@ struct OnboardingPainPointsView: View {
                     .font(.system(size: 18, weight: .semibold))
                     .foregroundStyle(isSelected ? SVTheme.accent : SVTheme.textTertiary)
 
-                Text(point.rawValue)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(SVTheme.textPrimary)
-                    .multilineTextAlignment(.leading)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(point.title)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(SVTheme.textPrimary)
+                        .multilineTextAlignment(.leading)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    Text(point.subtitle)
+                        .font(.system(size: 12, weight: .regular))
+                        .foregroundStyle(SVTheme.textSecondary)
+                        .multilineTextAlignment(.leading)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
             .padding(14)
-            .frame(maxWidth: .infinity, minHeight: 104, alignment: .topLeading)
+            .frame(maxWidth: .infinity, minHeight: 132, alignment: .topLeading)
             .background(isSelected ? SVTheme.accent.opacity(0.08) : SVTheme.surface)
             .clipShape(.rect(cornerRadius: 12))
             .overlay(

@@ -154,12 +154,39 @@ nonisolated enum OnboardingIndustry: String, CaseIterable, Identifiable, Sendabl
 }
 
 nonisolated enum OnboardingPainPoint: String, CaseIterable, Identifiable, Sendable {
-    case forgottenHandoffs = "Forgotten handoffs"
-    case buriedInfo = "Buried info"
-    case recurringIssues = "Recurring issues"
-    case firefighting = "Constant firefighting"
+    case forgottenHandoffs = "forgotten_handoffs"
+    case buriedInfo = "buried_info"
+    case recurringIssues = "recurring_issues"
+    case firefighting = "firefighting"
 
     var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .forgottenHandoffs: return "Handoffs get forgotten"
+        case .buriedInfo: return "Info buried in texts & group chats"
+        case .recurringIssues: return "Same problems keep recurring"
+        case .firefighting: return "Too much time firefighting"
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .forgottenHandoffs: return "The next shift didn't know about the issue"
+        case .buriedInfo: return "Important updates lost in WhatsApp/text chaos"
+        case .recurringIssues: return "You've flagged it before but there's no record"
+        case .firefighting: return "Reacting to problems instead of running operations"
+        }
+    }
+
+    var mirrorPhrase: String {
+        switch self {
+        case .forgottenHandoffs: return "forgotten handoffs"
+        case .buriedInfo: return "buried info"
+        case .recurringIssues: return "recurring issues"
+        case .firefighting: return "firefighting"
+        }
+    }
 
     var icon: String {
         switch self {
@@ -199,7 +226,7 @@ final class OnboardingViewModel {
     var selectedRole: OnboardingRole?
     var selectedIndustry: OnboardingIndustry = .restaurant
     var businessType: BusinessType = .restaurant
-    var selectedPainPoints: Set<OnboardingPainPoint> = []
+    var selectedPainPoints: [OnboardingPainPoint] = []
     var selectedTool: OnboardingCurrentTool?
     var locationName: String = ""
     var detectedTimezone: String = TimeZone.current.identifier
@@ -343,10 +370,10 @@ final class OnboardingViewModel {
     }
 
     func togglePainPoint(_ point: OnboardingPainPoint) {
-        if selectedPainPoints.contains(point) {
-            selectedPainPoints.remove(point)
+        if let index = selectedPainPoints.firstIndex(of: point) {
+            selectedPainPoints.remove(at: index)
         } else {
-            selectedPainPoints.insert(point)
+            selectedPainPoints.append(point)
         }
     }
 
@@ -365,12 +392,12 @@ final class OnboardingViewModel {
         if selectedOrdered.isEmpty {
             painPhrase = "handoff issues"
         } else if selectedOrdered.count == 1 {
-            painPhrase = selectedOrdered[0].rawValue.lowercased()
+            painPhrase = selectedOrdered[0].mirrorPhrase
         } else if selectedOrdered.count == 2 {
-            painPhrase = "\(selectedOrdered[0].rawValue.lowercased()) and \(selectedOrdered[1].rawValue.lowercased())"
+            painPhrase = "\(selectedOrdered[0].mirrorPhrase) and \(selectedOrdered[1].mirrorPhrase)"
         } else {
-            let prefix = selectedOrdered.dropLast().map { $0.rawValue.lowercased() }.joined(separator: ", ")
-            painPhrase = "\(prefix), and \(selectedOrdered.last?.rawValue.lowercased() ?? "")"
+            let prefix = selectedOrdered.dropLast().map { $0.mirrorPhrase }.joined(separator: ", ")
+            painPhrase = "\(prefix), and \(selectedOrdered.last?.mirrorPhrase ?? "")"
         }
         return "As a \(role) in \(industry), \(toolPhrase) keeps creating \(painPhrase)."
     }
