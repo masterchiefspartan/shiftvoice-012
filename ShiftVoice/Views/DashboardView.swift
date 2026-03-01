@@ -9,6 +9,7 @@ struct DashboardView: View {
     @State private var selectedCategoryFilter: CategoryDisplayInfo? = nil
     @State private var selectedDateRange: DateRangeFilter = .all
     @State private var selectedAssigneeFilter: String? = nil
+    @State private var selectedActionScope: ActionScopeFilter = .all
     @State private var showRecurringIssues: Bool = false
     @State private var showFilterSheet: Bool = false
 
@@ -24,13 +25,26 @@ struct DashboardView: View {
         return count
     }
 
-    private var filteredActions: [(item: ActionItem, noteId: String, authorName: String, locationId: String, createdAt: Date)] {
+    private var scopedActions: [(item: ActionItem, noteId: String, authorName: String, locationId: String, createdAt: Date)] {
         viewModel.allActionItemsWithDate.filter { entry in
+            switch selectedActionScope {
+            case .all:
+                return true
+            case .team:
+                return noteVisibility(for: entry.noteId) == .team
+            case .personal:
+                return noteVisibility(for: entry.noteId) == .personal
+            }
+        }
+    }
+
+    private var filteredActions: [(item: ActionItem, noteId: String, authorName: String, locationId: String, createdAt: Date)] {
+        scopedActions.filter { entry in
             if let urgency = selectedUrgencyFilter, entry.item.urgency != urgency { return false }
             if let status = selectedStatusFilter, entry.item.status != status { return false }
             if let locId = selectedLocationFilter, entry.locationId != locId { return false }
             if let cat = selectedCategoryFilter, entry.item.displayInfo.id != cat.id { return false }
-            if viewModel.isAssignedToMeFilterEnabled, entry.item.assigneeId != viewModel.currentUserId { return false }
+            if viewModel.isAssignedToMeFilterEnabled, !isAssignedToCurrentUser(entry: entry) { return false }
             if let assigneeId = selectedAssigneeFilter, entry.item.assigneeId != assigneeId { return false }
             if selectedDateRange != .all {
                 let cutoff = selectedDateRange.cutoffDate
@@ -42,23 +56,23 @@ struct DashboardView: View {
     }
 
     private var myAssignedCount: Int {
-        viewModel.allActionItemsWithDate.filter { $0.item.assigneeId == viewModel.currentUserId && $0.item.status != .resolved }.count
+        scopedActions.filter { isAssignedToCurrentUser(entry: $0) && $0.item.status != .resolved }.count
     }
 
     private var openCount: Int {
-        viewModel.allActionItemsWithDate.filter { $0.item.status == .open }.count
+        scopedActions.filter { $0.item.status == .open }.count
     }
 
     private var immediateCount: Int {
-        viewModel.allActionItemsWithDate.filter { $0.item.urgency == .immediate && $0.item.status != .resolved }.count
+        scopedActions.filter { $0.item.urgency == .immediate && $0.item.status != .resolved }.count
     }
 
     private var inProgressCount: Int {
-        viewModel.allActionItemsWithDate.filter { $0.item.status == .inProgress }.count
+        scopedActions.filter { $0.item.status == .inProgress }.count
     }
 
     private var resolvedCount: Int {
-        viewModel.allActionItemsWithDate.filter { $0.item.status == .resolved }.count
+        scopedActions.filter { $0.item.status == .resolved }.count
     }
 
     private var greeting: String {
@@ -70,7 +84,7 @@ struct DashboardView: View {
     }
 
     private var activeCategories: [CategoryDisplayInfo] {
-        let infos = viewModel.allActionItemsWithDate.map(\.item.displayInfo)
+        let infos = scopedActions.map(\.item.displayInfo)
         var seen = Set<String>()
         return infos.filter { seen.insert($0.id).inserted }.sorted { $0.name < $1.name }
     }
@@ -81,6 +95,7 @@ struct DashboardView: View {
                 VStack(spacing: 24) {
                     headerSection
                     statsStrip
+                    scopeSection
                     filterSection
                     actionItemsList
                     recurringIssuesSection
@@ -132,6 +147,12 @@ struct DashboardView: View {
                 viewModel.loadFirstActionPage(filtered: filteredActions)
             }
             .onChange(of: selectedAssigneeFilter) { _, _ in
+                viewModel.loadFirstActionPage(filtered: filteredActions)
+            }
+            .onChange(of: selectedActionScope) { _, _ in
+                if selectedActionScope == .personal {
+                    selectedLocationFilter = nil
+                }
                 viewModel.loadFirstActionPage(filtered: filteredActions)
             }
         }
@@ -220,6 +241,16 @@ struct DashboardView: View {
             RoundedRectangle(cornerRadius: 12)
                 .stroke(SVTheme.surfaceBorder, lineWidth: 1)
         )
+    }
+
+    private var scopeSection: some View {
+        Picker("Action Scope", selection: $selectedActionScope) {
+            ForEach(ActionScopeFilter.allCases) { scope in
+                Text(scope.title).tag(scope)
+            }
+        }
+        .pickerStyle(.segmented)
+        .accessibilityLabel("Action item scope")
     }
 
     private var filterSection: some View {
@@ -345,7 +376,7 @@ struct DashboardView: View {
                 .contentMargins(.horizontal, 0)
             }
 
-            if !activeLocationChips.isEmpty {
+            if selectedActionScope != .personal, !activeLocationChips.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 6) {
                         ForEach(viewModel.locations) { location in
@@ -415,6 +446,7 @@ struct DashboardView: View {
                                 authorName: entry.authorName,
                                 locationName: viewModel.locationName(for: entry.locationId),
                                 noteId: entry.noteId,
+                                isPersonal: noteVisibility(for: entry.noteId) == .personal,
                                 onStatusChange: { newStatus in
                                     withAnimation(.easeOut(duration: 0.2)) {
                                         viewModel.updateActionItemStatus(
@@ -686,7 +718,8 @@ struct DashboardView: View {
                         }
                     }
 
-                    filterSheetSection(title: "LOCATION") {
+                    if selectedActionScope != .personal {
+                        filterSheetSection(title: "LOCATION") {
                         VStack(spacing: 0) {
                             ForEach(Array(viewModel.locations.enumerated()), id: \.element.id) { index, location in
                                 let isSelected = selectedLocationFilter == location.id
@@ -733,6 +766,7 @@ struct DashboardView: View {
                             RoundedRectangle(cornerRadius: 12)
                                 .stroke(SVTheme.surfaceBorder, lineWidth: 1)
                         )
+                        }
                     }
 
                     filterSheetSection(title: "ASSIGNED TO") {
@@ -851,6 +885,20 @@ struct DashboardView: View {
         }
     }
 
+    private func noteVisibility(for noteId: String) -> NoteVisibility {
+        viewModel.shiftNotes.first(where: { $0.id == noteId })?.visibility ?? .team
+    }
+
+    private func isAssignedToCurrentUser(entry: (item: ActionItem, noteId: String, authorName: String, locationId: String, createdAt: Date)) -> Bool {
+        if entry.item.assigneeId == viewModel.currentUserId {
+            return true
+        }
+        guard noteVisibility(for: entry.noteId) == .personal else {
+            return false
+        }
+        return viewModel.shiftNotes.first(where: { $0.id == entry.noteId })?.authorId == viewModel.currentUserId
+    }
+
     private func clearAllFilters() {
         selectedUrgencyFilter = nil
         selectedStatusFilter = nil
@@ -859,6 +907,22 @@ struct DashboardView: View {
         selectedDateRange = .all
         viewModel.isAssignedToMeFilterEnabled = false
         selectedAssigneeFilter = nil
+    }
+}
+
+nonisolated enum ActionScopeFilter: String, CaseIterable, Identifiable, Sendable {
+    case all
+    case team
+    case personal
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .all: return "All"
+        case .team: return "Team"
+        case .personal: return "Personal"
+        }
     }
 }
 
@@ -916,6 +980,7 @@ struct ActionItemRow: View {
     let authorName: String
     let locationName: String
     let noteId: String
+    let isPersonal: Bool
     let onStatusChange: (ActionItemStatus) -> Void
     var onDismissConflict: (() -> Void)? = nil
     var assigneeName: String? = nil
@@ -950,87 +1015,110 @@ struct ActionItemRow: View {
                 .background(SVTheme.amber.opacity(0.08))
             }
 
-        HStack(alignment: .top, spacing: 12) {
-            Button {
-                let next: ActionItemStatus = switch item.status {
-                case .open: .inProgress
-                case .inProgress: .resolved
-                case .resolved: .open
-                }
-                onStatusChange(next)
-            } label: {
-                Image(systemName: statusIcon)
-                    .font(.body)
-                    .foregroundStyle(statusColor)
-                    .frame(width: 28, height: 28)
-            }
-            .sensoryFeedback(.impact(weight: .medium), trigger: item.status)
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text(item.task)
-                    .font(.subheadline)
-                    .foregroundStyle(item.status == .resolved ? SVTheme.textTertiary : SVTheme.textPrimary)
-                    .strikethrough(item.status == .resolved, color: SVTheme.textTertiary)
-                    .lineSpacing(2)
-
-                HStack(spacing: 8) {
-                    HStack(spacing: 4) {
-                        Circle()
-                            .fill(SVTheme.urgencyColor(item.urgency))
-                            .frame(width: 5, height: 5)
-                        Text(item.urgency.rawValue)
-                            .font(.caption2.weight(.medium))
-                            .foregroundStyle(SVTheme.textTertiary)
+            HStack(alignment: .top, spacing: 12) {
+                Button {
+                    let next: ActionItemStatus = switch item.status {
+                    case .open: .inProgress
+                    case .inProgress: .resolved
+                    case .resolved: .open
                     }
-
-                    Text("·")
-                        .foregroundStyle(SVTheme.textTertiary)
-
-                    Text(locationName)
-                        .font(.caption2)
-                        .foregroundStyle(SVTheme.textTertiary)
-
-                    Text("·")
-                        .foregroundStyle(SVTheme.textTertiary)
-                    Text(assigneeLabel)
-                        .font(.caption2)
-                        .foregroundStyle(isAssigned ? SVTheme.accent : SVTheme.textTertiary.opacity(0.7))
-                        .lineLimit(1)
+                    onStatusChange(next)
+                } label: {
+                    Image(systemName: statusIcon)
+                        .font(.body)
+                        .foregroundStyle(statusColor)
+                        .frame(width: 28, height: 28)
                 }
-            }
+                .sensoryFeedback(.impact(weight: .medium), trigger: item.status)
 
-            Spacer(minLength: 4)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(item.task)
+                        .font(.subheadline)
+                        .foregroundStyle(item.status == .resolved ? SVTheme.textTertiary : SVTheme.textPrimary)
+                        .strikethrough(item.status == .resolved, color: SVTheme.textTertiary)
+                        .lineSpacing(2)
 
-            Group {
-                if let onAssigneeTap {
-                    Button(action: onAssigneeTap) {
+                    HStack(spacing: 8) {
+                        if isPersonal {
+                            HStack(spacing: 4) {
+                                Image(systemName: "lock.fill")
+                                    .font(.system(size: 10, weight: .semibold))
+                                Text("Personal")
+                                    .font(.caption2.weight(.semibold))
+                            }
+                            .foregroundStyle(Color.indigo)
+
+                            Text("·")
+                                .foregroundStyle(SVTheme.textTertiary)
+                        }
+
+                        HStack(spacing: 4) {
+                            Circle()
+                                .fill(SVTheme.urgencyColor(item.urgency))
+                                .frame(width: 5, height: 5)
+                            Text(item.urgency.rawValue)
+                                .font(.caption2.weight(.medium))
+                                .foregroundStyle(SVTheme.textTertiary)
+                        }
+
+                        Text("·")
+                            .foregroundStyle(SVTheme.textTertiary)
+
+                        if !isPersonal {
+                            Text(locationName)
+                                .font(.caption2)
+                                .foregroundStyle(SVTheme.textTertiary)
+
+                            Text("·")
+                                .foregroundStyle(SVTheme.textTertiary)
+                        }
+
+                        Text(assigneeLabel)
+                            .font(.caption2)
+                            .foregroundStyle(isAssigned ? SVTheme.accent : SVTheme.textTertiary.opacity(0.7))
+                            .lineLimit(1)
+                    }
+                }
+
+                Spacer(minLength: 4)
+
+                Group {
+                    if let onAssigneeTap {
+                        Button(action: onAssigneeTap) {
+                            assigneeAvatar
+                        }
+                    } else {
                         assigneeAvatar
                     }
-                } else {
-                    assigneeAvatar
                 }
-            }
-            .frame(width: 30, height: 30)
+                .frame(width: 30, height: 30)
 
-            Menu {
-                Button { onStatusChange(.open) } label: {
-                    Label("Open", systemImage: "circle")
+                Menu {
+                    Button { onStatusChange(.open) } label: {
+                        Label("Open", systemImage: "circle")
+                    }
+                    Button { onStatusChange(.inProgress) } label: {
+                        Label("In Progress", systemImage: "circle.dotted.and.circle")
+                    }
+                    Button { onStatusChange(.resolved) } label: {
+                        Label("Resolved", systemImage: "checkmark.circle.fill")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(SVTheme.textTertiary)
+                        .frame(width: 28, height: 28)
                 }
-                Button { onStatusChange(.inProgress) } label: {
-                    Label("In Progress", systemImage: "circle.dotted.and.circle")
-                }
-                Button { onStatusChange(.resolved) } label: {
-                    Label("Resolved", systemImage: "checkmark.circle.fill")
-                }
-            } label: {
-                Image(systemName: "ellipsis")
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(SVTheme.textTertiary)
-                    .frame(width: 28, height: 28)
             }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 14)
+        .overlay(alignment: .leading) {
+            if isPersonal {
+                Rectangle()
+                    .fill(Color.indigo.opacity(0.6))
+                    .frame(width: 3)
+            }
         }
     }
 
