@@ -150,6 +150,19 @@ struct ShiftNoteDetailView: View {
                     .foregroundStyle(SVTheme.textPrimary)
                 HStack(spacing: 8) {
                     ShiftTypeBadge(info: note.shiftDisplayInfo)
+                    if note.isPrivate {
+                        HStack(spacing: 4) {
+                            Image(systemName: "lock.fill")
+                                .font(.system(size: 10, weight: .semibold))
+                            Text("Private Note")
+                                .font(.caption2.weight(.semibold))
+                        }
+                        .foregroundStyle(.indigo)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color.indigo.opacity(0.12))
+                        .clipShape(.capsule)
+                    }
                     Text(note.createdAt, format: .dateTime.month(.abbreviated).day().hour().minute())
                         .font(.caption)
                         .foregroundStyle(SVTheme.textTertiary)
@@ -372,9 +385,21 @@ struct ShiftNoteDetailView: View {
             VStack(spacing: 0) {
                 ForEach(Array(note.actionItems.enumerated()), id: \.element.id) { index, item in
                     HStack(alignment: .top, spacing: 12) {
-                        Image(systemName: item.status == .resolved ? "checkmark.circle.fill" : "circle")
-                            .font(.body)
-                            .foregroundStyle(item.status == .resolved ? SVTheme.successGreen : SVTheme.textTertiary)
+                        Button {
+                            let nextStatus: ActionItemStatus = switch item.status {
+                            case .open: .inProgress
+                            case .inProgress: .resolved
+                            case .resolved: .open
+                            }
+                            viewModel.updateActionItemStatus(noteId: note.id, actionItemId: item.id, newStatus: nextStatus)
+                        } label: {
+                            Image(systemName: item.status == .resolved ? "checkmark.circle.fill" : "circle")
+                                .font(.body)
+                                .foregroundStyle(item.status == .resolved ? SVTheme.successGreen : SVTheme.textTertiary)
+                                .frame(width: 24, height: 24)
+                        }
+                        .buttonStyle(.plain)
+                        .sensoryFeedback(.selection, trigger: item.status)
 
                         VStack(alignment: .leading, spacing: 6) {
                             Text(item.task)
@@ -585,7 +610,7 @@ struct ShiftNoteDetailView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This will make the note visible to your entire team. This can’t be undone.")
+            Text("This will share the note with your team. This can't be undone.")
         }
     }
 

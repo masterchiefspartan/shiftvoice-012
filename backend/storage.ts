@@ -74,6 +74,7 @@ export interface StoredShiftNote {
   voiceReplies: any[];
   createdAt: string;
   updatedAt: string;
+  visibility: "team" | "private";
   isSynced: boolean;
 }
 
@@ -259,6 +260,8 @@ export const storage = {
     cursor?: string | null;
     limit?: number;
     updatedSince?: string | null;
+    visibilityScope?: "all" | "team" | "private";
+    authorId?: string | null;
   }): { notes: StoredShiftNote[]; totalCount: number; hasMore: boolean; nextCursor: string | null } {
     const ids = getFromIndex(noteOwnerIndex, userId);
     let notes: StoredShiftNote[] = [];
@@ -279,6 +282,11 @@ export const storage = {
     if (opts?.updatedSince) {
       const since = new Date(opts.updatedSince).getTime();
       notes = notes.filter((n) => new Date(n.updatedAt).getTime() > since);
+    }
+    if (opts?.visibilityScope === "team") {
+      notes = notes.filter((n) => n.visibility === "team");
+    } else if (opts?.visibilityScope === "private") {
+      notes = notes.filter((n) => n.visibility === "private" && (!opts.authorId || n.authorId === opts.authorId));
     }
 
     notes.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -304,6 +312,7 @@ export const storage = {
 
   upsertShiftNote(note: StoredShiftNote): void {
     note.updatedAt = now();
+    note.visibility = note.visibility === "private" ? "private" : "team";
     const existing = shiftNotes.get(note.id);
     if (existing && existing.locationId !== note.locationId) {
       removeFromIndex(noteLocationIndex, existing.locationId, note.id);
@@ -475,6 +484,7 @@ export const storage = {
           ownerId: userId,
           createdAt: note.createdAt || timestamp,
           updatedAt: timestamp,
+          visibility: note.visibility === "private" ? "private" : "team",
         });
       }
     }

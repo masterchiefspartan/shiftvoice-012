@@ -101,6 +101,7 @@ const shiftNoteSchema = z.object({
   acknowledgments: z.array(z.any()).optional(),
   voiceReplies: z.array(z.any()).optional(),
   createdAt: z.string().optional(),
+  visibility: z.enum(["team", "private"]).optional().default("team"),
   isSynced: z.boolean().optional(),
 });
 
@@ -968,8 +969,18 @@ app.get("/rest/shift-notes", async (c) => {
   const cursor = c.req.query("cursor") || null;
   const limit = Math.min(parseInt(c.req.query("limit") || "20", 10), 100);
   const updatedSince = c.req.query("updatedSince") || null;
+  const requestedScope = c.req.query("visibilityScope");
+  const visibilityScope = requestedScope === "private" ? "private" : "team";
 
-  const result = storage.getShiftNotes(auth.userId, { locationId, shiftFilter, cursor, limit, updatedSince });
+  const result = storage.getShiftNotes(auth.userId, {
+    locationId,
+    shiftFilter,
+    cursor,
+    limit,
+    updatedSince,
+    visibilityScope,
+    authorId: auth.userId,
+  });
   return c.json(result);
 });
 
@@ -1006,6 +1017,7 @@ app.post("/rest/shift-notes", async (c) => {
     voiceReplies: note.voiceReplies || [],
     createdAt: note.createdAt || new Date().toISOString(),
     updatedAt: new Date().toISOString(),
+    visibility: note.visibility ?? "team",
     isSynced: note.isSynced ?? true,
   });
 
@@ -1029,16 +1041,52 @@ app.patch("/rest/shift-notes/:noteId", async (c) => {
     "authorId", "authorName", "authorInitials", "locationId", "shiftType",
     "shiftTemplateId", "rawTranscript", "audioUrl", "audioDuration", "summary",
     "categorizedItems", "actionItems", "photoUrls", "acknowledgments",
-    "voiceReplies", "isSynced",
+    "voiceReplies", "visibility", "isSynced",
   ];
   const sanitized: Record<string, any> = {};
   for (const key of allowedNoteFields) {
     if (key in body) sanitized[key] = body[key];
   }
+  if ("visibility" in sanitized) {
+    const requestedVisibility = sanitized.visibility === "private" ? "private" : "team";
+    const currentVisibility = existing.visibility === "private" ? "private" : "team";
+    if (requestedVisibility === "private" && currentVisibility === "team") {
+      return errorResponse(c, 403, "Team notes cannot be converted to private", "FORBIDDEN");
+    }
+    if (requestedVisibility === "team" && currentVisibility === "private" && existing.authorId !== auth.userId) {
+      return errorResponse(c, 403, "Only the note author can share a private note with the team", "FORBIDDEN");
+    }
+    sanitized.visibility = requestedVisibility;
+  }
   const updated = { ...existing, ...sanitized, id: noteId, ownerId: auth.userId, updatedAt: new Date().toISOString() };
   storage.upsertShiftNote(updated);
 
   return c.json({ success: true, noteId });
+});
+
+// --- Shift Notes: Promote Private Note To Team ---
+
+app.post("/rest/shift-notes/:noteId/promote-to-team", async (c) => {
+  const auth = authMiddleware(c);
+  if (!auth) return errorResponse(c, 401, "Unauthorized", "UNAUTHORIZED");
+
+  const noteId = c.req.param("noteId");
+  const note = storage.getShiftNote(noteId);
+  if (!note || note.ownerId !== auth.userId) {
+    return errorResponse(c, 404, "Note not found", "NOT_FOUND");
+  }
+  if (note.authorId !== auth.userId) {
+    return errorResponse(c, 403, "Only the note author can share a private note with the team", "FORBIDDEN");
+  }
+  if (note.visibility !== "private") {
+    return c.json({ success: true, noteId, visibility: "team" });
+  }
+
+  note.visibility = "team";
+  note.updatedAt = new Date().toISOString();
+  storage.upsertShiftNote(note);
+
+  return c.json({ success: true, noteId, visibility: "team" });
 });
 
 // --- Shift Notes: Update Action Item Status ---

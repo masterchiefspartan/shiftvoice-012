@@ -159,6 +159,7 @@ nonisolated struct ShiftNoteDTO: Codable, Sendable {
     let voiceReplies: [VoiceReplyDTO]?
     let createdAt: String?
     let updatedAt: String?
+    let visibility: String?
     let isSynced: Bool?
 }
 
@@ -387,6 +388,7 @@ final class APIService {
         if let shiftFilter { queryItems.append("shiftFilter=\(shiftFilter)") }
         if let cursor { queryItems.append("cursor=\(cursor)") }
         queryItems.append("limit=\(limit)")
+        queryItems.append("visibilityScope=team")
         let query = queryItems.joined(separator: "&")
         let data = try await makeRequest(path: "shift-notes?\(query)")
         return try decoder.decode(PaginatedNotesResponse.self, from: data)
@@ -483,6 +485,7 @@ final class APIService {
             "createdAt": dateFormatter.string(from: note.createdAt),
             "updatedAt": dateFormatter.string(from: note.updatedAt),
             "isSynced": note.isSynced,
+            "visibility": note.visibility.rawValue,
             "categorizedItems": note.categorizedItems.map { encodeCategorizedItem($0) },
             "actionItems": note.actionItems.map { encodeActionItem($0) },
             "acknowledgments": note.acknowledgments.map { encodeAcknowledgment($0) },
@@ -630,6 +633,7 @@ final class APIService {
             voiceReplies: (dto.voiceReplies ?? []).map { decodeVoiceReply($0) },
             createdAt: createdAt,
             updatedAt: updatedAt,
+            visibility: NoteVisibility(rawValue: dto.visibility ?? "team") ?? .team,
             isSynced: dto.isSynced ?? true
         )
     }
