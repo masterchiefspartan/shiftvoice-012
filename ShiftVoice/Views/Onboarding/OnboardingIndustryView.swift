@@ -25,8 +25,8 @@ struct OnboardingIndustryView: View {
                 .offset(y: appeared ? 0 : 12)
 
                 LazyVGrid(columns: columns, spacing: 10) {
-                    ForEach(BusinessType.allCases) { type in
-                        industryCard(type)
+                    ForEach(OnboardingIndustry.allCases) { industry in
+                        industryCard(industry)
                     }
                 }
                 .opacity(appeared ? 1 : 0)
@@ -45,23 +45,23 @@ struct OnboardingIndustryView: View {
         }
     }
 
-    private func industryCard(_ type: BusinessType) -> some View {
-        let isSelected = viewModel.businessType == type
+    private func industryCard(_ industry: OnboardingIndustry) -> some View {
+        let isSelected = viewModel.selectedIndustry == industry
 
         return Button {
             withAnimation(.easeOut(duration: 0.15)) {
-                viewModel.selectBusinessType(type)
+                viewModel.selectIndustry(industry)
             }
         } label: {
             HStack(spacing: 10) {
-                Image(systemName: type.icon)
+                Image(systemName: industry.icon)
                     .font(.system(size: 16))
                     .foregroundStyle(isSelected ? SVTheme.accent : SVTheme.textTertiary)
                     .frame(width: 32, height: 32)
                     .background(isSelected ? SVTheme.accent.opacity(0.1) : SVTheme.iconBackground)
                     .clipShape(.rect(cornerRadius: 8))
 
-                Text(type.rawValue)
+                Text(industry.rawValue)
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(isSelected ? SVTheme.textPrimary : SVTheme.textSecondary)
                     .lineLimit(1)
@@ -79,6 +79,6 @@ struct OnboardingIndustryView: View {
                     .stroke(isSelected ? SVTheme.accent.opacity(0.4) : SVTheme.surfaceBorder, lineWidth: isSelected ? 1.5 : 1)
             )
         }
-        .sensoryFeedback(.selection, trigger: viewModel.businessType)
+        .sensoryFeedback(.selection, trigger: viewModel.selectedIndustry)
     }
 }

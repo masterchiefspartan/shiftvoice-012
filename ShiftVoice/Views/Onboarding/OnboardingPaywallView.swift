@@ -8,7 +8,6 @@ struct OnboardingPaywallView: View {
 
     @State private var selectedBilling: OnboardingBillingPeriod = .annual
     @State private var offerings: Offerings?
-    @State private var isLoading: Bool = true
     @State private var isPurchasing: Bool = false
     @State private var showError: Bool = false
     @State private var errorMessage: String = ""
@@ -153,7 +152,7 @@ struct OnboardingPaywallView: View {
                             .font(.subheadline)
                             .foregroundStyle(SVTheme.textSecondary)
                     }
-                    Text("That's just $33/month")
+                    Text("Equivalent to about $33/month")
                         .font(.caption)
                         .foregroundStyle(SVTheme.successGreen)
                 }
@@ -167,15 +166,9 @@ struct OnboardingPaywallView: View {
                             .font(.subheadline)
                             .foregroundStyle(SVTheme.textSecondary)
                     }
-                    Button {
-                        withAnimation(.spring(duration: 0.2)) {
-                            selectedBilling = .annual
-                        }
-                    } label: {
-                        Text("Save $189/year with annual →")
-                            .font(.caption)
-                            .foregroundStyle(SVTheme.accent)
-                    }
+                    Text("Save $189/year with annual")
+                        .font(.caption)
+                        .foregroundStyle(SVTheme.accent)
                 }
             }
         }
@@ -279,10 +272,9 @@ struct OnboardingPaywallView: View {
         "Unlimited voice notes",
         "AI-powered structuring",
         "Shift handoff reports",
-        "@Mentions & escalation",
         "Action item tracking",
         "Unlimited team members",
-        "Offline mode — works anywhere",
+        "Offline mode — works anywhere"
     ]
 
     private var monthlyPrice: String {
@@ -312,11 +304,9 @@ struct OnboardingPaywallView: View {
     }
 
     private func fetchOfferings() async {
-        isLoading = true
         do {
             offerings = try await subscription.fetchOfferings()
         } catch {}
-        isLoading = false
     }
 
     private func handlePurchase() async {

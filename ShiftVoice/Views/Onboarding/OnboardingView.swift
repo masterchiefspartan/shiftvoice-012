@@ -7,7 +7,7 @@ struct OnboardingView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if viewModel.currentStep < 5 {
+            if viewModel.currentStep != 5 {
                 progressBar
                     .padding(.horizontal, 24)
                     .padding(.top, 12)
@@ -20,22 +20,24 @@ struct OnboardingView: View {
                 case 1:
                     OnboardingIndustryView(viewModel: viewModel)
                 case 2:
-                    OnboardingWorkspaceView(viewModel: viewModel)
+                    OnboardingPainPointsView(viewModel: viewModel)
                 case 3:
-                    OnboardingTeamView(viewModel: viewModel)
+                    OnboardingToolMirrorView(viewModel: viewModel)
                 case 4:
+                    OnboardingDemoSetupView(viewModel: viewModel)
+                case 5:
+                    OnboardingLiveRecordingView(viewModel: viewModel)
+                case 6:
+                    OnboardingAIRevealView(viewModel: viewModel)
+                case 7:
+                    OnboardingWorkspaceView(viewModel: viewModel)
+                case 8:
                     OnboardingPaywallView(viewModel: viewModel, onSkip: {
                         viewModel.paywallSkipped = true
-                        withAnimation(.easeOut(duration: 0.3)) {
-                            viewModel.currentStep = 5
-                        }
+                        completeOnboarding()
                     }, onPurchaseSuccess: {
-                        withAnimation(.easeOut(duration: 0.3)) {
-                            viewModel.currentStep = 5
-                        }
+                        completeOnboarding()
                     })
-                case 5:
-                    OnboardingCompletionView(viewModel: viewModel, onFinish: completeOnboarding)
                 default:
                     EmptyView()
                 }
@@ -51,9 +53,10 @@ struct OnboardingView: View {
 
     private var shouldShowBottomActions: Bool {
         switch viewModel.currentStep {
-        case 0: return false
-        case 4, 5: return false
-        default: return true
+        case 0, 4, 5, 6, 8:
+            return false
+        default:
+            return true
         }
     }
 
@@ -76,35 +79,21 @@ struct OnboardingView: View {
     }
 
     private var bottomActions: some View {
-        VStack(spacing: 12) {
-            Button {
-                withAnimation(.easeOut(duration: 0.2)) {
-                    viewModel.advance()
-                }
-            } label: {
-                Text("Continue")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 52)
-                    .background(viewModel.canAdvance ? SVTheme.accent : SVTheme.accent.opacity(0.4))
-                    .clipShape(.rect(cornerRadius: 12))
+        Button {
+            withAnimation(.easeOut(duration: 0.2)) {
+                viewModel.advance()
             }
-            .disabled(!viewModel.canAdvance)
-            .sensoryFeedback(.impact(weight: .light), trigger: viewModel.currentStep)
-
-            if viewModel.currentStep > 0 {
-                Button {
-                    withAnimation(.easeOut(duration: 0.2)) {
-                        viewModel.goBack()
-                    }
-                } label: {
-                    Text("Back")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(SVTheme.textTertiary)
-                }
-            }
+        } label: {
+            Text("Continue")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .frame(height: 52)
+                .background(viewModel.canAdvance ? SVTheme.accent : SVTheme.accent.opacity(0.4))
+                .clipShape(.rect(cornerRadius: 12))
         }
+        .disabled(!viewModel.canAdvance)
+        .sensoryFeedback(.impact(weight: .light), trigger: viewModel.currentStep)
         .padding(.horizontal, 24)
         .padding(.bottom, 16)
     }

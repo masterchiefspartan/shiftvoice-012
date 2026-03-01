@@ -12,115 +12,107 @@ struct OnboardingWorkspaceView: View {
                         .font(.system(size: 28, weight: .bold, design: .serif))
                         .foregroundStyle(SVTheme.textPrimary)
 
-                    Text("We've pre-configured your shifts based on your \(viewModel.businessType.rawValue.lowercased()) setup.")
+                    Text("Name your location, confirm shifts, and invite your team.")
                         .font(.system(size: 15))
                         .foregroundStyle(SVTheme.textSecondary)
-                        .lineSpacing(2)
                 }
-                .opacity(appeared ? 1 : 0)
-                .offset(y: appeared ? 0 : 12)
 
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("\(viewModel.businessType.terminology.location.uppercased()) NAME")
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("LOCATION NAME")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(SVTheme.textTertiary)
-                        .tracking(1.2)
 
-                    VStack(alignment: .leading, spacing: 6) {
-                        TextField(locationPlaceholder, text: $viewModel.locationName)
-                            .font(.system(size: 16))
-                            .foregroundStyle(SVTheme.textPrimary)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 14)
-                            .background(SVTheme.surface)
-                            .clipShape(.rect(cornerRadius: 10))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 10)
-                                    .stroke(viewModel.locationNameError != nil ? SVTheme.urgentRed.opacity(0.6) : SVTheme.surfaceBorder, lineWidth: 1)
-                            )
+                    TextField(locationPlaceholder, text: $viewModel.locationName)
+                        .font(.system(size: 16))
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 12)
+                        .background(SVTheme.surface)
+                        .clipShape(.rect(cornerRadius: 10))
+                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(viewModel.locationNameError == nil ? SVTheme.surfaceBorder : SVTheme.urgentRed.opacity(0.5), lineWidth: 1))
 
-                        if let error = viewModel.locationNameError {
-                            Text(error)
-                                .font(.system(size: 12))
-                                .foregroundStyle(SVTheme.urgentRed)
-                        }
+                    if let error = viewModel.locationNameError {
+                        Text(error)
+                            .font(.system(size: 12))
+                            .foregroundStyle(SVTheme.urgentRed)
                     }
                 }
-                .opacity(appeared ? 1 : 0)
-                .offset(y: appeared ? 0 : 12)
-                .animation(.easeOut(duration: 0.4).delay(0.1), value: appeared)
 
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("SHIFTS")
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("SHIFT CONFIG")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(SVTheme.textTertiary)
-                        .tracking(1.2)
 
                     VStack(spacing: 1) {
                         ForEach(Array(viewModel.selectedShiftTemplates.enumerated()), id: \.element.id) { index, shift in
                             if index > 0 {
-                                Rectangle().fill(SVTheme.divider).frame(height: 1).padding(.leading, 64)
+                                Rectangle().fill(SVTheme.divider).frame(height: 1).padding(.leading, 52)
                             }
-                            shiftRow(shift: shift)
+                            shiftRow(shift)
                         }
                     }
                     .background(SVTheme.surface)
                     .clipShape(.rect(cornerRadius: 12))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12)
-                            .stroke(SVTheme.surfaceBorder, lineWidth: 1)
-                    )
-
-                    Text("You can customize shifts later in Settings")
-                        .font(.system(size: 12))
-                        .foregroundStyle(SVTheme.textTertiary)
+                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(SVTheme.surfaceBorder, lineWidth: 1))
                 }
-                .opacity(appeared ? 1 : 0)
-                .offset(y: appeared ? 0 : 12)
-                .animation(.easeOut(duration: 0.4).delay(0.2), value: appeared)
 
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("TIMEZONE")
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("TEAM INVITE")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(SVTheme.textTertiary)
-                        .tracking(1.2)
 
-                    HStack(spacing: 12) {
-                        Image(systemName: "globe")
-                            .font(.system(size: 16))
-                            .foregroundStyle(SVTheme.textTertiary)
-
-                        Text(viewModel.formattedTimezone)
+                    HStack(spacing: 10) {
+                        TextField("Email or phone number", text: $viewModel.inviteInput)
                             .font(.system(size: 15))
-                            .foregroundStyle(SVTheme.textPrimary)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
 
-                        Spacer()
-
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 16))
-                            .foregroundStyle(SVTheme.accentGreen)
+                        Button("Add") {
+                            viewModel.addInviteFromInput()
+                        }
+                        .font(.system(size: 14, weight: .semibold))
+                        .buttonStyle(.plain)
+                        .foregroundStyle(SVTheme.accent)
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 14)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
                     .background(SVTheme.surface)
                     .clipShape(.rect(cornerRadius: 10))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 10)
-                            .stroke(SVTheme.surfaceBorder, lineWidth: 1)
-                    )
-                }
-                .opacity(appeared ? 1 : 0)
-                .offset(y: appeared ? 0 : 12)
-                .animation(.easeOut(duration: 0.4).delay(0.3), value: appeared)
+                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(SVTheme.surfaceBorder, lineWidth: 1))
 
-                Spacer(minLength: 80)
+                    if !viewModel.teamInvites.isEmpty {
+                        VStack(spacing: 8) {
+                            ForEach(viewModel.teamInvites) { invite in
+                                HStack {
+                                    Image(systemName: "person.crop.circle.badge.plus")
+                                        .foregroundStyle(SVTheme.accent)
+                                    Text(invite.contact)
+                                        .font(.system(size: 14))
+                                        .foregroundStyle(SVTheme.textPrimary)
+                                    Spacer()
+                                    Button {
+                                        viewModel.removeInvite(invite.id)
+                                    } label: {
+                                        Image(systemName: "xmark.circle.fill")
+                                            .foregroundStyle(SVTheme.textTertiary)
+                                    }
+                                }
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 10)
+                                .background(SVTheme.surface)
+                                .clipShape(.rect(cornerRadius: 10))
+                            }
+                        }
+                    }
+                }
             }
             .padding(.horizontal, 24)
             .padding(.top, 24)
+            .padding(.bottom, 80)
+            .opacity(appeared ? 1 : 0)
+            .offset(y: appeared ? 0 : 10)
         }
-        .scrollDismissesKeyboard(.interactively)
         .onAppear {
-            withAnimation(.easeOut(duration: 0.5)) {
+            withAnimation(.easeOut(duration: 0.35)) {
                 appeared = true
             }
         }
@@ -128,57 +120,30 @@ struct OnboardingWorkspaceView: View {
 
     private var locationPlaceholder: String {
         switch viewModel.businessType {
-        case .restaurant: return "e.g. The Ember Room"
-        case .barPub: return "e.g. The Copper Tap"
+        case .restaurant, .barPub: return "e.g. Riverfront Grill"
         case .hotel: return "e.g. Grand Meridian Hotel"
-        case .cafe: return "e.g. Morning Brew Café"
-        case .retail: return "e.g. Main Street Store"
         case .healthcare: return "e.g. Cedar Valley Medical"
-        case .manufacturing: return "e.g. Westside Plant A"
+        case .manufacturing: return "e.g. Westside Distribution Center"
         case .security: return "e.g. Riverside Campus"
-        case .propertyManagement: return "e.g. Oakwood Apartments"
-        case .construction: return "e.g. Harbor Bridge Project"
-        case .other: return "e.g. My Location"
+        default: return "e.g. My Location"
         }
     }
 
-    private func shiftRow(shift: ShiftTemplate) -> some View {
-        let iconColor = shiftColor(for: shift.icon)
-        let formattedHour = formatHour(shift.defaultStartHour)
-
-        return HStack(spacing: 14) {
+    private func shiftRow(_ shift: ShiftTemplate) -> some View {
+        HStack(spacing: 12) {
             Image(systemName: shift.icon)
-                .font(.system(size: 16))
-                .foregroundStyle(iconColor)
-                .frame(width: 36, height: 36)
-                .background(iconColor.opacity(0.12))
-                .clipShape(.rect(cornerRadius: 8))
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(shift.name)
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(SVTheme.textPrimary)
-
-                Text("Starts at \(formattedHour)")
-                    .font(.system(size: 12))
-                    .foregroundStyle(SVTheme.textTertiary)
-            }
-
+                .foregroundStyle(SVTheme.accent)
+                .frame(width: 28, height: 28)
+            Text(shift.name)
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(SVTheme.textPrimary)
             Spacer()
+            Text("\(formatHour(shift.defaultStartHour))")
+                .font(.system(size: 13))
+                .foregroundStyle(SVTheme.textSecondary)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 14)
-    }
-
-    private func shiftColor(for icon: String) -> Color {
-        switch icon {
-        case "sunrise.fill": return Color(red: 245/255, green: 158/255, blue: 11/255)
-        case "sun.max.fill": return Color(red: 234/255, green: 179/255, blue: 8/255)
-        case "sunset.fill": return Color(red: 234/255, green: 88/255, blue: 12/255)
-        case "moon.stars.fill": return Color(red: 99/255, green: 102/255, blue: 241/255)
-        case "moon.zzz.fill": return Color(red: 79/255, green: 70/255, blue: 229/255)
-        default: return SVTheme.accent
-        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 12)
     }
 
     private func formatHour(_ hour: Int) -> String {

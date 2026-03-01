@@ -43,9 +43,9 @@ nonisolated enum OnboardingRole: String, CaseIterable, Identifiable, Sendable {
 
     var title: String {
         switch self {
-        case .shiftLead: return "Shift Lead / Floor Manager"
-        case .gmOwner: return "General Manager / Owner"
-        case .multiUnit: return "Operations / Multi-Unit"
+        case .shiftLead: return "Shift Lead/Floor Manager"
+        case .gmOwner: return "GM/Owner"
+        case .multiUnit: return "Operations/Multi-Unit"
         }
     }
 
@@ -78,13 +78,77 @@ nonisolated struct TeamInvite: Identifiable, Sendable {
     }
 }
 
+nonisolated enum OnboardingIndustry: String, CaseIterable, Identifiable, Sendable {
+    case restaurantBar = "Restaurant/Bar"
+    case hotelHospitality = "Hotel/Hospitality"
+    case facilitiesMaintenance = "Facilities/Maintenance"
+    case warehouseLogistics = "Warehouse/Logistics"
+    case healthcare = "Healthcare"
+    case other = "Other"
+
+    var id: String { rawValue }
+
+    var icon: String {
+        switch self {
+        case .restaurantBar: return "fork.knife"
+        case .hotelHospitality: return "bed.double.fill"
+        case .facilitiesMaintenance: return "wrench.and.screwdriver.fill"
+        case .warehouseLogistics: return "shippingbox.fill"
+        case .healthcare: return "cross.case.fill"
+        case .other: return "square.grid.2x2.fill"
+        }
+    }
+
+    var businessType: BusinessType {
+        switch self {
+        case .restaurantBar: return .restaurant
+        case .hotelHospitality: return .hotel
+        case .facilitiesMaintenance: return .security
+        case .warehouseLogistics: return .manufacturing
+        case .healthcare: return .healthcare
+        case .other: return .other
+        }
+    }
+}
+
+nonisolated enum OnboardingPainPoint: String, CaseIterable, Identifiable, Sendable {
+    case forgottenHandoffs = "Forgotten handoffs"
+    case buriedInfo = "Buried info"
+    case recurringIssues = "Recurring issues"
+    case firefighting = "Constant firefighting"
+
+    var id: String { rawValue }
+
+    var icon: String {
+        switch self {
+        case .forgottenHandoffs: return "arrow.left.arrow.right.circle"
+        case .buriedInfo: return "tray.full"
+        case .recurringIssues: return "arrow.triangle.2.circlepath"
+        case .firefighting: return "flame.fill"
+        }
+    }
+}
+
+nonisolated enum OnboardingCurrentTool: String, CaseIterable, Identifiable, Sendable {
+    case notesApp = "Notes app"
+    case whatsapp = "WhatsApp"
+    case textMessage = "Text messages"
+    case paperLog = "Paper log"
+    case none = "Nothing formal"
+
+    var id: String { rawValue }
+}
+
 @Observable
 final class OnboardingViewModel {
     var currentStep: Int = 0
-    let totalSteps: Int = 6
+    let totalSteps: Int = 9
 
     var selectedRole: OnboardingRole?
+    var selectedIndustry: OnboardingIndustry = .restaurantBar
     var businessType: BusinessType = .restaurant
+    var selectedPainPoints: Set<OnboardingPainPoint> = []
+    var selectedTool: OnboardingCurrentTool?
     var locationName: String = ""
     var detectedTimezone: String = TimeZone.current.identifier
 
@@ -93,11 +157,13 @@ final class OnboardingViewModel {
     var availableRoleTemplates: [RoleTemplate] = IndustrySeed.restaurant.defaultRoles
 
     var teamInvites: [TeamInvite] = []
+    var inviteInput: String = ""
 
     var locationNameError: String?
     var inviteErrors: [String: String] = [:]
 
     var paywallSkipped: Bool = false
+    var recordingSeconds: Int = 0
 
     var selectedCategories: Set<NoteCategory> {
         let mapped = selectedCategoryTemplates.compactMap { NoteCategory.fromTemplate($0) }
@@ -112,10 +178,13 @@ final class OnboardingViewModel {
         switch currentStep {
         case 0: return selectedRole != nil
         case 1: return true
-        case 2: return !locationName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        case 3: return true
-        case 4: return true
-        case 5: return true
+        case 2: return !selectedPainPoints.isEmpty
+        case 3: return selectedTool != nil
+        case 4: return false
+        case 5: return false
+        case 6: return false
+        case 7: return !locationName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        case 8: return false
         default: return true
         }
     }
@@ -124,9 +193,10 @@ final class OnboardingViewModel {
         selectedRole = role
     }
 
-    func selectBusinessType(_ type: BusinessType) {
-        businessType = type
-        let template = type.industryTemplate
+    func selectIndustry(_ industry: OnboardingIndustry) {
+        selectedIndustry = industry
+        businessType = industry.businessType
+        let template = businessType.industryTemplate
         selectedCategoryTemplates = Set(template.defaultCategories)
         selectedShiftTemplates = template.defaultShifts
         availableRoleTemplates = template.defaultRoles
@@ -139,9 +209,11 @@ final class OnboardingViewModel {
         switch currentStep {
         case 0:
             return selectedRole != nil
-        case 1:
-            return true
         case 2:
+            return !selectedPainPoints.isEmpty
+        case 3:
+            return selectedTool != nil
+        case 7:
             let trimmed = locationName.trimmingCharacters(in: .whitespacesAndNewlines)
             if trimmed.isEmpty {
                 locationNameError = "Give your \(businessType.terminology.location.lowercased()) a name to continue"
@@ -155,8 +227,6 @@ final class OnboardingViewModel {
                 locationNameError = "Name must be under 100 characters"
                 return false
             }
-            return true
-        case 3:
             var valid = true
             var seenContacts = Set<String>()
             for invite in teamInvites where !invite.contact.isEmpty {
@@ -188,6 +258,56 @@ final class OnboardingViewModel {
         if currentStep > 0 {
             currentStep -= 1
         }
+    }
+
+    func continueFromDemoSetup() {
+        if currentStep == 4 {
+            currentStep = 5
+            recordingSeconds = 0
+        }
+    }
+
+    func continueFromLiveRecording() {
+        if currentStep == 5 {
+            currentStep = 6
+        }
+    }
+
+    func continueFromAIReveal() {
+        if currentStep == 6 {
+            currentStep = 7
+        }
+    }
+
+    func togglePainPoint(_ point: OnboardingPainPoint) {
+        if selectedPainPoints.contains(point) {
+            selectedPainPoints.remove(point)
+        } else {
+            selectedPainPoints.insert(point)
+        }
+    }
+
+    var mirrorMomentText: String {
+        let role = selectedRole?.title ?? "Operator"
+        let pain = selectedPainPoints.map(\.rawValue).sorted().joined(separator: ", ").lowercased()
+        let tool = selectedTool?.rawValue ?? "your current workflow"
+        let industry = selectedIndustry.rawValue
+        if pain.isEmpty {
+            return "As a \(role) in \(industry), relying on \(tool) makes handoffs harder than they should be."
+        }
+        return "As a \(role) in \(industry), relying on \(tool) is why \(pain) keeps showing up at shift change."
+    }
+
+    func addInviteFromInput() {
+        let trimmed = inviteInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let normalized = trimmed.lowercased()
+        guard isValidContact(normalized) else { return }
+        let duplicate = teamInvites.contains { $0.contact.lowercased().trimmingCharacters(in: .whitespacesAndNewlines) == normalized }
+        guard !duplicate else { return }
+        let defaultRole = availableRoleTemplates.last ?? RoleTemplate(id: "role_default", name: "Team Member", sortOrder: 0)
+        teamInvites.append(TeamInvite(contact: trimmed, roleTemplate: defaultRole))
+        inviteInput = ""
     }
 
     func addInvite() {
