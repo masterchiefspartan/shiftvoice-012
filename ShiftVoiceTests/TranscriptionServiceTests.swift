@@ -11,11 +11,11 @@ struct TranscriptionServiceTests {
         #expect(TranscriptionFailureReason.cloudFailed.isEmptyRecording == false)
     }
 
-    @Test func validateAudioFileReturnsMissingForUnknownPath() {
+    @Test func validateAudioFileReturnsMissingForUnknownPath() async {
         let service = TranscriptionService()
         let missingURL = URL(fileURLWithPath: "/tmp/shiftvoice-tests/does-not-exist-\(UUID().uuidString).m4a")
 
-        let result = service.validateAudioFile(at: missingURL)
+        let result = await service.validateAudioFile(at: missingURL)
 
         switch result {
         case .missing:
@@ -25,7 +25,7 @@ struct TranscriptionServiceTests {
         }
     }
 
-    @Test func validateAudioFileReturnsEmptyForZeroByteFile() throws {
+    @Test func validateAudioFileReturnsEmptyForZeroByteFile() async throws {
         let service = TranscriptionService()
         let tempDirectory = FileManager.default.temporaryDirectory
         let fileURL = tempDirectory.appendingPathComponent("shiftvoice-empty-\(UUID().uuidString).m4a")
@@ -33,7 +33,7 @@ struct TranscriptionServiceTests {
 
         FileManager.default.createFile(atPath: fileURL.path, contents: Data())
 
-        let result = service.validateAudioFile(at: fileURL)
+        let result = await service.validateAudioFile(at: fileURL)
 
         switch result {
         case .empty:
@@ -43,7 +43,7 @@ struct TranscriptionServiceTests {
         }
     }
 
-    @Test func validateAudioFileReturnsCorruptForUnreadablePayload() throws {
+    @Test func validateAudioFileReturnsCorruptForUnreadablePayload() async throws {
         let service = TranscriptionService()
         let tempDirectory = FileManager.default.temporaryDirectory
         let fileURL = tempDirectory.appendingPathComponent("shiftvoice-corrupt-\(UUID().uuidString).m4a")
@@ -52,7 +52,7 @@ struct TranscriptionServiceTests {
         let randomData = Data((0..<2048).map { _ in UInt8.random(in: 0...255) })
         try randomData.write(to: fileURL)
 
-        let result = service.validateAudioFile(at: fileURL)
+        let result = await service.validateAudioFile(at: fileURL)
 
         switch result {
         case .corrupt:
@@ -60,5 +60,33 @@ struct TranscriptionServiceTests {
         default:
             #expect(Bool(false))
         }
+    }
+
+    @Test func validateAudioFileRejectsUnsupportedExtension() async throws {
+        let service = TranscriptionService()
+        let tempDirectory = FileManager.default.temporaryDirectory
+        let fileURL = tempDirectory.appendingPathComponent("shiftvoice-unsupported-\(UUID().uuidString).wav")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        try Data([0x00, 0x01, 0x02, 0x03]).write(to: fileURL)
+        let result = await service.validateAudioFile(at: fileURL)
+
+        switch result {
+        case .unsupportedFormat:
+            #expect(Bool(true))
+        default:
+            #expect(Bool(false))
+        }
+    }
+
+    @Test func validateBeforeTranscriptionSurfacesUserMessageForMissingAudio() async {
+        let service = TranscriptionService()
+        let missingURL = URL(fileURLWithPath: "/tmp/shiftvoice-tests/missing-\(UUID().uuidString).m4a")
+
+        let isValid = await service.validateBeforeTranscription(at: missingURL)
+
+        #expect(isValid == false)
+        #expect(service.failureReason == .noAudioFile)
+        #expect(service.errorMessage == TranscriptionFailureReason.noAudioFile.userMessage)
     }
 }

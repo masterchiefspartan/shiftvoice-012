@@ -210,7 +210,13 @@ struct QuickAppendView: View {
         }
 
         guard !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            errorMessage = "No speech detected. Try again."
+            if let failureMessage = transcription.failureReason?.userMessage {
+                errorMessage = failureMessage
+            } else if audioURL == nil {
+                errorMessage = "No audio file was recorded."
+            } else {
+                errorMessage = "No speech detected. Try again."
+            }
             isProcessing = false
             return
         }
