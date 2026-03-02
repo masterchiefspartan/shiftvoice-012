@@ -255,7 +255,7 @@ struct QuickAppendView: View {
             newCategories = result.categorizedItems
             newActions = result.actionItems
         case .failure, .none:
-            newCategories = TranscriptProcessor.generateCategories(from: transcript)
+            newCategories = TranscriptProcessor.generateCategories(from: transcript, businessType: businessType)
             newActions = TranscriptProcessor.generateActionItems(from: newCategories)
         }
 

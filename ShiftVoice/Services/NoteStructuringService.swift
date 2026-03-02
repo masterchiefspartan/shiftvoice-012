@@ -226,8 +226,11 @@ final class NoteStructuringService {
                 warning: warning,
                 transcriptCoverage: structured.transcriptCoverage
             ))
-        } catch is URLError {
-            return .failure(.timeout)
+        } catch let error as URLError {
+            if error.code == .timedOut {
+                return .failure(.timeout)
+            }
+            return .failure(.serverError("Network unavailable. Structured locally."))
         } catch {
             return .failure(.serverError("Network error: \(error.localizedDescription)"))
         }

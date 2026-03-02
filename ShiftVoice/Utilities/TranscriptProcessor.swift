@@ -39,7 +39,8 @@ enum TranscriptProcessor {
                         category: category,
                         categoryTemplateId: templateId,
                         content: segment.trimmingCharacters(in: .whitespacesAndNewlines),
-                        urgency: category == .healthSafety || category == .eightySixed ? .immediate : .nextShift
+                        urgency: fallbackUrgency(for: category, segment: segment),
+                        sourceQuote: segment.trimmingCharacters(in: .whitespacesAndNewlines)
                     ))
                     matched = true
                     break
@@ -50,7 +51,8 @@ enum TranscriptProcessor {
                     category: .general,
                     categoryTemplateId: "cat_gen",
                     content: segment.trimmingCharacters(in: .whitespacesAndNewlines),
-                    urgency: .fyi
+                    urgency: .fyi,
+                    sourceQuote: segment.trimmingCharacters(in: .whitespacesAndNewlines)
                 ))
             }
         }
@@ -60,7 +62,8 @@ enum TranscriptProcessor {
                 category: .general,
                 categoryTemplateId: "cat_gen",
                 content: transcript,
-                urgency: .fyi
+                urgency: .fyi,
+                sourceQuote: transcript
             ))
         }
 
@@ -140,6 +143,28 @@ enum TranscriptProcessor {
         return segments
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { $0.count > 5 }
+    }
+
+    private static func fallbackUrgency(for category: NoteCategory, segment: String) -> UrgencyLevel {
+        let lower: String = segment.lowercased()
+        let explicitCriticalSignals: [String] = [
+            "fire", "gas leak", "carbon monoxide", "unconscious", "bleeding", "electrical shock", "severe injury", "active hazard"
+        ]
+
+        if category == .healthSafety,
+           explicitCriticalSignals.contains(where: { lower.contains($0) }) {
+            return .immediate
+        }
+
+        if category == .eightySixed {
+            return .nextShift
+        }
+
+        if category == .healthSafety || category == .equipment || category == .maintenance {
+            return .nextShift
+        }
+
+        return .fyi
     }
 
     private static func recursiveSplit(_ text: String, separators: [String]) -> [String] {

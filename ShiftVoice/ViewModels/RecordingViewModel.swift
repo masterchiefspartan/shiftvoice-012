@@ -182,13 +182,13 @@ final class RecordingViewModel {
                 structuringTelemetryLogger.log(.aiStructuringSucceeded(itemCount: structured.categorizedItems.count))
             case .failure(let error):
                 summary = TranscriptProcessor.generateSummary(from: result)
-                categorizedItems = TranscriptProcessor.generateCategories(from: result)
+                categorizedItems = TranscriptProcessor.generateCategories(from: result, businessType: businessType)
                 actionItems = TranscriptProcessor.generateActionItems(from: categorizedItems)
                 warning = "AI structuring unavailable — structured locally. \(error.userMessage)"
                 structuringTelemetryLogger.log(.aiFallbackUsed(reason: error.userMessage))
             case .none:
                 summary = TranscriptProcessor.generateSummary(from: result)
-                categorizedItems = TranscriptProcessor.generateCategories(from: result)
+                categorizedItems = TranscriptProcessor.generateCategories(from: result, businessType: businessType)
                 actionItems = TranscriptProcessor.generateActionItems(from: categorizedItems)
                 warning = "AI structuring timed out — structured locally."
                 structuringTelemetryLogger.log(.aiTimeoutFallbackUsed)
@@ -200,16 +200,18 @@ final class RecordingViewModel {
                 estimatedTopicCount: cleanedEstimatedTopicCount,
                 transcriptCoverage: transcriptCoverage
             )
+            let reviewState = adjustedReviewState(validationResult: validationResult, usedAI: usedAI)
             let combinedWarning = combineWarnings(
                 warning,
                 validationWarnings: validationResult.warnings,
-                needsUserReview: validationResult.needsUserReview
+                needsUserReview: reviewState.needsUserReview,
+                usedAI: usedAI
             )
             structuringTelemetryLogger.log(
                 .validationEvaluated(
                     warningCount: validationResult.warnings.count,
-                    confidenceScore: validationResult.confidenceScore,
-                    needsUserReview: validationResult.needsUserReview
+                    confidenceScore: reviewState.confidenceScore,
+                    needsUserReview: reviewState.needsUserReview
                 )
             )
 
@@ -227,7 +229,7 @@ final class RecordingViewModel {
                 transcriptSegments: transcriptionService.transcriptSegments,
                 lowConfidenceSegments: transcriptionService.lowConfidenceSegments,
                 averageTranscriptConfidence: transcriptionService.averageSegmentConfidence,
-                confidenceScore: validationResult.confidenceScore,
+                confidenceScore: reviewState.confidenceScore,
                 validationWarnings: validationResult.warnings,
                 warningItemIDs: validationResult.warningItemIDs
             )
@@ -336,16 +338,18 @@ final class RecordingViewModel {
                 estimatedTopicCount: cleanedTranscript.estimatedTopicCount,
                 transcriptCoverage: transcriptCoverage
             )
+            let reviewState = adjustedReviewState(validationResult: validationResult, usedAI: usedAI)
             let combinedWarning = combineWarnings(
                 warning,
                 validationWarnings: validationResult.warnings,
-                needsUserReview: validationResult.needsUserReview
+                needsUserReview: reviewState.needsUserReview,
+                usedAI: usedAI
             )
             structuringTelemetryLogger.log(
                 .validationEvaluated(
                     warningCount: validationResult.warnings.count,
-                    confidenceScore: validationResult.confidenceScore,
-                    needsUserReview: validationResult.needsUserReview
+                    confidenceScore: reviewState.confidenceScore,
+                    needsUserReview: reviewState.needsUserReview
                 )
             )
 
@@ -363,7 +367,7 @@ final class RecordingViewModel {
                 transcriptSegments: transcriptionService.transcriptSegments,
                 lowConfidenceSegments: transcriptionService.lowConfidenceSegments,
                 averageTranscriptConfidence: transcriptionService.averageSegmentConfidence,
-                confidenceScore: validationResult.confidenceScore,
+                confidenceScore: reviewState.confidenceScore,
                 validationWarnings: validationResult.warnings,
                 warningItemIDs: validationResult.warningItemIDs
             )
@@ -464,16 +468,18 @@ final class RecordingViewModel {
             estimatedTopicCount: cleanedTranscript.estimatedTopicCount,
             transcriptCoverage: transcriptCoverage
         )
+        let reviewState = adjustedReviewState(validationResult: validationResult, usedAI: usedAI)
         let combinedWarning = combineWarnings(
             warning,
             validationWarnings: validationResult.warnings,
-            needsUserReview: validationResult.needsUserReview
+            needsUserReview: reviewState.needsUserReview,
+            usedAI: usedAI
         )
         structuringTelemetryLogger.log(
             .validationEvaluated(
                 warningCount: validationResult.warnings.count,
-                confidenceScore: validationResult.confidenceScore,
-                needsUserReview: validationResult.needsUserReview
+                confidenceScore: reviewState.confidenceScore,
+                needsUserReview: reviewState.needsUserReview
             )
         )
 
@@ -491,7 +497,7 @@ final class RecordingViewModel {
             transcriptSegments: transcriptionService.transcriptSegments,
             lowConfidenceSegments: transcriptionService.lowConfidenceSegments,
             averageTranscriptConfidence: transcriptionService.averageSegmentConfidence,
-            confidenceScore: validationResult.confidenceScore,
+            confidenceScore: reviewState.confidenceScore,
             validationWarnings: validationResult.warnings
         )
     }
@@ -549,7 +555,14 @@ final class RecordingViewModel {
         }
     }
 
-    private func combineWarnings(_ warning: String?, validationWarnings: [ValidationWarning], needsUserReview: Bool) -> String? {
+    private func adjustedReviewState(validationResult: ValidationResult, usedAI: Bool) -> (confidenceScore: Double, needsUserReview: Bool) {
+        if usedAI {
+            return (validationResult.confidenceScore, validationResult.needsUserReview)
+        }
+        return (min(validationResult.confidenceScore, 0.55), true)
+    }
+
+    private func combineWarnings(_ warning: String?, validationWarnings: [ValidationWarning], needsUserReview: Bool, usedAI: Bool) -> String? {
         var messages: [String] = []
         if let warning, !warning.isEmpty {
             messages.append(warning)
@@ -559,6 +572,9 @@ final class RecordingViewModel {
                 .map(\.rawValue)
                 .joined(separator: ", ")
             messages.append("Validation: \(warningText)")
+        }
+        if !usedAI {
+            messages.append("Offline estimate — review before saving.")
         }
         if needsUserReview {
             messages.append("Review recommended before saving.")

@@ -689,6 +689,7 @@ struct NoteReviewView: View {
                         item: $item,
                         showsWarningIndicator: warningItemIDs.contains(item.id),
                         emphasizeWarning: shouldEmphasizeWarningRows,
+                        showsOfflineEstimateBadge: !usedAI,
                         onDelete: {
                             editableCategorizedItems.removeAll { $0.id == item.id }
                         }
@@ -1144,6 +1145,7 @@ struct EditableCategorizedItemRow: View {
     @Binding var item: EditableCategorizedItem
     let showsWarningIndicator: Bool
     let emphasizeWarning: Bool
+    let showsOfflineEstimateBadge: Bool
     let onDelete: () -> Void
     @State private var isExpanded: Bool = false
 
@@ -1175,6 +1177,15 @@ struct EditableCategorizedItemRow: View {
                     HStack(spacing: 6) {
                         CategoryPill(info: CategoryDisplayInfo(from: item.category))
                         UrgencyBadge(urgency: item.urgency)
+                        if showsOfflineEstimateBadge {
+                            Text("Estimated (offline)")
+                                .font(.caption2.weight(.medium))
+                                .foregroundStyle(SVTheme.textSecondary)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(SVTheme.iconBackground)
+                                .clipShape(.rect(cornerRadius: 6))
+                        }
                     }
                 }
 
