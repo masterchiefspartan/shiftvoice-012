@@ -52,7 +52,7 @@ struct RecordView: View {
     }
 
     private var recordingModeAccent: Color {
-        isPrivateMode ? .indigo : SVTheme.textPrimary
+        isPrivateMode ? .indigo : SVTheme.accent
     }
 
     private var recordingModeBackground: Color {
@@ -214,24 +214,12 @@ struct RecordView: View {
 
             HStack(spacing: 8) {
                 ForEach(viewModel.availableShifts) { shift in
-                    Button {
+                    SVChip(
+                        title: shift.name,
+                        icon: shift.icon,
+                        isSelected: currentShiftDisplay.id == shift.id
+                    ) {
                         selectedShiftDisplay = shift
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: shift.icon)
-                                .font(.caption2)
-                            Text(shift.name)
-                                .font(.caption.weight(.medium))
-                        }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
-                        .background(currentShiftDisplay.id == shift.id ? SVTheme.textPrimary : SVTheme.surface)
-                        .foregroundStyle(currentShiftDisplay.id == shift.id ? .white : SVTheme.textSecondary)
-                        .clipShape(.rect(cornerRadius: 8))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8)
-                                .stroke(currentShiftDisplay.id == shift.id ? Color.clear : SVTheme.surfaceBorder, lineWidth: 1)
-                        )
                     }
                 }
             }
@@ -604,7 +592,7 @@ struct RecordView: View {
 
     private func visibilityOptionButton(for visibility: NoteVisibility) -> some View {
         let isSelected = recording.selectedVisibility == visibility
-        let accent: Color = visibility == .personal ? .indigo : SVTheme.textPrimary
+        let accent: Color = visibility == .personal ? .indigo : SVTheme.accent
 
         return Button {
             withAnimation(.easeOut(duration: 0.2)) {

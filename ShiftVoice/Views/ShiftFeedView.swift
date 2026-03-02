@@ -116,7 +116,7 @@ struct ShiftFeedView: View {
     }
 
     private var feedScopeToggle: some View {
-        HStack(spacing: 0) {
+        HStack(spacing: 2) {
             Button {
                 withAnimation(.easeOut(duration: 0.2)) {
                     viewModel.feedScope = .team
@@ -124,16 +124,17 @@ struct ShiftFeedView: View {
             } label: {
                 HStack(spacing: 6) {
                     Image(systemName: "person.2.fill")
-                        .font(.caption2)
+                        .font(.caption2.weight(.semibold))
                     Text("Team Feed")
                         .font(.subheadline.weight(.medium))
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 10)
-                .foregroundStyle(viewModel.feedScope == .team ? .white : SVTheme.textSecondary)
-                .background(viewModel.feedScope == .team ? SVTheme.textPrimary : Color.clear)
-                .clipShape(.rect(cornerRadius: 8))
+                .foregroundStyle(viewModel.feedScope == .team ? SVTheme.chipSelectedText : SVTheme.textSecondary)
+                .background(viewModel.feedScope == .team ? SVTheme.chipSelected : Color.clear)
+                .clipShape(.rect(cornerRadius: 7))
             }
+            .buttonStyle(.plain)
 
             Button {
                 withAnimation(.easeOut(duration: 0.2)) {
@@ -142,16 +143,17 @@ struct ShiftFeedView: View {
             } label: {
                 HStack(spacing: 6) {
                     Image(systemName: "lock.fill")
-                        .font(.caption2)
+                        .font(.caption2.weight(.semibold))
                     Text("My Notes")
                         .font(.subheadline.weight(.medium))
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 10)
-                .foregroundStyle(viewModel.feedScope == .personal ? .white : SVTheme.textSecondary)
+                .foregroundStyle(viewModel.feedScope == .personal ? SVTheme.chipSelectedText : SVTheme.textSecondary)
                 .background(viewModel.feedScope == .personal ? Color.indigo : Color.clear)
-                .clipShape(.rect(cornerRadius: 8))
+                .clipShape(.rect(cornerRadius: 7))
             }
+            .buttonStyle(.plain)
         }
         .padding(3)
         .background(SVTheme.surface)
@@ -574,24 +576,25 @@ struct FilterChip: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 4) {
+            HStack(spacing: 5) {
                 if let icon {
                     Image(systemName: icon)
-                        .font(.caption2)
+                        .font(.caption2.weight(.medium))
                 }
                 Text(title)
-                    .font(.caption.weight(.medium))
+                    .font(.subheadline.weight(.medium))
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
-            .background(isSelected ? SVTheme.textPrimary : SVTheme.surface)
-            .foregroundStyle(isSelected ? .white : SVTheme.textSecondary)
-            .clipShape(.rect(cornerRadius: 8))
+            .padding(.horizontal, SVTheme.Sizing.chipHorizontalPadding)
+            .padding(.vertical, SVTheme.Sizing.chipVerticalPadding)
+            .background(isSelected ? SVTheme.chipSelected : SVTheme.surface)
+            .foregroundStyle(isSelected ? SVTheme.chipSelectedText : SVTheme.textSecondary)
+            .clipShape(.rect(cornerRadius: SVTheme.Sizing.chipCornerRadius))
             .overlay(
-                RoundedRectangle(cornerRadius: 8)
+                RoundedRectangle(cornerRadius: SVTheme.Sizing.chipCornerRadius)
                     .stroke(isSelected ? Color.clear : SVTheme.surfaceBorder, lineWidth: 1)
             )
         }
+        .buttonStyle(.plain)
     }
 }
 

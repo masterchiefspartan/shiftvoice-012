@@ -482,8 +482,8 @@ struct NoteReviewView: View {
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)
                     .frame(maxWidth: .infinity)
-                    .foregroundStyle(noteVisibility == vis ? .white : SVTheme.textSecondary)
-                    .background(noteVisibility == vis ? (vis == .personal ? Color.indigo : SVTheme.textPrimary) : Color.clear)
+                    .foregroundStyle(noteVisibility == vis ? (vis == .personal ? .white : SVTheme.chipSelectedText) : SVTheme.textSecondary)
+                    .background(noteVisibility == vis ? (vis == .personal ? Color.indigo : SVTheme.chipSelected) : Color.clear)
                     .clipShape(.rect(cornerRadius: 8))
                 }
             }

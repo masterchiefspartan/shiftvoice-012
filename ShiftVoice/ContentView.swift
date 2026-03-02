@@ -249,9 +249,9 @@ struct ContentView: View {
         } label: {
             ZStack {
                 Circle()
-                    .fill(SVTheme.textPrimary)
+                    .fill(SVTheme.accent)
                     .frame(width: 56, height: 56)
-                    .shadow(color: SVTheme.textPrimary.opacity(0.18), radius: 8, y: 4)
+                    .shadow(color: SVTheme.accent.opacity(0.25), radius: 8, y: 4)
 
                 Image(systemName: "mic.fill")
                     .font(.system(size: 22, weight: .semibold))

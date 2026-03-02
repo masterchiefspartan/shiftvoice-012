@@ -27,6 +27,21 @@ nonisolated enum SVTheme {
 
     static let iconBackground = Color(.tertiarySystemFill)
 
+    static let chipSelected = Color(.systemGray2)
+    static let chipSelectedText = Color(.systemBackground)
+
+    nonisolated enum Sizing {
+        static let buttonHeight: CGFloat = 50
+        static let chipHeight: CGFloat = 34
+        static let smallChipHeight: CGFloat = 28
+        static let cardCornerRadius: CGFloat = 12
+        static let chipCornerRadius: CGFloat = 8
+        static let buttonCornerRadius: CGFloat = 12
+        static let horizontalPadding: CGFloat = 24
+        static let chipHorizontalPadding: CGFloat = 14
+        static let chipVerticalPadding: CGFloat = 7
+    }
+
     static func urgencyColor(_ urgency: UrgencyLevel) -> Color {
         switch urgency {
         case .immediate: return urgentRed

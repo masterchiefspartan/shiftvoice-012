@@ -145,7 +145,7 @@ struct FirstRunGuideView: View {
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 16)
-                    .background(SVTheme.textPrimary)
+                    .background(SVTheme.accent)
                     .clipShape(.rect(cornerRadius: 14))
                 }
                 .sensoryFeedback(.selection, trigger: currentStep)
@@ -182,7 +182,7 @@ struct FirstRunGuideView: View {
         HStack(spacing: 6) {
             ForEach(0..<steps.count, id: \.self) { index in
                 Capsule()
-                    .fill(index == currentStep ? SVTheme.textPrimary : SVTheme.surfaceBorder)
+                    .fill(index == currentStep ? SVTheme.accent : SVTheme.surfaceBorder)
                     .frame(width: index == currentStep ? 20 : 6, height: 6)
                     .animation(.spring(duration: 0.3), value: currentStep)
             }

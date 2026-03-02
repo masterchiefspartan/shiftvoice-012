@@ -327,13 +327,13 @@ struct DashboardView: View {
                                 } label: {
                                     Text(range.label)
                                         .font(.caption.weight(.medium))
-                                        .foregroundStyle(selectedDateRange == range ? .white : SVTheme.textSecondary)
-                                        .padding(.horizontal, 12)
-                                        .padding(.vertical, 8)
-                                        .background(selectedDateRange == range ? SVTheme.textPrimary : SVTheme.surface)
-                                        .clipShape(.rect(cornerRadius: 8))
+                                        .foregroundStyle(selectedDateRange == range ? SVTheme.chipSelectedText : SVTheme.textSecondary)
+                                        .padding(.horizontal, SVTheme.Sizing.chipHorizontalPadding)
+                                        .padding(.vertical, SVTheme.Sizing.chipVerticalPadding)
+                                        .background(selectedDateRange == range ? SVTheme.chipSelected : SVTheme.surface)
+                                        .clipShape(.rect(cornerRadius: SVTheme.Sizing.chipCornerRadius))
                                         .overlay(
-                                            RoundedRectangle(cornerRadius: 8)
+                                            RoundedRectangle(cornerRadius: SVTheme.Sizing.chipCornerRadius)
                                                 .stroke(selectedDateRange == range ? Color.clear : SVTheme.surfaceBorder, lineWidth: 1)
                                         )
                                 }
@@ -392,10 +392,10 @@ struct DashboardView: View {
                                     Text(location.name)
                                         .font(.caption2.weight(.medium))
                                 }
-                                .foregroundStyle(isSelected ? .white : SVTheme.textSecondary)
+                                .foregroundStyle(isSelected ? SVTheme.chipSelectedText : SVTheme.textSecondary)
                                 .padding(.horizontal, 10)
                                 .padding(.vertical, 6)
-                                .background(isSelected ? SVTheme.textPrimary : SVTheme.surface)
+                                .background(isSelected ? SVTheme.chipSelected : SVTheme.surface)
                                 .clipShape(.rect(cornerRadius: 6))
                                 .overlay(
                                     RoundedRectangle(cornerRadius: 6)
@@ -676,8 +676,8 @@ struct DashboardView: View {
                                         .font(.subheadline.weight(.medium))
                                         .frame(maxWidth: .infinity)
                                         .padding(.vertical, 12)
-                                        .background(isSelected ? SVTheme.textPrimary : SVTheme.surface)
-                                        .foregroundStyle(isSelected ? .white : SVTheme.textSecondary)
+                                        .background(isSelected ? SVTheme.chipSelected : SVTheme.surface)
+                                        .foregroundStyle(isSelected ? SVTheme.chipSelectedText : SVTheme.textSecondary)
                                         .clipShape(.rect(cornerRadius: 10))
                                         .overlay(
                                             RoundedRectangle(cornerRadius: 10)
@@ -832,8 +832,8 @@ struct DashboardView: View {
                                         .font(.subheadline.weight(.medium))
                                         .frame(maxWidth: .infinity)
                                         .padding(.vertical, 12)
-                                        .background(isSelected ? SVTheme.textPrimary : SVTheme.surface)
-                                        .foregroundStyle(isSelected ? .white : SVTheme.textSecondary)
+                                        .background(isSelected ? SVTheme.chipSelected : SVTheme.surface)
+                                        .foregroundStyle(isSelected ? SVTheme.chipSelectedText : SVTheme.textSecondary)
                                         .clipShape(.rect(cornerRadius: 10))
                                         .overlay(
                                             RoundedRectangle(cornerRadius: 10)
