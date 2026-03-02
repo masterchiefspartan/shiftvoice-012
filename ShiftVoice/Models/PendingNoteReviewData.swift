@@ -21,4 +21,6 @@ struct PendingNoteReviewData {
     var transcriptSegments: [TranscriptSegment] = []
     var lowConfidenceSegments: [TranscriptSegment] = []
     var averageTranscriptConfidence: Double? = nil
+    var confidenceScore: Double = 1.0
+    var validationWarnings: [ValidationWarning] = []
 }

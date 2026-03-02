@@ -104,7 +104,9 @@ final class RecordingViewModel {
                 recordingFailureState: recordingFailureState,
                 transcriptSegments: reviewData.transcriptSegments,
                 lowConfidenceSegments: reviewData.lowConfidenceSegments,
-                averageTranscriptConfidence: reviewData.averageTranscriptConfidence
+                averageTranscriptConfidence: reviewData.averageTranscriptConfidence,
+                confidenceScore: reviewData.confidenceScore,
+                validationWarnings: reviewData.validationWarnings
             )
             return
         }
@@ -164,6 +166,8 @@ final class RecordingViewModel {
             var actionItems: [ActionItem]
             var usedAI = false
             var warning: String?
+            let cleanedEstimatedTopicCount = cleanedTranscript.estimatedTopicCount
+            var transcriptCoverage: String?
 
             switch aiResult {
             case .success(let structured):
@@ -172,6 +176,7 @@ final class RecordingViewModel {
                 actionItems = structured.actionItems
                 usedAI = true
                 warning = structured.warning
+                transcriptCoverage = structured.transcriptCoverage
             case .failure(let error):
                 summary = TranscriptProcessor.generateSummary(from: result)
                 categorizedItems = TranscriptProcessor.generateCategories(from: result)
@@ -184,20 +189,34 @@ final class RecordingViewModel {
                 warning = "AI structuring timed out — structured locally."
             }
 
+            let validationResult = StructuringValidator.validate(
+                transcript: cleanedTranscript.text,
+                items: categorizedItems,
+                estimatedTopicCount: cleanedEstimatedTopicCount,
+                transcriptCoverage: transcriptCoverage
+            )
+            let combinedWarning = combineWarnings(
+                warning,
+                validationWarnings: validationResult.warnings,
+                needsUserReview: validationResult.needsUserReview
+            )
+
             pendingReviewData = PendingNoteReviewData(
                 rawTranscript: result,
                 audioDuration: reviewData.audioDuration,
                 audioUrl: reviewData.audioUrl,
                 shiftInfo: reviewData.shiftInfo,
                 summary: summary,
-                categorizedItems: categorizedItems,
+                categorizedItems: validationResult.items,
                 actionItems: actionItems,
                 usedAI: usedAI,
-                structuringWarning: warning,
+                structuringWarning: combinedWarning,
                 recordingFailureState: .none,
                 transcriptSegments: transcriptionService.transcriptSegments,
                 lowConfidenceSegments: transcriptionService.lowConfidenceSegments,
-                averageTranscriptConfidence: transcriptionService.averageSegmentConfidence
+                averageTranscriptConfidence: transcriptionService.averageSegmentConfidence,
+                confidenceScore: validationResult.confidenceScore,
+                validationWarnings: validationResult.warnings
             )
         } else {
             let reason = transcriptionService.failureReason
@@ -232,7 +251,9 @@ final class RecordingViewModel {
                 recordingFailureState: .none,
                 transcriptSegments: transcriptionService.transcriptSegments,
                 lowConfidenceSegments: transcriptionService.lowConfidenceSegments,
-                averageTranscriptConfidence: transcriptionService.averageSegmentConfidence
+                averageTranscriptConfidence: transcriptionService.averageSegmentConfidence,
+                confidenceScore: 1.0,
+                validationWarnings: []
             )
             stopProcessingTimer()
             processingStage = nil
@@ -277,10 +298,11 @@ final class RecordingViewModel {
             var actionItems: [ActionItem]
             var usedAI = false
             var warning: String?
+            var transcriptCoverage: String?
 
             if !transcript.isEmpty {
                 processingStage = .structuring
-                (summary, categorizedItems, actionItems, usedAI, warning) = await structureTranscript(
+                (summary, categorizedItems, actionItems, usedAI, warning, transcriptCoverage) = await structureTranscript(
                     transcript, businessType: businessType, authToken: authToken, userId: userId
                 )
             } else {
@@ -293,20 +315,35 @@ final class RecordingViewModel {
 
             recordingFailureState = currentFailureState
 
+            let cleanedTranscript = TranscriptCleaner.clean(transcript)
+            let validationResult = StructuringValidator.validate(
+                transcript: cleanedTranscript.text,
+                items: categorizedItems,
+                estimatedTopicCount: cleanedTranscript.estimatedTopicCount,
+                transcriptCoverage: transcriptCoverage
+            )
+            let combinedWarning = combineWarnings(
+                warning,
+                validationWarnings: validationResult.warnings,
+                needsUserReview: validationResult.needsUserReview
+            )
+
             pendingReviewData = PendingNoteReviewData(
                 rawTranscript: transcript,
                 audioDuration: duration,
                 audioUrl: audioURL?.lastPathComponent,
                 shiftInfo: shiftInfo,
                 summary: summary,
-                categorizedItems: categorizedItems,
+                categorizedItems: validationResult.items,
                 actionItems: actionItems,
                 usedAI: usedAI,
-                structuringWarning: warning,
+                structuringWarning: combinedWarning,
                 recordingFailureState: currentFailureState,
                 transcriptSegments: transcriptionService.transcriptSegments,
                 lowConfidenceSegments: transcriptionService.lowConfidenceSegments,
-                averageTranscriptConfidence: transcriptionService.averageSegmentConfidence
+                averageTranscriptConfidence: transcriptionService.averageSegmentConfidence,
+                confidenceScore: validationResult.confidenceScore,
+                validationWarnings: validationResult.warnings
             )
             stopProcessingTimer()
             processingStage = nil
@@ -314,7 +351,7 @@ final class RecordingViewModel {
         }
     }
 
-    private func structureTranscript(_ transcript: String, businessType: String, authToken: String?, userId: String?) async -> (String, [CategorizedItem], [ActionItem], Bool, String?) {
+    private func structureTranscript(_ transcript: String, businessType: String, authToken: String?, userId: String?) async -> (String, [CategorizedItem], [ActionItem], Bool, String?, String?) {
         let cleanedTranscript = TranscriptCleaner.clean(transcript)
         let aiResult = await withTaskGroup(of: Result<StructuringResult, StructuringError>?.self) { group -> Result<StructuringResult, StructuringError>? in
             group.addTask {
@@ -350,11 +387,13 @@ final class RecordingViewModel {
         switch aiResult {
         case .success(let result):
             structuringCache.cacheResult(result, businessType: businessType)
-            return (result.summary, result.categorizedItems, result.actionItems, true, result.warning)
+            return (result.summary, result.categorizedItems, result.actionItems, true, result.warning, result.transcriptCoverage)
         case .failure(let error):
-            return offlineFallback(transcript: transcript, businessType: businessType, warning: "AI structuring unavailable \u{2014} structured locally. \(error.userMessage)")
+            let fallback = offlineFallback(transcript: transcript, businessType: businessType, warning: "AI structuring unavailable \u{2014} structured locally. \(error.userMessage)")
+            return (fallback.0, fallback.1, fallback.2, fallback.3, fallback.4, nil)
         case .none:
-            return offlineFallback(transcript: transcript, businessType: businessType, warning: "AI structuring timed out \u{2014} structured locally.")
+            let fallback = offlineFallback(transcript: transcript, businessType: businessType, warning: "AI structuring timed out \u{2014} structured locally.")
+            return (fallback.0, fallback.1, fallback.2, fallback.3, fallback.4, nil)
         }
     }
 
@@ -386,12 +425,25 @@ final class RecordingViewModel {
         let trimmedPrevious = previousTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmedFull.count > trimmedPrevious.count + 20 else { return }
 
-        let (summary, categorizedItems, actionItems, usedAI, warning) = await structureTranscript(
+        let (summary, categorizedItems, actionItems, usedAI, warning, transcriptCoverage) = await structureTranscript(
             fullTranscript, businessType: businessType, authToken: authToken, userId: userId
         )
 
         guard usedAI else { return }
         guard !hasUserEditedReview else { return }
+
+        let cleanedTranscript = TranscriptCleaner.clean(fullTranscript)
+        let validationResult = StructuringValidator.validate(
+            transcript: cleanedTranscript.text,
+            items: categorizedItems,
+            estimatedTopicCount: cleanedTranscript.estimatedTopicCount,
+            transcriptCoverage: transcriptCoverage
+        )
+        let combinedWarning = combineWarnings(
+            warning,
+            validationWarnings: validationResult.warnings,
+            needsUserReview: validationResult.needsUserReview
+        )
 
         pendingReviewData = PendingNoteReviewData(
             rawTranscript: fullTranscript,
@@ -399,14 +451,16 @@ final class RecordingViewModel {
             audioUrl: audioURL.lastPathComponent,
             shiftInfo: shiftInfo,
             summary: summary,
-            categorizedItems: categorizedItems,
+            categorizedItems: validationResult.items,
             actionItems: actionItems,
             usedAI: usedAI,
-            structuringWarning: warning,
+            structuringWarning: combinedWarning,
             recordingFailureState: .none,
             transcriptSegments: transcriptionService.transcriptSegments,
             lowConfidenceSegments: transcriptionService.lowConfidenceSegments,
-            averageTranscriptConfidence: transcriptionService.averageSegmentConfidence
+            averageTranscriptConfidence: transcriptionService.averageSegmentConfidence,
+            confidenceScore: validationResult.confidenceScore,
+            validationWarnings: validationResult.warnings
         )
     }
 
@@ -461,6 +515,24 @@ final class RecordingViewModel {
         return template.defaultCategories.map { category in
             "\(category.name): \(category.id)"
         }
+    }
+
+    private func combineWarnings(_ warning: String?, validationWarnings: [ValidationWarning], needsUserReview: Bool) -> String? {
+        var messages: [String] = []
+        if let warning, !warning.isEmpty {
+            messages.append(warning)
+        }
+        if !validationWarnings.isEmpty {
+            let warningText = validationWarnings
+                .map(\.rawValue)
+                .joined(separator: ", ")
+            messages.append("Validation: \(warningText)")
+        }
+        if needsUserReview {
+            messages.append("Review recommended before saving.")
+        }
+        let combined = messages.joined(separator: " ")
+        return combined.isEmpty ? nil : combined
     }
 
     private func failureState(from reason: TranscriptionFailureReason?) -> RecordingFailureState {

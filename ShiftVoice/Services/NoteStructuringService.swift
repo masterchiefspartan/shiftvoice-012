@@ -21,6 +21,13 @@ nonisolated struct AIStructuredItem: Codable, Sendable {
 nonisolated struct AIStructuredNote: Codable, Sendable {
     let summary: String
     let items: [AIStructuredItem]
+    let transcriptCoverage: String?
+
+    enum CodingKeys: String, CodingKey {
+        case summary
+        case items
+        case transcriptCoverage = "transcript_coverage"
+    }
 }
 
 nonisolated struct AIStructureResponse: Codable, Sendable {
@@ -56,6 +63,7 @@ nonisolated struct StructuringResult: Sendable {
     let actionItems: [ActionItem]
     let usedAI: Bool
     let warning: String?
+    let transcriptCoverage: String?
 }
 
 nonisolated struct StructuringRequestContext: Sendable {
@@ -181,7 +189,8 @@ final class NoteStructuringService {
                 categorizedItems: categorizedItems,
                 actionItems: actionItems,
                 usedAI: true,
-                warning: warning
+                warning: warning,
+                transcriptCoverage: structured.transcriptCoverage
             ))
         } catch is URLError {
             return .failure(.timeout)
