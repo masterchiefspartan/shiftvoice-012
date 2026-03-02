@@ -1,6 +1,6 @@
 import Foundation
 
-enum CategoryTemplateResolver {
+nonisolated enum CategoryTemplateResolver {
     private static var allTemplatesById: [String: CategoryTemplate] = {
         var map: [String: CategoryTemplate] = [:]
         for template in IndustrySeed.all {

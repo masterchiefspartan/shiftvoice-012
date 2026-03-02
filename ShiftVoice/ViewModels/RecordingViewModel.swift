@@ -101,7 +101,10 @@ final class RecordingViewModel {
                 actionItems: reviewData.actionItems,
                 usedAI: reviewData.usedAI,
                 structuringWarning: reviewData.structuringWarning,
-                recordingFailureState: recordingFailureState
+                recordingFailureState: recordingFailureState,
+                transcriptSegments: reviewData.transcriptSegments,
+                lowConfidenceSegments: reviewData.lowConfidenceSegments,
+                averageTranscriptConfidence: reviewData.averageTranscriptConfidence
             )
             return
         }
@@ -132,7 +135,11 @@ final class RecordingViewModel {
                         businessType: businessType,
                         authToken: authToken,
                         userId: userId,
-                        context: StructuringRequestContext(estimatedTopicCount: cleanedTranscript.estimatedTopicCount)
+                        context: StructuringRequestContext(
+                            estimatedTopicCount: cleanedTranscript.estimatedTopicCount,
+                            averageSegmentConfidence: self.transcriptionService.averageSegmentConfidence,
+                            lowConfidencePhrases: self.transcriptionService.lowConfidenceSegments.map(\.text)
+                        )
                     )
                 }
                 group.addTask {
@@ -184,7 +191,10 @@ final class RecordingViewModel {
                 actionItems: actionItems,
                 usedAI: usedAI,
                 structuringWarning: warning,
-                recordingFailureState: .none
+                recordingFailureState: .none,
+                transcriptSegments: transcriptionService.transcriptSegments,
+                lowConfidenceSegments: transcriptionService.lowConfidenceSegments,
+                averageTranscriptConfidence: transcriptionService.averageSegmentConfidence
             )
         } else {
             let reason = transcriptionService.failureReason
@@ -216,7 +226,10 @@ final class RecordingViewModel {
                 actionItems: instantActions,
                 usedAI: instantUsedAI,
                 structuringWarning: instantWarning,
-                recordingFailureState: .none
+                recordingFailureState: .none,
+                transcriptSegments: transcriptionService.transcriptSegments,
+                lowConfidenceSegments: transcriptionService.lowConfidenceSegments,
+                averageTranscriptConfidence: transcriptionService.averageSegmentConfidence
             )
             stopProcessingTimer()
             processingStage = nil
@@ -287,7 +300,10 @@ final class RecordingViewModel {
                 actionItems: actionItems,
                 usedAI: usedAI,
                 structuringWarning: warning,
-                recordingFailureState: currentFailureState
+                recordingFailureState: currentFailureState,
+                transcriptSegments: transcriptionService.transcriptSegments,
+                lowConfidenceSegments: transcriptionService.lowConfidenceSegments,
+                averageTranscriptConfidence: transcriptionService.averageSegmentConfidence
             )
             stopProcessingTimer()
             processingStage = nil
@@ -304,7 +320,11 @@ final class RecordingViewModel {
                     businessType: businessType,
                     authToken: authToken,
                     userId: userId,
-                    context: StructuringRequestContext(estimatedTopicCount: cleanedTranscript.estimatedTopicCount)
+                    context: StructuringRequestContext(
+                        estimatedTopicCount: cleanedTranscript.estimatedTopicCount,
+                        averageSegmentConfidence: self.transcriptionService.averageSegmentConfidence,
+                        lowConfidencePhrases: self.transcriptionService.lowConfidenceSegments.map(\.text)
+                    )
                 )
             }
             group.addTask {
@@ -377,7 +397,10 @@ final class RecordingViewModel {
             actionItems: actionItems,
             usedAI: usedAI,
             structuringWarning: warning,
-            recordingFailureState: .none
+            recordingFailureState: .none,
+            transcriptSegments: transcriptionService.transcriptSegments,
+            lowConfidenceSegments: transcriptionService.lowConfidenceSegments,
+            averageTranscriptConfidence: transcriptionService.averageSegmentConfidence
         )
     }
 

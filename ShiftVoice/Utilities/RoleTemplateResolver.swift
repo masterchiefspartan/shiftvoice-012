@@ -1,6 +1,6 @@
 import Foundation
 
-enum RoleTemplateResolver {
+nonisolated enum RoleTemplateResolver {
     private static var allTemplatesById: [String: RoleTemplate] = {
         var map: [String: RoleTemplate] = [:]
         for template in IndustrySeed.all {

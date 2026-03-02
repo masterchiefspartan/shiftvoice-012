@@ -18,4 +18,7 @@ struct PendingNoteReviewData {
     var structuringWarning: String? = nil
     var recordingFailureState: RecordingFailureState = .none
     var visibility: NoteVisibility = .team
+    var transcriptSegments: [TranscriptSegment] = []
+    var lowConfidenceSegments: [TranscriptSegment] = []
+    var averageTranscriptConfidence: Double? = nil
 }

@@ -58,6 +58,9 @@ final class TranscriptionService {
     var errorMessage: String?
     var usedCloudTranscription: Bool = false
     var failureReason: TranscriptionFailureReason?
+    var transcriptSegments: [TranscriptSegment] = []
+    var lowConfidenceSegments: [TranscriptSegment] = []
+    var averageSegmentConfidence: Double = 1.0
 
     private let speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
     private var recognitionTask: SFSpeechRecognitionTask?
@@ -134,6 +137,9 @@ final class TranscriptionService {
         errorMessage = nil
         usedCloudTranscription = false
         failureReason = nil
+        transcriptSegments = []
+        lowConfidenceSegments = []
+        averageSegmentConfidence = 1.0
 
         let validationResult = await validateAudioFile(at: url)
         guard handleValidationResult(validationResult, for: url) else {
@@ -206,6 +212,11 @@ final class TranscriptionService {
             for await (result, isCloud) in group {
                 if let text = result, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     usedCloudTranscription = isCloud
+                    if isCloud {
+                        transcriptSegments = []
+                        lowConfidenceSegments = []
+                        averageSegmentConfidence = 1.0
+                    }
                     transcribedText = text
                     group.cancelAll()
                     return text
@@ -218,6 +229,11 @@ final class TranscriptionService {
 
             if let text = firstResult, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 usedCloudTranscription = firstWasCloud
+                if firstWasCloud {
+                    transcriptSegments = []
+                    lowConfidenceSegments = []
+                    averageSegmentConfidence = 1.0
+                }
                 transcribedText = text
                 return text
             }
@@ -380,6 +396,7 @@ final class TranscriptionService {
                         if let result {
                             self.transcribedText = result.bestTranscription.formattedString
                             if result.isFinal {
+                                self.updateSegmentConfidence(from: result)
                                 self.finishLocalRecognition(with: result.bestTranscription.formattedString)
                             }
                             return
@@ -434,6 +451,7 @@ final class TranscriptionService {
                 if let result {
                     self?.transcribedText = result.bestTranscription.formattedString
                     if result.isFinal {
+                        self?.updateSegmentConfidence(from: result)
                         self?.isTranscribing = false
                     }
                 }
@@ -459,4 +477,29 @@ final class TranscriptionService {
         recognitionTask = nil
         isTranscribing = false
     }
+
+    private func updateSegmentConfidence(from result: SFSpeechRecognitionResult) {
+        let segments: [TranscriptSegment] = result.bestTranscription.segments.compactMap { segment in
+            let trimmed = segment.substring.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return nil }
+            return TranscriptSegment(
+                text: trimmed,
+                confidence: Double(segment.confidence),
+                timestamp: segment.timestamp,
+                duration: segment.duration
+            )
+        }
+
+        transcriptSegments = segments
+        lowConfidenceSegments = segments.filter { $0.confidence < 0.5 }
+        if segments.isEmpty {
+            averageSegmentConfidence = 1.0
+        } else {
+            let totalConfidence = segments.reduce(0.0) { partialResult, segment in
+                partialResult + segment.confidence
+            }
+            averageSegmentConfidence = totalConfidence / Double(segments.count)
+        }
+    }
 }
+

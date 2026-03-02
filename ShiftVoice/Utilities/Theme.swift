@@ -1,6 +1,6 @@
 import SwiftUI
 
-enum SVTheme {
+nonisolated enum SVTheme {
     static let background = Color(.systemBackground)
     static let surface = Color(.secondarySystemBackground)
     static let surfaceSecondary = Color(.tertiarySystemBackground)

@@ -50,6 +50,14 @@ nonisolated struct StructuringResult: Sendable {
 
 nonisolated struct StructuringRequestContext: Sendable {
     let estimatedTopicCount: Int
+    let averageSegmentConfidence: Double?
+    let lowConfidencePhrases: [String]
+
+    init(estimatedTopicCount: Int, averageSegmentConfidence: Double? = nil, lowConfidencePhrases: [String] = []) {
+        self.estimatedTopicCount = estimatedTopicCount
+        self.averageSegmentConfidence = averageSegmentConfidence
+        self.lowConfidencePhrases = lowConfidencePhrases
+    }
 }
 
 final class NoteStructuringService {
@@ -94,6 +102,12 @@ final class NoteStructuringService {
         ]
         if let estimatedTopicCount = context?.estimatedTopicCount {
             body["estimatedTopicCount"] = estimatedTopicCount
+        }
+        if let averageSegmentConfidence = context?.averageSegmentConfidence {
+            body["averageSegmentConfidence"] = averageSegmentConfidence
+        }
+        if let lowConfidencePhrases = context?.lowConfidencePhrases, !lowConfidencePhrases.isEmpty {
+            body["lowConfidencePhrases"] = lowConfidencePhrases
         }
 
         do {
