@@ -789,6 +789,9 @@ struct NoteReviewView: View {
                             onDelete: {
                                 approvedActionItemIds.remove(item.id)
                                 editableActionItems.removeAll { $0.id == item.id }
+                            },
+                            onRefineWithAI: {
+                                await refineActionItemWithAI(itemId: item.id)
                             }
                         )
 
@@ -1011,9 +1014,9 @@ struct NoteReviewView: View {
             ))
         case .fallback:
             return AnyView(confidenceBanner(
-                title: "Structured offline — AI refinement will update when connected.",
+                title: "AI unavailable — structured locally. Review items carefully.",
                 subtitle: nil,
-                symbol: "wifi.exclamationmark",
+                symbol: "exclamationmark.triangle",
                 tint: SVTheme.amber,
                 prominence: .subtle
             ))
@@ -1070,6 +1073,18 @@ struct NoteReviewView: View {
         let m = Int(duration) / 60
         let s = Int(duration) % 60
         return String(format: "%d:%02d", m, s)
+    }
+
+    private func refineActionItemWithAI(itemId: String) async {
+        guard let idx = editableActionItems.firstIndex(where: { $0.id == itemId }) else { return }
+        let originalText = editableActionItems[idx].task
+        let refined = await NoteStructuringService.shared.refineActionItemText(
+            originalText,
+            authToken: viewModel.backendAuthToken,
+            userId: viewModel.currentUserId
+        )
+        guard let refined, !refined.isEmpty else { return }
+        editableActionItems[idx].task = refined
     }
 }
 
@@ -1246,7 +1261,9 @@ struct EditableActionItemRow: View {
     let onUnapprove: () -> Void
     let onAssign: () -> Void
     let onDelete: () -> Void
+    var onRefineWithAI: (() async -> Void)? = nil
     @State private var isEditing: Bool = false
+    @State private var isRefining: Bool = false
     @State private var showSuggestion: Bool = true
     @State private var showUrgencyMenu: Bool = false
 
@@ -1328,22 +1345,23 @@ struct EditableActionItemRow: View {
                 .transition(.opacity.combined(with: .scale(scale: 0.95)))
             }
 
-            HStack(spacing: 10) {
+            HStack(spacing: 8) {
                 Button {
                     showUrgencyMenu = true
                 } label: {
-                    HStack(spacing: 6) {
+                    HStack(spacing: 5) {
                         Circle()
                             .fill(SVTheme.urgencyColor(item.urgency))
-                            .frame(width: 8, height: 8)
+                            .frame(width: 6, height: 6)
                         Text(item.urgency.rawValue)
-                            .font(.subheadline.weight(.medium))
+                            .font(.caption.weight(.semibold))
+                            .lineLimit(1)
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
+                    .padding(.horizontal, 10)
+                    .frame(height: 34)
                     .foregroundStyle(SVTheme.urgencyColor(item.urgency))
                     .background(SVTheme.urgencyColor(item.urgency).opacity(0.1))
-                    .clipShape(.rect(cornerRadius: 9))
+                    .clipShape(.rect(cornerRadius: 8))
                 }
                 .confirmationDialog("Select Urgency", isPresented: $showUrgencyMenu, titleVisibility: .visible) {
                     ForEach(UrgencyLevel.allCases) { level in
@@ -1357,21 +1375,20 @@ struct EditableActionItemRow: View {
                     Button {
                         onAssign()
                     } label: {
-                        HStack(spacing: 6) {
+                        HStack(spacing: 4) {
                             Image(systemName: item.assignee != nil ? "person.fill" : "person")
-                                .font(.system(size: 11, weight: .medium))
+                                .font(.system(size: 10, weight: .medium))
                             Text(item.assignee ?? "Unassigned")
-                                .font(.subheadline.weight(.medium))
+                                .font(.caption.weight(.semibold))
+                                .lineLimit(1)
                         }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
+                        .padding(.horizontal, 10)
+                        .frame(height: 34)
                         .foregroundStyle(item.assignee != nil ? SVTheme.accent : SVTheme.textTertiary)
                         .background(item.assignee != nil ? SVTheme.accent.opacity(0.1) : SVTheme.iconBackground)
-                        .clipShape(.rect(cornerRadius: 9))
+                        .clipShape(.rect(cornerRadius: 8))
                     }
                 }
-
-                Spacer()
 
                 Button {
                     if isApproved {
@@ -1380,36 +1397,58 @@ struct EditableActionItemRow: View {
                         onApprove()
                     }
                 } label: {
-                    HStack(spacing: 6) {
+                    HStack(spacing: 4) {
                         Image(systemName: isApproved ? "checkmark.circle.fill" : "checkmark.circle")
-                            .font(.caption.weight(.semibold))
+                            .font(.system(size: 10, weight: .semibold))
                         Text(isApproved ? "Approved" : "Approve")
-                            .font(.subheadline.weight(.semibold))
+                            .font(.caption.weight(.semibold))
+                            .lineLimit(1)
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
+                    .padding(.horizontal, 10)
+                    .frame(height: 34)
                     .foregroundStyle(isApproved ? .white : SVTheme.accent)
                     .background(isApproved ? SVTheme.accent : SVTheme.accent.opacity(0.08))
-                    .clipShape(.rect(cornerRadius: 9))
+                    .clipShape(.rect(cornerRadius: 8))
                 }
                 .sensoryFeedback(.success, trigger: isApproved)
+
+                Spacer(minLength: 0)
 
                 Menu {
                     Button {
                         isEditing.toggle()
                     } label: {
-                        Label("Refine wording", systemImage: "pencil")
+                        Label("Edit wording", systemImage: "pencil")
+                    }
+                    if onRefineWithAI != nil {
+                        Button {
+                            Task {
+                                isRefining = true
+                                await onRefineWithAI?()
+                                isRefining = false
+                            }
+                        } label: {
+                            Label("Refine with AI", systemImage: "sparkles")
+                        }
+                        .disabled(isRefining)
                     }
                     Divider()
                     Button(role: .destructive) { onDelete() } label: {
                         Label("Remove", systemImage: "trash")
                     }
                 } label: {
-                    Image(systemName: "ellipsis")
-                        .font(.subheadline)
-                        .foregroundStyle(SVTheme.textTertiary)
-                        .frame(width: 30, height: 30)
-                        .contentShape(Rectangle())
+                    ZStack {
+                        if isRefining {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else {
+                            Image(systemName: "ellipsis")
+                                .font(.subheadline)
+                                .foregroundStyle(SVTheme.textTertiary)
+                        }
+                    }
+                    .frame(width: 30, height: 30)
+                    .contentShape(Rectangle())
                 }
             }
         }

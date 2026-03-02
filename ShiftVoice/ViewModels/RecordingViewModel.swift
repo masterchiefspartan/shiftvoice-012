@@ -430,7 +430,7 @@ final class RecordingViewModel {
         let summary = TranscriptProcessor.generateSummary(from: transcript)
         let categories = TranscriptProcessor.generateCategories(from: transcript, businessType: businessType)
         let actions = TranscriptProcessor.generateActionItems(from: categories)
-        return (summary, categories, actions, false, "Refining in background with full transcription…")
+        return (summary, categories, actions, true, nil)
     }
 
     private func offlineFallback(transcript: String, businessType: String, warning: String) -> (String, [CategorizedItem], [ActionItem], Bool, String?) {
@@ -574,7 +574,7 @@ final class RecordingViewModel {
             messages.append("Validation: \(warningText)")
         }
         if !usedAI {
-            messages.append("Offline estimate — review before saving.")
+            messages.append("Local estimate — review before saving.")
         }
         if needsUserReview {
             messages.append("Review recommended before saving.")

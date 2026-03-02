@@ -607,13 +607,13 @@ struct RecordView: View {
                         .font(.subheadline.weight(.semibold))
                 }
 
-                Text(visibility == .team ? "Shared with your location team" : "Visible only to you")
+                Text(visibility == .team ? "Shared with your team" : "Visible only to you")
                     .font(.caption)
                     .foregroundStyle(isSelected ? .white.opacity(0.9) : SVTheme.textTertiary)
-                    .multilineTextAlignment(.leading)
+                    .lineLimit(1)
             }
             .foregroundStyle(isSelected ? .white : SVTheme.textPrimary)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
             .padding(12)
             .background(isSelected ? accent : SVTheme.surface)
             .clipShape(.rect(cornerRadius: 12))
@@ -623,7 +623,6 @@ struct RecordView: View {
             )
         }
         .buttonStyle(.plain)
-        .frame(minHeight: 76)
     }
 
     private func tipItem(icon: String, text: String) -> some View {

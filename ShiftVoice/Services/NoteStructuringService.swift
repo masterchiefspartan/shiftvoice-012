@@ -329,6 +329,35 @@ final class NoteStructuringService {
         return nil
     }
 
+    func refineActionItemText(_ text: String, authToken: String?, userId: String?) async -> String? {
+        guard !baseURL.isEmpty else { return nil }
+        guard let url = URL(string: "\(baseURL)/api/rest/refine-action-item") else { return nil }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let token = authToken {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        if let uid = userId {
+            request.setValue(uid, forHTTPHeaderField: "X-User-Id")
+        }
+
+        let body: [String: Any] = ["text": text]
+
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+            let (data, response) = try await session.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else { return nil }
+            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let success = json["success"] as? Bool, success,
+                  let refined = json["refined"] as? String, !refined.isEmpty else { return nil }
+            return refined
+        } catch {
+            return nil
+        }
+    }
+
     private func confidenceWarning(transcript: String, itemCount: Int) -> String? {
         let lower = transcript.lowercased()
         let wordCount = transcript.split(separator: " ").count

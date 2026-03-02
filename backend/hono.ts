@@ -3,7 +3,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import * as crypto from "crypto";
 import * as z from "zod";
-import { generateObject } from "@rork-ai/toolkit-sdk";
+import { generateObject, generateText } from "@rork-ai/toolkit-sdk";
 
 import { appRouter } from "./trpc/app-router";
 import { createContext } from "./trpc/create-context";
@@ -1533,6 +1533,36 @@ Rules:
   } catch (error: any) {
     console.error("AI structuring failed:", error?.message || error);
     return c.json({ success: false, error: "AI structuring unavailable", code: "AI_ERROR" }, 500);
+  }
+});
+
+const refineActionItemSchema = z.object({
+  text: z.string().min(1).max(1000),
+});
+
+app.post("/rest/refine-action-item", async (c) => {
+  const body = await c.req.json();
+  const validation = validateBody(refineActionItemSchema, body);
+  if (!validation.success) {
+    return errorResponse(c, 400, validation.error, "VALIDATION_ERROR");
+  }
+
+  const { text } = validation.data;
+
+  try {
+    const refined = await generateText({
+      messages: [
+        {
+          role: "user",
+          content: `Rewrite this shift handoff action item to be professional, clear, and actionable. Keep it concise (one sentence, starting with an imperative verb). Do not add information that wasn't in the original. Only return the rewritten text, nothing else.\n\nOriginal: "${text}"`
+        }
+      ]
+    });
+
+    return c.json({ success: true, refined: refined.trim() });
+  } catch (error: any) {
+    console.error("AI refinement failed:", error?.message || error);
+    return c.json({ success: false, error: "AI refinement unavailable" }, 500);
   }
 });
 
