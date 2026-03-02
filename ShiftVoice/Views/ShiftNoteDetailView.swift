@@ -14,6 +14,7 @@ struct ShiftNoteDetailView: View {
     @State private var audioPlayer: AVAudioPlayer?
     @State private var progressTimer: Timer?
     @State private var isAcknowledging: Bool = false
+    @State private var acknowledgeResetTask: Task<Void, Never>?
     @State private var showConflictSheet: Bool = false
     @State private var showQuickAppend: Bool = false
     @State private var showPromoteConfirmation: Bool = false
@@ -92,6 +93,15 @@ struct ShiftNoteDetailView: View {
                     .presentationDragIndicator(.visible)
                     .presentationContentInteraction(.scrolls)
             }
+        }
+        .onChange(of: isAcknowledged) { _, newValue in
+            if newValue {
+                acknowledgeResetTask?.cancel()
+                isAcknowledging = false
+            }
+        }
+        .onDisappear {
+            acknowledgeResetTask?.cancel()
         }
     }
 
@@ -619,6 +629,16 @@ struct ShiftNoteDetailView: View {
             guard !isAcknowledging else { return }
             isAcknowledging = true
             viewModel.acknowledgeNote(noteId)
+            acknowledgeResetTask?.cancel()
+            acknowledgeResetTask = Task {
+                try? await Task.sleep(for: .seconds(2))
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    if !isAcknowledged {
+                        isAcknowledging = false
+                    }
+                }
+            }
         } label: {
             HStack(spacing: 8) {
                 if isAcknowledging {

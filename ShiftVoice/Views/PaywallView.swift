@@ -14,6 +14,8 @@ struct PaywallView: View {
     @State private var isUsingFallbackPrices: Bool = false
     @State private var isRefreshingOfferings: Bool = false
     @State private var fallbackPriceMessage: String = "Prices may vary. Pull to refresh."
+    @State private var showFallbackPriceFootnote: Bool = false
+    @State private var fallbackPriceFootnoteText: String = "Displayed prices are fallback estimates and may differ at checkout."
 
     private let subscription = SubscriptionService.shared
 
@@ -33,6 +35,9 @@ struct PaywallView: View {
                             headerSection
                             if isUsingFallbackPrices {
                                 fallbackPricingBanner
+                            }
+                            if showFallbackPriceFootnote {
+                                fallbackPricingFootnote
                             }
                             billingToggle
                             planCard
@@ -342,6 +347,13 @@ struct PaywallView: View {
         )
     }
 
+    private var fallbackPricingFootnote: some View {
+        Text(fallbackPriceFootnoteText)
+            .font(.footnote)
+            .foregroundStyle(SVTheme.textTertiary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
     private var unavailableView: some View {
         VStack(spacing: 20) {
             Image(systemName: "cart.badge.questionmark")
@@ -376,13 +388,19 @@ struct PaywallView: View {
             offerings = try await subscription.fetchOfferings()
             subscriptionsUnavailable = false
             isUsingFallbackPrices = false
+            showFallbackPriceFootnote = false
             fallbackPriceMessage = "Prices may vary. Pull to refresh."
+            fallbackPriceFootnoteText = "Displayed prices are fallback estimates and may differ at checkout."
         } catch is SubscriptionServiceError {
             subscriptionsUnavailable = true
             isUsingFallbackPrices = false
+            showFallbackPriceFootnote = false
         } catch {
+            subscriptionsUnavailable = false
             isUsingFallbackPrices = true
+            showFallbackPriceFootnote = true
             fallbackPriceMessage = "Prices may vary. Pull to refresh."
+            fallbackPriceFootnoteText = "Displayed prices are fallback estimates and may differ at checkout."
         }
     }
 
@@ -395,12 +413,17 @@ struct PaywallView: View {
             offerings = try await subscription.fetchOfferings()
             subscriptionsUnavailable = false
             isUsingFallbackPrices = false
+            showFallbackPriceFootnote = false
         } catch is SubscriptionServiceError {
             subscriptionsUnavailable = true
             isUsingFallbackPrices = false
+            showFallbackPriceFootnote = false
         } catch {
+            subscriptionsUnavailable = false
             isUsingFallbackPrices = true
+            showFallbackPriceFootnote = true
             fallbackPriceMessage = "Still using fallback prices. Pull to refresh again."
+            fallbackPriceFootnoteText = "Displayed prices are fallback estimates and may differ at checkout."
         }
     }
 
