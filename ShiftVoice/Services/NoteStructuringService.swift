@@ -48,6 +48,10 @@ nonisolated struct StructuringResult: Sendable {
     let warning: String?
 }
 
+nonisolated struct StructuringRequestContext: Sendable {
+    let estimatedTopicCount: Int
+}
+
 final class NoteStructuringService {
     static let shared = NoteStructuringService()
 
@@ -67,7 +71,7 @@ final class NoteStructuringService {
         decoder = JSONDecoder()
     }
 
-    func structureTranscript(_ transcript: String, businessType: String, authToken: String?, userId: String?) async -> Result<StructuringResult, StructuringError> {
+    func structureTranscript(_ transcript: String, businessType: String, authToken: String?, userId: String?, context: StructuringRequestContext? = nil) async -> Result<StructuringResult, StructuringError> {
         guard !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return .failure(.emptyTranscript)
         }
@@ -84,10 +88,13 @@ final class NoteStructuringService {
             request.setValue(uid, forHTTPHeaderField: "X-User-Id")
         }
 
-        let body: [String: Any] = [
+        var body: [String: Any] = [
             "transcript": transcript,
             "businessType": businessType
         ]
+        if let estimatedTopicCount = context?.estimatedTopicCount {
+            body["estimatedTopicCount"] = estimatedTopicCount
+        }
 
         do {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)

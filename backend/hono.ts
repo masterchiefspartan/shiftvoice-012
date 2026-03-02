@@ -1351,6 +1351,7 @@ const structureTranscriptSchema = z.object({
   transcript: z.string().min(1, "Transcript is required"),
   businessType: z.string().optional().default("restaurant"),
   availableCategories: z.array(z.string()).optional(),
+  estimatedTopicCount: z.number().int().min(1).max(30).optional(),
 });
 
 const structuredNoteSchema = z.object({
@@ -1406,7 +1407,7 @@ app.post("/rest/structure-transcript", async (c) => {
     return errorResponse(c, 400, validation.error, "VALIDATION_ERROR");
   }
 
-  const { transcript, businessType } = validation.data;
+  const { transcript, businessType, estimatedTopicCount } = validation.data;
 
   try {
     const firstPass = await generateObject({
@@ -1425,6 +1426,7 @@ STEP 1 — SEGMENT: Read the entire transcript. Identify every distinct topic, i
 - Compound sentences with "and" that contain TWO different actions (e.g. "fix the fryer and restock napkins" = 2 items)
 
 STEP 2 — COUNT: Count how many distinct items you identified. If the speaker said "three things" or listed numbered items, your count MUST match or exceed that number. Each imperative verb acting on a different object = separate item.
+- Client-side topic estimate hint: at least ${estimatedTopicCount ?? 1} distinct items are likely present.
 
 STEP 3 — CREATE: For EACH distinct item, create a separate entry with:
 - "content": A clear, specific description using the worker's actual words/details
@@ -1463,7 +1465,7 @@ Here is the transcript to structure:
     });
 
     const extractedCount = firstPass.items?.length ?? 0;
-    const expectedMin = estimateExpectedItemCount(transcript);
+    const expectedMin = Math.max(estimateExpectedItemCount(transcript), estimatedTopicCount ?? 1);
 
     if (extractedCount < expectedMin && extractedCount > 0) {
       try {

@@ -124,13 +124,15 @@ final class RecordingViewModel {
         logger.info("Retry transcription validation passed for file \(audioURL.lastPathComponent, privacy: .public)")
 
         if let result = await transcriptionService.transcribeAudioFile(at: audioURL, authToken: authToken, userId: userId) {
+            let cleanedTranscript = TranscriptCleaner.clean(result)
             let aiResult = await withTaskGroup(of: Result<StructuringResult, StructuringError>?.self) { group -> Result<StructuringResult, StructuringError>? in
                 group.addTask {
                     await self.noteStructuring.structureTranscript(
-                        result,
+                        cleanedTranscript.text,
                         businessType: businessType,
                         authToken: authToken,
-                        userId: userId
+                        userId: userId,
+                        context: StructuringRequestContext(estimatedTopicCount: cleanedTranscript.estimatedTopicCount)
                     )
                 }
                 group.addTask {
@@ -294,13 +296,15 @@ final class RecordingViewModel {
     }
 
     private func structureTranscript(_ transcript: String, businessType: String, authToken: String?, userId: String?) async -> (String, [CategorizedItem], [ActionItem], Bool, String?) {
+        let cleanedTranscript = TranscriptCleaner.clean(transcript)
         let aiResult = await withTaskGroup(of: Result<StructuringResult, StructuringError>?.self) { group -> Result<StructuringResult, StructuringError>? in
             group.addTask {
                 await self.noteStructuring.structureTranscript(
-                    transcript,
+                    cleanedTranscript.text,
                     businessType: businessType,
                     authToken: authToken,
-                    userId: userId
+                    userId: userId,
+                    context: StructuringRequestContext(estimatedTopicCount: cleanedTranscript.estimatedTopicCount)
                 )
             }
             group.addTask {
