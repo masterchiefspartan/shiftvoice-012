@@ -278,6 +278,10 @@ struct NoteReviewView: View {
         approvedActionItemIds != initialApprovedActionItemIds
     }
 
+    private var transcriptId: String {
+        UserEditTracker.transcriptIdentifier(audioUrl: audioUrl, originalTranscript: initialRawTranscript)
+    }
+
     private var screenState: NoteReviewScreenState {
         if isPublishing {
             return .publishing
@@ -927,6 +931,15 @@ struct NoteReviewView: View {
             viewModel.trackReviewFlowEvent(.publishFailed(source: source, returnDestination: returnDestination, message: publishValidationError ?? "unknown"))
             return
         }
+
+        let trackedEdits = UserEditTracker.shared.diff(
+            initialCategorizedItems: initialCategorizedItems.map { $0.toCategorizedItem() },
+            initialActionItems: initialActionItems.map { $0.toActionItem() },
+            finalCategorizedItems: categorizedItems,
+            finalActionItems: actionItems,
+            transcriptId: transcriptId
+        )
+        UserEditTracker.shared.store(trackedEdits)
 
         viewModel.trackReviewFlowEvent(.published(source: source, returnDestination: returnDestination, noteId: note.id))
         publishSucceeded = true
