@@ -9,6 +9,18 @@ nonisolated private enum NoteReviewScreenState: Equatable {
     case success
 }
 
+nonisolated private enum ReviewConfidenceBand: Equatable {
+    case high
+    case medium
+    case low
+    case fallback
+}
+
+private enum BannerProminence {
+    case subtle
+    case strong
+}
+
 struct NoteReviewView: View {
     @Bindable var viewModel: AppViewModel
     let source: ReviewEntrySource
@@ -34,6 +46,9 @@ struct NoteReviewView: View {
     @State private var publishSucceeded: Bool = false
     @State private var structuringWarning: String?
     @State private var recordingFailureState: RecordingFailureState
+    @State private var confidenceScore: Double
+    @State private var validationWarnings: [ValidationWarning]
+    @State private var usedAI: Bool
     @State private var approvedActionItemIds: Set<String>
     @State private var showUnsavedExitDialog: Bool = false
     @State private var noteVisibility: NoteVisibility
@@ -59,6 +74,9 @@ struct NoteReviewView: View {
         visibility: NoteVisibility = .team,
         structuringWarning: String? = nil,
         recordingFailureState: RecordingFailureState = .none,
+        confidenceScore: Double = 1.0,
+        validationWarnings: [ValidationWarning] = [],
+        usedAI: Bool = true,
         onDiscard: @escaping () -> Void,
         onPublish: @escaping (ShiftNote) -> Bool
     ) {
@@ -82,6 +100,9 @@ struct NoteReviewView: View {
         self.initialActionItems = initialActionItems
         _structuringWarning = State(initialValue: structuringWarning)
         _recordingFailureState = State(initialValue: recordingFailureState)
+        _confidenceScore = State(initialValue: confidenceScore)
+        _validationWarnings = State(initialValue: validationWarnings)
+        _usedAI = State(initialValue: usedAI)
         let initialApprovedActionItemIds: Set<String> = []
         _approvedActionItemIds = State(initialValue: initialApprovedActionItemIds)
         self.initialApprovedActionItemIds = initialApprovedActionItemIds
@@ -133,6 +154,9 @@ struct NoteReviewView: View {
                         visibilityBadge
                         if case .transcriptionFailed = recordingFailureState {
                             transcriptionFailedBanner
+                        }
+                        if let banner = confidenceReviewBanner {
+                            banner
                         }
                         if let warning = structuringWarning {
                             structuringWarningBanner(warning)
@@ -656,6 +680,8 @@ struct NoteReviewView: View {
                 ForEach($editableCategorizedItems) { $item in
                     EditableCategorizedItemRow(
                         item: $item,
+                        showsWarningIndicator: hasValidationWarnings,
+                        emphasizeWarning: shouldEmphasizeWarningRows,
                         onDelete: {
                             editableCategorizedItems.removeAll { $0.id == item.id }
                         }
@@ -739,6 +765,8 @@ struct NoteReviewView: View {
                                 set: { editableActionItems[index] = $0 }
                             ),
                             isApproved: approvedActionItemIds.contains(item.id),
+                            showsWarningIndicator: hasValidationWarnings,
+                            emphasizeWarning: shouldEmphasizeWarningRows,
                             hideAssignee: noteVisibility == .personal,
                             onApprove: {
                                 approvedActionItemIds.insert(item.id)
@@ -918,9 +946,98 @@ struct NoteReviewView: View {
             editableActionItems = updated.actionItems.map { EditableActionItem(from: $0) }
             structuringWarning = updated.structuringWarning
             recordingFailureState = updated.recordingFailureState
+            confidenceScore = updated.confidenceScore
+            validationWarnings = updated.validationWarnings
+            usedAI = updated.usedAI
         }
 
         recordingFailureState = viewModel.recording.recordingFailureState
+    }
+
+    private var hasValidationWarnings: Bool {
+        !validationWarnings.isEmpty
+    }
+
+    private var shouldEmphasizeWarningRows: Bool {
+        confidenceBand == .low
+    }
+
+    private var confidenceBand: ReviewConfidenceBand {
+        if !usedAI {
+            return .fallback
+        }
+        if confidenceScore < 0.60 {
+            return .low
+        }
+        if confidenceScore < 0.85 {
+            return .medium
+        }
+        return .high
+    }
+
+    private var confidenceReviewBanner: AnyView? {
+        switch confidenceBand {
+        case .high:
+            return nil
+        case .medium:
+            return AnyView(confidenceBanner(
+                title: "We structured your note. Tap any item to adjust.",
+                subtitle: nil,
+                symbol: "checkmark.seal",
+                tint: SVTheme.amber,
+                prominence: .subtle
+            ))
+        case .low:
+            return AnyView(confidenceBanner(
+                title: "We had trouble with some parts. Please review.",
+                subtitle: "Did we get this right?",
+                symbol: "exclamationmark.triangle.fill",
+                tint: SVTheme.amber,
+                prominence: .strong
+            ))
+        case .fallback:
+            return AnyView(confidenceBanner(
+                title: "Structured offline — AI refinement will update when connected.",
+                subtitle: nil,
+                symbol: "wifi.exclamationmark",
+                tint: SVTheme.amber,
+                prominence: .subtle
+            ))
+        }
+    }
+
+    private func confidenceBanner(
+        title: String,
+        subtitle: String?,
+        symbol: String,
+        tint: Color,
+        prominence: BannerProminence
+    ) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: symbol)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(tint)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(SVTheme.textPrimary)
+                if let subtitle, !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(SVTheme.textSecondary)
+                }
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(12)
+        .background(prominence == .strong ? tint.opacity(0.14) : tint.opacity(0.08))
+        .clipShape(.rect(cornerRadius: 10))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(tint.opacity(prominence == .strong ? 0.35 : 0.2), lineWidth: 1)
+        )
     }
 
     private var approvedActionItemsStatusText: String {
@@ -1012,6 +1129,8 @@ struct EditableActionItem: Identifiable, Equatable {
 
 struct EditableCategorizedItemRow: View {
     @Binding var item: EditableCategorizedItem
+    let showsWarningIndicator: Bool
+    let emphasizeWarning: Bool
     let onDelete: () -> Void
     @State private var isExpanded: Bool = false
 
@@ -1026,11 +1145,19 @@ struct EditableCategorizedItemRow: View {
                     .clipShape(.rect(cornerRadius: 6))
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(item.content)
-                        .font(.subheadline)
-                        .foregroundStyle(SVTheme.textPrimary)
-                        .lineLimit(isExpanded ? nil : 2)
-                        .lineSpacing(2)
+                    HStack(alignment: .top, spacing: 6) {
+                        Text(item.content)
+                            .font(.subheadline)
+                            .foregroundStyle(SVTheme.textPrimary)
+                            .lineLimit(isExpanded ? nil : 2)
+                            .lineSpacing(2)
+
+                        if showsWarningIndicator {
+                            Image(systemName: "exclamationmark.circle.fill")
+                                .font(.caption)
+                                .foregroundStyle(SVTheme.amber)
+                        }
+                    }
 
                     HStack(spacing: 6) {
                         CategoryPill(info: CategoryDisplayInfo(from: item.category))
@@ -1076,11 +1203,11 @@ struct EditableCategorizedItemRow: View {
             }
             .padding(14)
         }
-        .background(SVTheme.cardBackground)
+        .background(emphasizeWarning && showsWarningIndicator ? SVTheme.amber.opacity(0.08) : SVTheme.cardBackground)
         .clipShape(.rect(cornerRadius: 12))
         .overlay(
             RoundedRectangle(cornerRadius: 12)
-                .stroke(SVTheme.surfaceBorder, lineWidth: 1)
+                .stroke(emphasizeWarning && showsWarningIndicator ? SVTheme.amber.opacity(0.45) : SVTheme.surfaceBorder, lineWidth: 1)
         )
     }
 }
@@ -1088,6 +1215,8 @@ struct EditableCategorizedItemRow: View {
 struct EditableActionItemRow: View {
     @Binding var item: EditableActionItem
     let isApproved: Bool
+    let showsWarningIndicator: Bool
+    let emphasizeWarning: Bool
     var hideAssignee: Bool = false
     let onApprove: () -> Void
     let onUnapprove: () -> Void
@@ -1112,8 +1241,28 @@ struct EditableActionItemRow: View {
         return nil
     }
 
+    private var confidenceLabel: String? {
+        if showsWarningIndicator {
+            return "Needs review"
+        }
+        return nil
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 6) {
+                if showsWarningIndicator {
+                    Image(systemName: "exclamationmark.circle.fill")
+                        .font(.caption)
+                        .foregroundStyle(SVTheme.amber)
+                }
+                if let confidenceLabel {
+                    Text(confidenceLabel)
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(SVTheme.textSecondary)
+                }
+                Spacer(minLength: 0)
+            }
             if isEditing {
                 TextField("Action item...", text: $item.task, axis: .vertical)
                     .font(.body)
@@ -1242,6 +1391,7 @@ struct EditableActionItemRow: View {
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 18)
+        .background(emphasizeWarning && showsWarningIndicator ? SVTheme.amber.opacity(0.08) : Color.clear)
     }
 }
 

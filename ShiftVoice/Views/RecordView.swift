@@ -111,6 +111,9 @@ struct RecordView: View {
                         visibility: recording.selectedVisibility,
                         structuringWarning: reviewData.structuringWarning,
                         recordingFailureState: reviewData.recordingFailureState,
+                        confidenceScore: reviewData.confidenceScore,
+                        validationWarnings: reviewData.validationWarnings,
+                        usedAI: reviewData.usedAI,
                         onDiscard: {
                             showReview = false
                             recording.discardPendingNote()
