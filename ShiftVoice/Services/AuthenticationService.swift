@@ -352,7 +352,10 @@ final class AuthenticationService {
         Task {
             do {
                 let savedMethod = UserDefaults.standard.string(forKey: "sv_auth_method")
-                if savedMethod == AuthMethod.email.rawValue {
+                let hasEmailProvider = user.providerData.contains(where: { $0.providerID == "password" })
+                let hasGoogleProvider = user.providerData.contains(where: { $0.providerID == "google.com" })
+
+                if hasEmailProvider || savedMethod == AuthMethod.email.rawValue {
                     guard let password, !password.isEmpty else {
                         errorMessage = "Password is required to delete your account."
                         isSubmitting = false
@@ -365,7 +368,7 @@ final class AuthenticationService {
                     }
                     let credential = EmailAuthProvider.credential(withEmail: email, password: password)
                     try await user.reauthenticate(with: credential)
-                } else if savedMethod == AuthMethod.google.rawValue {
+                } else if hasGoogleProvider || savedMethod == AuthMethod.google.rawValue {
                     guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
                           let rootVC = windowScene.windows.first?.rootViewController else {
                         errorMessage = "Unable to verify account."
@@ -411,6 +414,19 @@ final class AuthenticationService {
 
     var isEmailAuth: Bool {
         UserDefaults.standard.string(forKey: "sv_auth_method") == AuthMethod.email.rawValue
+    }
+
+    var requiresPasswordForDeletion: Bool {
+        guard let user = Auth.auth().currentUser else {
+            return isEmailAuth
+        }
+        if user.providerData.contains(where: { $0.providerID == "password" }) {
+            return true
+        }
+        if user.providerData.contains(where: { $0.providerID == "google.com" }) {
+            return false
+        }
+        return isEmailAuth
     }
 
     // MARK: - URL Handling

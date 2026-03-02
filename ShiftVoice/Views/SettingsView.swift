@@ -1040,7 +1040,7 @@ struct SettingsView: View {
             )
 
             Button {
-                if authService.isEmailAuth {
+                if authService.requiresPasswordForDeletion {
                     deletePassword = ""
                     showDeletePasswordPrompt = true
                 } else {

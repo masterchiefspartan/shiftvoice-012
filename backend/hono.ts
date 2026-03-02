@@ -79,7 +79,7 @@ const loginSchema = z.object({
 
 const googleAuthSchema = z.object({
   googleUserId: z.string().min(1),
-  name: z.string().min(1),
+  name: z.string().min(2, "Name must be at least 2 characters").max(100, "Name must be under 100 characters"),
   email: z.string().email(),
 });
 
@@ -107,7 +107,7 @@ const shiftNoteSchema = z.object({
 
 const locationSchema = z.object({
   id: z.string().min(1),
-  name: z.string().min(1, "Location name is required"),
+  name: z.string().min(2, "Name must be at least 2 characters").max(100, "Name must be under 100 characters"),
   address: z.string().optional().default(""),
   timezone: z.string().optional().default("America/New_York"),
   openingTime: z.string().optional().default("06:00"),
@@ -118,7 +118,7 @@ const locationSchema = z.object({
 
 const teamMemberSchema = z.object({
   id: z.string().min(1),
-  name: z.string().min(1, "Name is required"),
+  name: z.string().min(2, "Name must be at least 2 characters").max(100, "Name must be under 100 characters"),
   email: z.string().email("Invalid email"),
   role: z.string().optional().default("Manager"),
   roleTemplateId: z.string().nullable().optional(),
@@ -854,7 +854,7 @@ app.post("/rest/auth/google", async (c) => {
 const firebaseAuthSchema = z.object({
   idToken: z.string().min(1),
   uid: z.string().min(1),
-  name: z.string().min(1),
+  name: z.string().min(2, "Name must be at least 2 characters").max(100, "Name must be under 100 characters"),
   email: z.string().email(),
 });
 
