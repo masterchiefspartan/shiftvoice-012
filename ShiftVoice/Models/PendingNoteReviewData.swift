@@ -23,4 +23,5 @@ struct PendingNoteReviewData {
     var averageTranscriptConfidence: Double? = nil
     var confidenceScore: Double = 1.0
     var validationWarnings: [ValidationWarning] = []
+    var warningItemIDs: Set<String> = []
 }

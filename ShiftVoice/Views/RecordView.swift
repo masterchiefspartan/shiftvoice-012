@@ -113,6 +113,7 @@ struct RecordView: View {
                         recordingFailureState: reviewData.recordingFailureState,
                         confidenceScore: reviewData.confidenceScore,
                         validationWarnings: reviewData.validationWarnings,
+                        warningItemIDs: reviewData.warningItemIDs,
                         usedAI: reviewData.usedAI,
                         onDiscard: {
                             showReview = false

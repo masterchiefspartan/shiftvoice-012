@@ -106,7 +106,8 @@ final class RecordingViewModel {
                 lowConfidenceSegments: reviewData.lowConfidenceSegments,
                 averageTranscriptConfidence: reviewData.averageTranscriptConfidence,
                 confidenceScore: reviewData.confidenceScore,
-                validationWarnings: reviewData.validationWarnings
+                validationWarnings: reviewData.validationWarnings,
+                warningItemIDs: reviewData.warningItemIDs
             )
             return
         }
@@ -216,7 +217,8 @@ final class RecordingViewModel {
                 lowConfidenceSegments: transcriptionService.lowConfidenceSegments,
                 averageTranscriptConfidence: transcriptionService.averageSegmentConfidence,
                 confidenceScore: validationResult.confidenceScore,
-                validationWarnings: validationResult.warnings
+                validationWarnings: validationResult.warnings,
+                warningItemIDs: validationResult.warningItemIDs
             )
         } else {
             let reason = transcriptionService.failureReason
@@ -253,7 +255,8 @@ final class RecordingViewModel {
                 lowConfidenceSegments: transcriptionService.lowConfidenceSegments,
                 averageTranscriptConfidence: transcriptionService.averageSegmentConfidence,
                 confidenceScore: 1.0,
-                validationWarnings: []
+                validationWarnings: [],
+                warningItemIDs: []
             )
             stopProcessingTimer()
             processingStage = nil
@@ -343,7 +346,8 @@ final class RecordingViewModel {
                 lowConfidenceSegments: transcriptionService.lowConfidenceSegments,
                 averageTranscriptConfidence: transcriptionService.averageSegmentConfidence,
                 confidenceScore: validationResult.confidenceScore,
-                validationWarnings: validationResult.warnings
+                validationWarnings: validationResult.warnings,
+                warningItemIDs: validationResult.warningItemIDs
             )
             stopProcessingTimer()
             processingStage = nil

@@ -13,6 +13,7 @@ nonisolated struct ValidationResult: Sendable {
     let items: [CategorizedItem]
     let confidenceScore: Double
     let warnings: [ValidationWarning]
+    let warningItemIDs: Set<String>
     let needsUserReview: Bool
 }
 
@@ -25,14 +26,17 @@ nonisolated enum StructuringValidator {
     ) -> ValidationResult {
         let trimmedTranscript: String = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTranscript.isEmpty else {
-            return ValidationResult(items: items, confidenceScore: 0.0, warnings: [.transcriptCoverageGap], needsUserReview: true)
+            return ValidationResult(items: items, confidenceScore: 0.0, warnings: [.transcriptCoverageGap], warningItemIDs: [], needsUserReview: true)
         }
 
         var warnings: Set<ValidationWarning> = []
+        var warningItemIDs: Set<String> = []
         var scorePenalty: Double = 0
 
-        if hasSourceQuoteMismatch(transcript: trimmedTranscript, items: items) {
+        let quoteMismatchItemIDs: Set<String> = sourceQuoteMismatchItemIDs(transcript: trimmedTranscript, items: items)
+        if !quoteMismatchItemIDs.isEmpty {
             warnings.insert(.sourceQuoteMismatch)
+            warningItemIDs.formUnion(quoteMismatchItemIDs)
             scorePenalty += 0.18
         }
 
@@ -46,13 +50,17 @@ nonisolated enum StructuringValidator {
             scorePenalty += 0.18
         }
 
-        if hasLikelyDuplicates(items: items) {
+        let duplicateItemIDs: Set<String> = duplicateItemIDs(in: items)
+        if !duplicateItemIDs.isEmpty {
             warnings.insert(.duplicateItems)
+            warningItemIDs.formUnion(duplicateItemIDs)
             scorePenalty += 0.15
         }
 
-        if hasLongItems(items: items) {
+        let longItemIDs: Set<String> = longItemIDs(in: items)
+        if !longItemIDs.isEmpty {
             warnings.insert(.longItem)
+            warningItemIDs.formUnion(longItemIDs)
             scorePenalty += 0.12
         }
 
@@ -69,18 +77,26 @@ nonisolated enum StructuringValidator {
             items: items,
             confidenceScore: confidenceScore,
             warnings: warningList,
+            warningItemIDs: warningItemIDs,
             needsUserReview: needsUserReview
         )
     }
 
-    private static func hasSourceQuoteMismatch(transcript: String, items: [CategorizedItem]) -> Bool {
+    private static func sourceQuoteMismatchItemIDs(transcript: String, items: [CategorizedItem]) -> Set<String> {
         let normalizedTranscript: String = normalizeForFuzzyMatch(transcript)
-        guard !normalizedTranscript.isEmpty else { return true }
+        guard !normalizedTranscript.isEmpty else { return Set(items.map(\.id)) }
 
+        var mismatches: Set<String> = []
         for item in items {
-            guard let quote = item.sourceQuote?.trimmingCharacters(in: .whitespacesAndNewlines), !quote.isEmpty else { continue }
+            guard let quote = item.sourceQuote?.trimmingCharacters(in: .whitespacesAndNewlines), !quote.isEmpty else {
+                mismatches.insert(item.id)
+                continue
+            }
             let normalizedQuote: String = normalizeForFuzzyMatch(quote)
-            guard !normalizedQuote.isEmpty else { continue }
+            guard !normalizedQuote.isEmpty else {
+                mismatches.insert(item.id)
+                continue
+            }
 
             if normalizedTranscript.contains(normalizedQuote) {
                 continue
@@ -88,10 +104,10 @@ nonisolated enum StructuringValidator {
 
             let similarity: Double = tokenJaccardSimilarity(lhs: normalizedQuote, rhs: normalizedTranscript)
             if similarity < 0.45 {
-                return true
+                mismatches.insert(item.id)
             }
         }
-        return false
+        return mismatches
     }
 
     private static func hasTopicCountMismatch(items: [CategorizedItem], estimatedTopicCount: Int) -> Bool {
@@ -113,23 +129,26 @@ nonisolated enum StructuringValidator {
         return uncoveredRatio > 0.5
     }
 
-    private static func hasLikelyDuplicates(items: [CategorizedItem]) -> Bool {
-        guard items.count > 1 else { return false }
+    private static func duplicateItemIDs(in items: [CategorizedItem]) -> Set<String> {
+        guard items.count > 1 else { return [] }
+        var duplicates: Set<String> = []
         for i in 0..<items.count {
             for j in (i + 1)..<items.count {
                 let similarity: Double = tokenJaccardSimilarity(lhs: items[i].content, rhs: items[j].content)
                 if similarity > 0.8 {
-                    return true
+                    duplicates.insert(items[i].id)
+                    duplicates.insert(items[j].id)
                 }
             }
         }
-        return false
+        return duplicates
     }
 
-    private static func hasLongItems(items: [CategorizedItem]) -> Bool {
-        items.contains { item in
-            item.content.split(whereSeparator: { $0.isWhitespace || $0.isNewline }).count > 30
-        }
+    private static func longItemIDs(in items: [CategorizedItem]) -> Set<String> {
+        Set(items.compactMap { item in
+            let wordCount: Int = item.content.split(whereSeparator: { $0.isWhitespace || $0.isNewline }).count
+            return wordCount > 30 ? item.id : nil
+        })
     }
 
     private static func tokenJaccardSimilarity(lhs: String, rhs: String) -> Double {

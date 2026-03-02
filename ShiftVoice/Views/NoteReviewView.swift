@@ -48,6 +48,7 @@ struct NoteReviewView: View {
     @State private var recordingFailureState: RecordingFailureState
     @State private var confidenceScore: Double
     @State private var validationWarnings: [ValidationWarning]
+    @State private var warningItemIDs: Set<String>
     @State private var usedAI: Bool
     @State private var approvedActionItemIds: Set<String>
     @State private var showUnsavedExitDialog: Bool = false
@@ -76,6 +77,7 @@ struct NoteReviewView: View {
         recordingFailureState: RecordingFailureState = .none,
         confidenceScore: Double = 1.0,
         validationWarnings: [ValidationWarning] = [],
+        warningItemIDs: Set<String> = [],
         usedAI: Bool = true,
         onDiscard: @escaping () -> Void,
         onPublish: @escaping (ShiftNote) -> Bool
@@ -102,6 +104,7 @@ struct NoteReviewView: View {
         _recordingFailureState = State(initialValue: recordingFailureState)
         _confidenceScore = State(initialValue: confidenceScore)
         _validationWarnings = State(initialValue: validationWarnings)
+        _warningItemIDs = State(initialValue: warningItemIDs)
         _usedAI = State(initialValue: usedAI)
         let initialApprovedActionItemIds: Set<String> = []
         _approvedActionItemIds = State(initialValue: initialApprovedActionItemIds)
@@ -684,7 +687,7 @@ struct NoteReviewView: View {
                 ForEach($editableCategorizedItems) { $item in
                     EditableCategorizedItemRow(
                         item: $item,
-                        showsWarningIndicator: hasValidationWarnings,
+                        showsWarningIndicator: warningItemIDs.contains(item.id),
                         emphasizeWarning: shouldEmphasizeWarningRows,
                         onDelete: {
                             editableCategorizedItems.removeAll { $0.id == item.id }
@@ -769,7 +772,7 @@ struct NoteReviewView: View {
                                 set: { editableActionItems[index] = $0 }
                             ),
                             isApproved: approvedActionItemIds.contains(item.id),
-                            showsWarningIndicator: hasValidationWarnings,
+                            showsWarningIndicator: warningItemIDs.contains(item.id),
                             emphasizeWarning: shouldEmphasizeWarningRows,
                             hideAssignee: noteVisibility == .personal,
                             onApprove: {
@@ -961,14 +964,11 @@ struct NoteReviewView: View {
             recordingFailureState = updated.recordingFailureState
             confidenceScore = updated.confidenceScore
             validationWarnings = updated.validationWarnings
+            warningItemIDs = updated.warningItemIDs
             usedAI = updated.usedAI
         }
 
         recordingFailureState = viewModel.recording.recordingFailureState
-    }
-
-    private var hasValidationWarnings: Bool {
-        !validationWarnings.isEmpty
     }
 
     private var shouldEmphasizeWarningRows: Bool {
