@@ -15,6 +15,7 @@ final class RecordingViewModel {
     private let noteStructuring = NoteStructuringService.shared
     private let structuringCache = StructuringCache.shared
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "ShiftVoice", category: "RecordingFlow")
+    private let structuringTelemetryLogger = StructuringTelemetryLogger.shared
 
     var isProcessing: Bool = false
     var processingStage: ProcessingStage? = nil
@@ -178,16 +179,19 @@ final class RecordingViewModel {
                 usedAI = true
                 warning = structured.warning
                 transcriptCoverage = structured.transcriptCoverage
+                structuringTelemetryLogger.log(.aiStructuringSucceeded(itemCount: structured.categorizedItems.count))
             case .failure(let error):
                 summary = TranscriptProcessor.generateSummary(from: result)
                 categorizedItems = TranscriptProcessor.generateCategories(from: result)
                 actionItems = TranscriptProcessor.generateActionItems(from: categorizedItems)
                 warning = "AI structuring unavailable — structured locally. \(error.userMessage)"
+                structuringTelemetryLogger.log(.aiFallbackUsed(reason: error.userMessage))
             case .none:
                 summary = TranscriptProcessor.generateSummary(from: result)
                 categorizedItems = TranscriptProcessor.generateCategories(from: result)
                 actionItems = TranscriptProcessor.generateActionItems(from: categorizedItems)
                 warning = "AI structuring timed out — structured locally."
+                structuringTelemetryLogger.log(.aiTimeoutFallbackUsed)
             }
 
             let validationResult = StructuringValidator.validate(
@@ -200,6 +204,13 @@ final class RecordingViewModel {
                 warning,
                 validationWarnings: validationResult.warnings,
                 needsUserReview: validationResult.needsUserReview
+            )
+            structuringTelemetryLogger.log(
+                .validationEvaluated(
+                    warningCount: validationResult.warnings.count,
+                    confidenceScore: validationResult.confidenceScore,
+                    needsUserReview: validationResult.needsUserReview
+                )
             )
 
             pendingReviewData = PendingNoteReviewData(
@@ -330,6 +341,13 @@ final class RecordingViewModel {
                 validationWarnings: validationResult.warnings,
                 needsUserReview: validationResult.needsUserReview
             )
+            structuringTelemetryLogger.log(
+                .validationEvaluated(
+                    warningCount: validationResult.warnings.count,
+                    confidenceScore: validationResult.confidenceScore,
+                    needsUserReview: validationResult.needsUserReview
+                )
+            )
 
             pendingReviewData = PendingNoteReviewData(
                 rawTranscript: transcript,
@@ -391,12 +409,15 @@ final class RecordingViewModel {
         switch aiResult {
         case .success(let result):
             structuringCache.cacheResult(result, businessType: businessType)
+            structuringTelemetryLogger.log(.aiStructuringSucceeded(itemCount: result.categorizedItems.count))
             return (result.summary, result.categorizedItems, result.actionItems, true, result.warning, result.transcriptCoverage)
         case .failure(let error):
             let fallback = offlineFallback(transcript: transcript, businessType: businessType, warning: "AI structuring unavailable \u{2014} structured locally. \(error.userMessage)")
+            structuringTelemetryLogger.log(.aiFallbackUsed(reason: error.userMessage))
             return (fallback.0, fallback.1, fallback.2, fallback.3, fallback.4, nil)
         case .none:
             let fallback = offlineFallback(transcript: transcript, businessType: businessType, warning: "AI structuring timed out \u{2014} structured locally.")
+            structuringTelemetryLogger.log(.aiTimeoutFallbackUsed)
             return (fallback.0, fallback.1, fallback.2, fallback.3, fallback.4, nil)
         }
     }
@@ -447,6 +468,13 @@ final class RecordingViewModel {
             warning,
             validationWarnings: validationResult.warnings,
             needsUserReview: validationResult.needsUserReview
+        )
+        structuringTelemetryLogger.log(
+            .validationEvaluated(
+                warningCount: validationResult.warnings.count,
+                confidenceScore: validationResult.confidenceScore,
+                needsUserReview: validationResult.needsUserReview
+            )
         )
 
         pendingReviewData = PendingNoteReviewData(

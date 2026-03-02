@@ -4,6 +4,9 @@ nonisolated struct FeatureFlagsSnapshot: Codable, Sendable {
     let conflictUIEnabled: Bool?
     let diagnosticsEnabled: Bool?
     let syncBannersEnabled: Bool?
+    let structuringStrictValidationEnabled: Bool?
+    let structuringGroundingChecksEnabled: Bool?
+    let structuringPromptV2Enabled: Bool?
 }
 
 @Observable
@@ -19,6 +22,9 @@ final class FeatureFlagService {
     private let syncBannersOverrideKey: String = "feature_flags.override.sync_banners_enabled"
     private let remoteCacheDataKey: String = "feature_flags.remote.cache"
     private let remoteURLOverrideKey: String = "feature_flags.remote.url_override"
+    private let structuringStrictValidationOverrideKey: String = "feature_flags.override.structuring_strict_validation_enabled"
+    private let structuringGroundingChecksOverrideKey: String = "feature_flags.override.structuring_grounding_checks_enabled"
+    private let structuringPromptV2OverrideKey: String = "feature_flags.override.structuring_prompt_v2_enabled"
 
     private var remoteSnapshot: FeatureFlagsSnapshot?
 
@@ -34,6 +40,18 @@ final class FeatureFlagService {
         resolvedFlag(localOverrideForKey: syncBannersOverrideKey, remoteValue: remoteSnapshot?.syncBannersEnabled, defaultValue: true)
     }
 
+    var structuringStrictValidationEnabled: Bool {
+        resolvedFlag(localOverrideForKey: structuringStrictValidationOverrideKey, remoteValue: remoteSnapshot?.structuringStrictValidationEnabled, defaultValue: false)
+    }
+
+    var structuringGroundingChecksEnabled: Bool {
+        resolvedFlag(localOverrideForKey: structuringGroundingChecksOverrideKey, remoteValue: remoteSnapshot?.structuringGroundingChecksEnabled, defaultValue: false)
+    }
+
+    var structuringPromptV2Enabled: Bool {
+        resolvedFlag(localOverrideForKey: structuringPromptV2OverrideKey, remoteValue: remoteSnapshot?.structuringPromptV2Enabled, defaultValue: false)
+    }
+
     var conflictUIOverride: Bool? {
         get { overrideValue(forKey: conflictUIOverrideKey) }
         set { setOverride(newValue, forKey: conflictUIOverrideKey) }
@@ -47,6 +65,21 @@ final class FeatureFlagService {
     var syncBannersOverride: Bool? {
         get { overrideValue(forKey: syncBannersOverrideKey) }
         set { setOverride(newValue, forKey: syncBannersOverrideKey) }
+    }
+
+    var structuringStrictValidationOverride: Bool? {
+        get { overrideValue(forKey: structuringStrictValidationOverrideKey) }
+        set { setOverride(newValue, forKey: structuringStrictValidationOverrideKey) }
+    }
+
+    var structuringGroundingChecksOverride: Bool? {
+        get { overrideValue(forKey: structuringGroundingChecksOverrideKey) }
+        set { setOverride(newValue, forKey: structuringGroundingChecksOverrideKey) }
+    }
+
+    var structuringPromptV2Override: Bool? {
+        get { overrideValue(forKey: structuringPromptV2OverrideKey) }
+        set { setOverride(newValue, forKey: structuringPromptV2OverrideKey) }
     }
 
     init(
@@ -88,6 +121,9 @@ final class FeatureFlagService {
         userDefaults.removeObject(forKey: conflictUIOverrideKey)
         userDefaults.removeObject(forKey: diagnosticsOverrideKey)
         userDefaults.removeObject(forKey: syncBannersOverrideKey)
+        userDefaults.removeObject(forKey: structuringStrictValidationOverrideKey)
+        userDefaults.removeObject(forKey: structuringGroundingChecksOverrideKey)
+        userDefaults.removeObject(forKey: structuringPromptV2OverrideKey)
     }
 
     private func resolvedFlag(localOverrideForKey key: String, remoteValue: Bool?, defaultValue: Bool) -> Bool {
