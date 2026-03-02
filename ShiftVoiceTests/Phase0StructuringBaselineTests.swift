@@ -57,6 +57,56 @@ struct Phase0StructuringBaselineTests {
         #expect(result.confidenceScore < 0.70)
     }
 
+    @Test func structuringValidatorAcceptsApproximateQuoteWindowMatch() {
+        let transcript = "Front sink near prep station is leaking steadily and freezer alarm is chirping every few minutes."
+        let items = [
+            CategorizedItem(
+                category: .maintenance,
+                content: "Front prep sink leak",
+                urgency: .immediate,
+                sourceQuote: "prep station sink is leaking"
+            )
+        ]
+
+        let result = StructuringValidator.validate(
+            transcript: transcript,
+            items: items,
+            estimatedTopicCount: 1,
+            transcriptCoverage: "complete"
+        )
+
+        #expect(!result.warnings.contains(.sourceQuoteMismatch))
+    }
+
+    @Test func structuringValidatorFlagsDuplicateAndLongItems() {
+        let transcript = "Ice machine is failing and compressor is loud. Ice machine is failing and compressor is loud. Also check the dish pit door hinge before service."
+        let items = [
+            CategorizedItem(
+                category: .equipment,
+                content: "Ice machine failing with loud compressor and needs immediate technician support before opening service today",
+                urgency: .immediate,
+                sourceQuote: "Ice machine is failing and compressor is loud"
+            ),
+            CategorizedItem(
+                category: .equipment,
+                content: "Ice machine failing with loud compressor and needs immediate technician support before opening service today",
+                urgency: .immediate,
+                sourceQuote: "Ice machine is failing and compressor is loud"
+            )
+        ]
+
+        let result = StructuringValidator.validate(
+            transcript: transcript,
+            items: items,
+            estimatedTopicCount: 2,
+            transcriptCoverage: "complete"
+        )
+
+        #expect(result.warnings.contains(.duplicateItems))
+        #expect(result.warnings.contains(.longItem))
+        #expect(result.warningItemIDs.count == 2)
+    }
+
     @Test func structuringTelemetryLoggerRecordsPhase0Signals() {
         let logger = StructuringTelemetryLogger()
 

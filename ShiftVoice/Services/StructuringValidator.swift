@@ -18,6 +18,22 @@ nonisolated struct ValidationResult: Sendable {
 }
 
 nonisolated enum StructuringValidator {
+    private static let sourceQuotePenalty: Double = 0.22
+    private static let topicCountPenalty: Double = 0.14
+    private static let transcriptCoveragePenalty: Double = 0.22
+    private static let duplicatePenalty: Double = 0.15
+    private static let longItemPenalty: Double = 0.10
+    private static let aiPartialCoveragePenalty: Double = 0.18
+
+    private static let quoteWindowMatchThreshold: Double = 0.60
+    private static let transcriptGapWarningThreshold: Double = 0.45
+    private static let transcriptGapHardThreshold: Double = 0.62
+    private static let duplicateSimilarityThreshold: Double = 0.84
+    private static let longItemWordThreshold: Int = 28
+    private static let lowValueWords: Set<String> = [
+        "thing", "stuff", "something", "someone", "somebody", "anything", "everything", "issue", "issues", "problem", "problems", "item", "items", "note", "notes"
+    ]
+
     static func validate(
         transcript: String,
         items: [CategorizedItem],
@@ -37,36 +53,41 @@ nonisolated enum StructuringValidator {
         if !quoteMismatchItemIDs.isEmpty {
             warnings.insert(.sourceQuoteMismatch)
             warningItemIDs.formUnion(quoteMismatchItemIDs)
-            scorePenalty += 0.18
+            scorePenalty += sourceQuotePenalty
         }
 
         if hasTopicCountMismatch(items: items, estimatedTopicCount: max(1, estimatedTopicCount)) {
             warnings.insert(.topicCountMismatch)
-            scorePenalty += 0.16
+            scorePenalty += topicCountPenalty
         }
 
-        if hasTranscriptCoverageGap(transcript: trimmedTranscript, items: items) {
+        let uncoveredRatio: Double = uncoveredMeaningfulRatio(transcript: trimmedTranscript, items: items)
+        if uncoveredRatio > transcriptGapWarningThreshold {
             warnings.insert(.transcriptCoverageGap)
-            scorePenalty += 0.18
+            if uncoveredRatio >= transcriptGapHardThreshold {
+                scorePenalty += transcriptCoveragePenalty
+            } else {
+                scorePenalty += transcriptCoveragePenalty * 0.65
+            }
         }
 
         let duplicateItemIDs: Set<String> = duplicateItemIDs(in: items)
         if !duplicateItemIDs.isEmpty {
             warnings.insert(.duplicateItems)
             warningItemIDs.formUnion(duplicateItemIDs)
-            scorePenalty += 0.15
+            scorePenalty += duplicatePenalty
         }
 
         let longItemIDs: Set<String> = longItemIDs(in: items)
         if !longItemIDs.isEmpty {
             warnings.insert(.longItem)
             warningItemIDs.formUnion(longItemIDs)
-            scorePenalty += 0.12
+            scorePenalty += longItemPenalty
         }
 
         if transcriptCoverage?.lowercased() == "partial" {
             warnings.insert(.aiPartialCoverage)
-            scorePenalty += 0.18
+            scorePenalty += aiPartialCoveragePenalty
         }
 
         let confidenceScore: Double = max(0.0, min(1.0, 1.0 - scorePenalty))
@@ -86,14 +107,19 @@ nonisolated enum StructuringValidator {
         let normalizedTranscript: String = normalizeForFuzzyMatch(transcript)
         guard !normalizedTranscript.isEmpty else { return Set(items.map(\.id)) }
 
+        let transcriptTokens: [String] = meaningfulTokenList(in: normalizedTranscript)
+        guard !transcriptTokens.isEmpty else { return Set(items.map(\.id)) }
+
         var mismatches: Set<String> = []
         for item in items {
             guard let quote = item.sourceQuote?.trimmingCharacters(in: .whitespacesAndNewlines), !quote.isEmpty else {
                 mismatches.insert(item.id)
                 continue
             }
+
             let normalizedQuote: String = normalizeForFuzzyMatch(quote)
-            guard !normalizedQuote.isEmpty else {
+            let quoteTokens: [String] = meaningfulTokenList(in: normalizedQuote)
+            guard !quoteTokens.isEmpty else {
                 mismatches.insert(item.id)
                 continue
             }
@@ -102,8 +128,8 @@ nonisolated enum StructuringValidator {
                 continue
             }
 
-            let similarity: Double = tokenJaccardSimilarity(lhs: normalizedQuote, rhs: normalizedTranscript)
-            if similarity < 0.45 {
+            let maxWindowScore: Double = maxWindowedJaccardSimilarity(quoteTokens: quoteTokens, transcriptTokens: transcriptTokens)
+            if maxWindowScore < quoteWindowMatchThreshold {
                 mismatches.insert(item.id)
             }
         }
@@ -119,14 +145,17 @@ nonisolated enum StructuringValidator {
         return difference >= 2 || Double(aiCount) < Double(estimatedTopicCount) * 0.6
     }
 
-    private static func hasTranscriptCoverageGap(transcript: String, items: [CategorizedItem]) -> Bool {
+    private static func uncoveredMeaningfulRatio(transcript: String, items: [CategorizedItem]) -> Double {
         let transcriptWords: Set<String> = meaningfulWords(in: transcript)
-        guard !transcriptWords.isEmpty else { return false }
+        guard !transcriptWords.isEmpty else { return 0 }
 
         let quoteWords: Set<String> = Set(items.compactMap(\.sourceQuote).flatMap { meaningfulWords(in: $0) })
         let uncovered: Set<String> = transcriptWords.subtracting(quoteWords)
-        let uncoveredRatio: Double = Double(uncovered.count) / Double(transcriptWords.count)
-        return uncoveredRatio > 0.5
+        guard !uncovered.isEmpty else { return 0 }
+
+        let meaningfulUncovered: [String] = uncovered.filter { !lowValueWords.contains($0) }
+        let weightedUncoveredCount: Double = Double(meaningfulUncovered.count) + (Double(uncovered.count - meaningfulUncovered.count) * 0.35)
+        return weightedUncoveredCount / Double(transcriptWords.count)
     }
 
     private static func duplicateItemIDs(in items: [CategorizedItem]) -> Set<String> {
@@ -135,7 +164,7 @@ nonisolated enum StructuringValidator {
         for i in 0..<items.count {
             for j in (i + 1)..<items.count {
                 let similarity: Double = tokenJaccardSimilarity(lhs: items[i].content, rhs: items[j].content)
-                if similarity > 0.8 {
+                if similarity >= duplicateSimilarityThreshold {
                     duplicates.insert(items[i].id)
                     duplicates.insert(items[j].id)
                 }
@@ -147,32 +176,61 @@ nonisolated enum StructuringValidator {
     private static func longItemIDs(in items: [CategorizedItem]) -> Set<String> {
         Set(items.compactMap { item in
             let wordCount: Int = item.content.split(whereSeparator: { $0.isWhitespace || $0.isNewline }).count
-            return wordCount > 30 ? item.id : nil
+            return wordCount > longItemWordThreshold ? item.id : nil
         })
     }
 
     private static func tokenJaccardSimilarity(lhs: String, rhs: String) -> Double {
         let leftTokens: Set<String> = meaningfulWords(in: lhs)
         let rightTokens: Set<String> = meaningfulWords(in: rhs)
-        guard !leftTokens.isEmpty, !rightTokens.isEmpty else { return 0 }
-        let intersection: Int = leftTokens.intersection(rightTokens).count
-        let union: Int = leftTokens.union(rightTokens).count
+        return tokenJaccardSimilarity(lhsTokens: leftTokens, rhsTokens: rightTokens)
+    }
+
+    private static func maxWindowedJaccardSimilarity(quoteTokens: [String], transcriptTokens: [String]) -> Double {
+        guard !quoteTokens.isEmpty, !transcriptTokens.isEmpty else { return 0 }
+        let quoteSet: Set<String> = Set(quoteTokens)
+
+        let minWindowSize: Int = max(1, quoteTokens.count - 2)
+        let maxWindowSize: Int = min(transcriptTokens.count, quoteTokens.count + 3)
+        guard minWindowSize <= maxWindowSize else {
+            return tokenJaccardSimilarity(lhsTokens: quoteSet, rhsTokens: Set(transcriptTokens))
+        }
+
+        var bestScore: Double = 0
+        for windowSize in minWindowSize...maxWindowSize {
+            guard transcriptTokens.count >= windowSize else { continue }
+            for start in 0...(transcriptTokens.count - windowSize) {
+                let windowTokens: Set<String> = Set(transcriptTokens[start..<(start + windowSize)])
+                let score: Double = tokenJaccardSimilarity(lhsTokens: quoteSet, rhsTokens: windowTokens)
+                if score > bestScore {
+                    bestScore = score
+                }
+            }
+        }
+        return bestScore
+    }
+
+    private static func tokenJaccardSimilarity(lhsTokens: Set<String>, rhsTokens: Set<String>) -> Double {
+        guard !lhsTokens.isEmpty, !rhsTokens.isEmpty else { return 0 }
+        let intersection: Int = lhsTokens.intersection(rhsTokens).count
+        let union: Int = lhsTokens.union(rhsTokens).count
         guard union > 0 else { return 0 }
         return Double(intersection) / Double(union)
     }
 
     private static func meaningfulWords(in text: String) -> Set<String> {
-        let normalized: String = normalizeForFuzzyMatch(text)
+        Set(meaningfulTokenList(in: normalizeForFuzzyMatch(text)))
+    }
+
+    private static func meaningfulTokenList(in normalizedText: String) -> [String] {
         let stopWords: Set<String> = [
             "the", "a", "an", "and", "or", "to", "of", "in", "on", "for", "with", "at", "is", "it", "this", "that", "we", "i", "you", "they", "he", "she", "be", "was", "were", "are"
         ]
 
-        let tokens: [String] = normalized
+        return normalizedText
             .split(separator: " ")
             .map(String.init)
             .filter { $0.count > 2 && !stopWords.contains($0) }
-
-        return Set(tokens)
     }
 
     private static func normalizeForFuzzyMatch(_ text: String) -> String {
