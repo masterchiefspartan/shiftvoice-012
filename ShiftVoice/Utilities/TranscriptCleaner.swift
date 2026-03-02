@@ -4,6 +4,7 @@ nonisolated struct CleanedTranscript: Sendable {
     let originalText: String
     let text: String
     let estimatedTopicCount: Int
+    let lowConfidencePhrases: [String]
 }
 
 nonisolated enum TranscriptCleaner {
@@ -22,10 +23,11 @@ nonisolated enum TranscriptCleaner {
         "also", "and then", "next", "another thing", "on top of that", "additionally", "oh and", "plus", "as well", "besides that"
     ]
 
-    static func clean(_ transcript: String) -> CleanedTranscript {
+    static func clean(_ transcript: String, lowConfidenceSegments: [TranscriptSegment] = []) -> CleanedTranscript {
         let originalText: String = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lowConfidencePhrases: [String] = normalizedLowConfidencePhrases(from: lowConfidenceSegments)
         guard !originalText.isEmpty else {
-            return CleanedTranscript(originalText: "", text: "", estimatedTopicCount: 1)
+            return CleanedTranscript(originalText: "", text: "", estimatedTopicCount: 1, lowConfidencePhrases: lowConfidencePhrases)
         }
 
         var cleaned: String = " \(originalText) "
@@ -51,7 +53,28 @@ nonisolated enum TranscriptCleaner {
 
         let finalText: String = cleaned.isEmpty ? originalText : cleaned
         let estimatedTopicCount: Int = estimateTopicCount(in: finalText)
-        return CleanedTranscript(originalText: originalText, text: finalText, estimatedTopicCount: estimatedTopicCount)
+        return CleanedTranscript(
+            originalText: originalText,
+            text: finalText,
+            estimatedTopicCount: estimatedTopicCount,
+            lowConfidencePhrases: lowConfidencePhrases
+        )
+    }
+
+    private static func normalizedLowConfidencePhrases(from segments: [TranscriptSegment]) -> [String] {
+        var seen: Set<String> = []
+        var phrases: [String] = []
+
+        for segment in segments {
+            let phrase: String = segment.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !phrase.isEmpty else { continue }
+            let key: String = phrase.lowercased()
+            guard !seen.contains(key) else { continue }
+            seen.insert(key)
+            phrases.append(phrase)
+        }
+
+        return phrases
     }
 
     private static func estimateTopicCount(in transcript: String) -> Int {

@@ -129,7 +129,7 @@ final class RecordingViewModel {
         logger.info("Retry transcription validation passed for file \(audioURL.lastPathComponent, privacy: .public)")
 
         if let result = await transcriptionService.transcribeAudioFile(at: audioURL, authToken: authToken, userId: userId) {
-            let cleanedTranscript = TranscriptCleaner.clean(result)
+            let cleanedTranscript = TranscriptCleaner.clean(result, lowConfidenceSegments: transcriptionService.lowConfidenceSegments)
             let aiResult = await withTaskGroup(of: Result<StructuringResult, StructuringError>?.self) { group -> Result<StructuringResult, StructuringError>? in
                 group.addTask {
                     await self.noteStructuring.structureTranscript(
@@ -140,7 +140,7 @@ final class RecordingViewModel {
                         context: StructuringRequestContext(
                             estimatedTopicCount: cleanedTranscript.estimatedTopicCount,
                             averageSegmentConfidence: self.transcriptionService.averageSegmentConfidence,
-                            lowConfidencePhrases: self.transcriptionService.lowConfidenceSegments.map(\.text),
+                            lowConfidencePhrases: cleanedTranscript.lowConfidencePhrases,
                             availableCategories: IndustrySeed.template(for: self.businessTypeEnum(from: businessType)).defaultCategories.map(\.name),
                             industryVocabulary: self.industryVocabulary(for: self.businessTypeEnum(from: businessType)),
                             categorizationHints: self.categorizationHints(for: self.businessTypeEnum(from: businessType))
@@ -315,7 +315,7 @@ final class RecordingViewModel {
 
             recordingFailureState = currentFailureState
 
-            let cleanedTranscript = TranscriptCleaner.clean(transcript)
+            let cleanedTranscript = TranscriptCleaner.clean(transcript, lowConfidenceSegments: transcriptionService.lowConfidenceSegments)
             let validationResult = StructuringValidator.validate(
                 transcript: cleanedTranscript.text,
                 items: categorizedItems,
@@ -352,7 +352,7 @@ final class RecordingViewModel {
     }
 
     private func structureTranscript(_ transcript: String, businessType: String, authToken: String?, userId: String?) async -> (String, [CategorizedItem], [ActionItem], Bool, String?, String?) {
-        let cleanedTranscript = TranscriptCleaner.clean(transcript)
+        let cleanedTranscript = TranscriptCleaner.clean(transcript, lowConfidenceSegments: transcriptionService.lowConfidenceSegments)
         let aiResult = await withTaskGroup(of: Result<StructuringResult, StructuringError>?.self) { group -> Result<StructuringResult, StructuringError>? in
             group.addTask {
                 await self.noteStructuring.structureTranscript(
@@ -363,7 +363,7 @@ final class RecordingViewModel {
                     context: StructuringRequestContext(
                         estimatedTopicCount: cleanedTranscript.estimatedTopicCount,
                         averageSegmentConfidence: self.transcriptionService.averageSegmentConfidence,
-                        lowConfidencePhrases: self.transcriptionService.lowConfidenceSegments.map(\.text),
+                        lowConfidencePhrases: cleanedTranscript.lowConfidencePhrases,
                         availableCategories: IndustrySeed.template(for: self.businessTypeEnum(from: businessType)).defaultCategories.map(\.name),
                         industryVocabulary: self.industryVocabulary(for: self.businessTypeEnum(from: businessType)),
                         categorizationHints: self.categorizationHints(for: self.businessTypeEnum(from: businessType))
@@ -432,7 +432,7 @@ final class RecordingViewModel {
         guard usedAI else { return }
         guard !hasUserEditedReview else { return }
 
-        let cleanedTranscript = TranscriptCleaner.clean(fullTranscript)
+        let cleanedTranscript = TranscriptCleaner.clean(fullTranscript, lowConfidenceSegments: transcriptionService.lowConfidenceSegments)
         let validationResult = StructuringValidator.validate(
             transcript: cleanedTranscript.text,
             items: categorizedItems,
