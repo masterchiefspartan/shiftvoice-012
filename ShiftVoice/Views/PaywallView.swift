@@ -11,6 +11,9 @@ struct PaywallView: View {
     @State private var errorMessage: String = ""
     @State private var purchaseSuccess: Bool = false
     @State private var subscriptionsUnavailable: Bool = false
+    @State private var isUsingFallbackPrices: Bool = false
+    @State private var isRefreshingOfferings: Bool = false
+    @State private var fallbackPriceMessage: String = "Prices may vary. Pull to refresh."
 
     private let subscription = SubscriptionService.shared
 
@@ -28,6 +31,9 @@ struct PaywallView: View {
                     ScrollView {
                         VStack(spacing: 24) {
                             headerSection
+                            if isUsingFallbackPrices {
+                                fallbackPricingBanner
+                            }
                             billingToggle
                             planCard
                             featuresSection
@@ -38,6 +44,9 @@ struct PaywallView: View {
                         .padding(.horizontal, 24)
                         .padding(.top, 8)
                         .padding(.bottom, 40)
+                    }
+                    .refreshable {
+                        await refreshOfferings()
                     }
                 }
             }
@@ -297,6 +306,42 @@ struct PaywallView: View {
         selectedBilling == .annual ? annualPackage : monthlyPackage
     }
 
+    private var fallbackPricingBanner: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(SVTheme.amber)
+
+            Text(fallbackPriceMessage)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(SVTheme.textSecondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            Button {
+                Task { await refreshOfferings() }
+            } label: {
+                if isRefreshingOfferings {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(SVTheme.accent)
+                } else {
+                    Text("Retry")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(SVTheme.accent)
+                }
+            }
+            .disabled(isRefreshingOfferings)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(SVTheme.amber.opacity(0.08))
+        .clipShape(.rect(cornerRadius: 10))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(SVTheme.amber.opacity(0.25), lineWidth: 1)
+        )
+    }
+
     private var unavailableView: some View {
         VStack(spacing: 20) {
             Image(systemName: "cart.badge.questionmark")
@@ -325,12 +370,38 @@ struct PaywallView: View {
 
     private func fetchOfferings() async {
         isLoading = true
+        defer { isLoading = false }
+
         do {
             offerings = try await subscription.fetchOfferings()
+            subscriptionsUnavailable = false
+            isUsingFallbackPrices = false
+            fallbackPriceMessage = "Prices may vary. Pull to refresh."
         } catch is SubscriptionServiceError {
             subscriptionsUnavailable = true
-        } catch {}
-        isLoading = false
+            isUsingFallbackPrices = false
+        } catch {
+            isUsingFallbackPrices = true
+            fallbackPriceMessage = "Prices may vary. Pull to refresh."
+        }
+    }
+
+    private func refreshOfferings() async {
+        guard !isRefreshingOfferings else { return }
+        isRefreshingOfferings = true
+        defer { isRefreshingOfferings = false }
+
+        do {
+            offerings = try await subscription.fetchOfferings()
+            subscriptionsUnavailable = false
+            isUsingFallbackPrices = false
+        } catch is SubscriptionServiceError {
+            subscriptionsUnavailable = true
+            isUsingFallbackPrices = false
+        } catch {
+            isUsingFallbackPrices = true
+            fallbackPriceMessage = "Still using fallback prices. Pull to refresh again."
+        }
     }
 
     private func handlePurchase() async {
