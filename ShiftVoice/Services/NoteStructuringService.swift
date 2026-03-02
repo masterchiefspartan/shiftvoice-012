@@ -21,13 +21,22 @@ nonisolated struct AIStructuredItem: Codable, Sendable {
 nonisolated struct AIStructuredNote: Codable, Sendable {
     let summary: String
     let items: [AIStructuredItem]
+    let itemCount: Int?
     let transcriptCoverage: String?
+    let notes: String?
 
     enum CodingKeys: String, CodingKey {
         case summary
         case items
+        case itemCount = "item_count"
         case transcriptCoverage = "transcript_coverage"
+        case notes
     }
+}
+
+nonisolated enum TranscriptCoverage: String, Sendable {
+    case complete
+    case partial
 }
 
 nonisolated struct AIStructureResponse: Codable, Sendable {
@@ -43,6 +52,7 @@ nonisolated enum StructuringError: Error, Sendable {
     case serverError(String)
     case aiUnavailable(String)
     case decodingError
+    case invalidResponse(String)
     case timeout
 
     var userMessage: String {
@@ -52,6 +62,7 @@ nonisolated enum StructuringError: Error, Sendable {
         case .serverError(let msg): return msg
         case .aiUnavailable(let msg): return msg
         case .decodingError: return "Failed to parse AI response."
+        case .invalidResponse(let details): return "AI response failed validation. \(details)"
         case .timeout: return "Processing timed out. Your note was structured locally."
         }
     }
@@ -64,6 +75,22 @@ nonisolated struct StructuringResult: Sendable {
     let usedAI: Bool
     let warning: String?
     let transcriptCoverage: String?
+
+    init(
+        summary: String,
+        categorizedItems: [CategorizedItem],
+        actionItems: [ActionItem],
+        usedAI: Bool,
+        warning: String?,
+        transcriptCoverage: String? = nil
+    ) {
+        self.summary = summary
+        self.categorizedItems = categorizedItems
+        self.actionItems = actionItems
+        self.usedAI = usedAI
+        self.warning = warning
+        self.transcriptCoverage = transcriptCoverage
+    }
 }
 
 nonisolated struct StructuringRequestContext: Sendable {
@@ -96,6 +123,7 @@ final class NoteStructuringService {
 
     private let session: URLSession
     private let decoder: JSONDecoder
+    private let featureFlags: FeatureFlagService
 
     private var baseURL: String {
         let url = Config.EXPO_PUBLIC_RORK_API_BASE_URL
@@ -103,11 +131,12 @@ final class NoteStructuringService {
         return url
     }
 
-    private init() {
+    private init(featureFlags: FeatureFlagService = .shared) {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 45
         session = URLSession(configuration: config)
         decoder = JSONDecoder()
+        self.featureFlags = featureFlags
     }
 
     func structureTranscript(_ transcript: String, businessType: String, authToken: String?, userId: String?, context: StructuringRequestContext? = nil) async -> Result<StructuringResult, StructuringError> {
@@ -176,7 +205,12 @@ final class NoteStructuringService {
                 return .failure(.aiUnavailable(aiResponse.error ?? "AI structuring returned no results."))
             }
 
-            let (categorizedItems, actionItems) = mapAIItems(structured.items)
+            if featureFlags.structuringStrictValidationEnabled,
+               let validationError = validateStructuredPayload(structured) {
+                return .failure(.invalidResponse(validationError))
+            }
+
+            let (categorizedItems, actionItems) = mapAIItems(structured.items, strictValidation: featureFlags.structuringStrictValidationEnabled)
 
             if categorizedItems.isEmpty {
                 return .failure(.aiUnavailable("AI returned no structured items."))
@@ -199,7 +233,7 @@ final class NoteStructuringService {
         }
     }
 
-    private func mapAIItems(_ items: [AIStructuredItem]) -> ([CategorizedItem], [ActionItem]) {
+    private func mapAIItems(_ items: [AIStructuredItem], strictValidation: Bool) -> ([CategorizedItem], [ActionItem]) {
         let categoryMap: [String: (NoteCategory, String?)] = [
             "86'd Items": (.eightySixed, "cat_86"),
             "Equipment": (.equipment, "cat_equip"),
@@ -224,6 +258,9 @@ final class NoteStructuringService {
         var actionItems: [ActionItem] = []
 
         for item in items {
+            guard !strictValidation || categoryMap[item.category] != nil else { continue }
+            guard !strictValidation || urgencyMap[item.urgency] != nil else { continue }
+
             let (category, templateId) = categoryMap[item.category] ?? (.general, "cat_gen")
             let urgency = urgencyMap[item.urgency] ?? .fyi
 
@@ -246,6 +283,47 @@ final class NoteStructuringService {
         }
 
         return (categorizedItems, actionItems)
+    }
+
+    private func validateStructuredPayload(_ structured: AIStructuredNote) -> String? {
+        if structured.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return "Missing summary."
+        }
+
+        if structured.items.isEmpty {
+            return "No items were returned."
+        }
+
+        if let itemCount = structured.itemCount, itemCount != structured.items.count {
+            return "item_count does not match items length."
+        }
+
+        if let transcriptCoverage = structured.transcriptCoverage?.lowercased(), TranscriptCoverage(rawValue: transcriptCoverage) == nil {
+            return "transcript_coverage must be complete or partial."
+        }
+
+        let validUrgencies: Set<String> = ["Immediate", "Next Shift", "This Week", "FYI"]
+        let validCategories: Set<String> = [
+            "86'd Items", "Equipment", "Guest Issues", "Staff Notes", "Reservations/VIP", "Inventory", "Maintenance", "Health & Safety", "General", "Incident Report"
+        ]
+
+        for item in structured.items {
+            if item.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return "Item content is required."
+            }
+            if !validUrgencies.contains(item.urgency) {
+                return "Invalid urgency value: \(item.urgency)."
+            }
+            if !validCategories.contains(item.category) {
+                return "Invalid category value: \(item.category)."
+            }
+            let quote = item.sourceQuote?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if quote.isEmpty {
+                return "source_quote is required for every item."
+            }
+        }
+
+        return nil
     }
 
     private func confidenceWarning(transcript: String, itemCount: Int) -> String? {
