@@ -197,6 +197,7 @@ nonisolated struct PaginatedNotesResponse: Codable, Sendable {
 
 final class APIService {
     static let shared = APIService()
+    typealias UnauthorizedRecoveryHandler = () async -> Bool
 
     private let session: URLSession
     private let encoder: JSONEncoder
@@ -205,6 +206,7 @@ final class APIService {
 
     private(set) var authToken: String?
     private var userId: String?
+    private var unauthorizedRecoveryHandler: UnauthorizedRecoveryHandler?
 
     var currentAuthToken: String? { authToken }
     var currentUserId: String? { userId }
@@ -246,7 +248,11 @@ final class APIService {
         userId = nil
     }
 
-    private func makeRequest(path: String, method: String = "GET", body: Any? = nil) async throws -> Data {
+    func setUnauthorizedRecoveryHandler(_ handler: UnauthorizedRecoveryHandler?) {
+        unauthorizedRecoveryHandler = handler
+    }
+
+    private func makeRequest(path: String, method: String = "GET", body: Any? = nil, shouldAttemptUnauthorizedRecovery: Bool = true) async throws -> Data {
         guard !baseURL.isEmpty else { throw APIError.invalidURL }
         guard let url = URL(string: "\(baseURL)/api/rest/\(path)") else { throw APIError.invalidURL }
 
@@ -274,6 +280,16 @@ final class APIService {
 
         if let httpResponse = response as? HTTPURLResponse {
             if httpResponse.statusCode == 401 {
+                if shouldAttemptUnauthorizedRecovery,
+                   let unauthorizedRecoveryHandler,
+                   await unauthorizedRecoveryHandler() {
+                    return try await makeRequest(
+                        path: path,
+                        method: method,
+                        body: body,
+                        shouldAttemptUnauthorizedRecovery: false
+                    )
+                }
                 throw APIError.unauthorized
             }
             if httpResponse.statusCode == 429 {

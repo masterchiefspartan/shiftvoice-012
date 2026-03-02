@@ -101,6 +101,9 @@ struct ShiftVoiceApp: App {
                 }
             }
             .task {
+                APIService.shared.setUnauthorizedRecoveryHandler {
+                    await authService.retryBackendAuthIfNeeded()
+                }
                 pushService.setup()
                 if pushService.authorizationStatus == .authorized {
                     pushService.checkAuthorizationStatus()
