@@ -95,14 +95,24 @@ nonisolated struct CategorizedItem: Identifiable, Codable, Sendable {
     let categoryTemplateId: String?
     let content: String
     let urgency: UrgencyLevel
+    let sourceQuote: String?
     var isResolved: Bool
 
-    init(id: String = UUID().uuidString, category: NoteCategory, categoryTemplateId: String? = nil, content: String, urgency: UrgencyLevel, isResolved: Bool = false) {
+    init(
+        id: String = UUID().uuidString,
+        category: NoteCategory,
+        categoryTemplateId: String? = nil,
+        content: String,
+        urgency: UrgencyLevel,
+        sourceQuote: String? = nil,
+        isResolved: Bool = false
+    ) {
         self.id = id
         self.category = category
         self.categoryTemplateId = categoryTemplateId
         self.content = content
         self.urgency = urgency
+        self.sourceQuote = sourceQuote
         self.isResolved = isResolved
     }
 

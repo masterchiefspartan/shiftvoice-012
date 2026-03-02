@@ -138,7 +138,10 @@ final class RecordingViewModel {
                         context: StructuringRequestContext(
                             estimatedTopicCount: cleanedTranscript.estimatedTopicCount,
                             averageSegmentConfidence: self.transcriptionService.averageSegmentConfidence,
-                            lowConfidencePhrases: self.transcriptionService.lowConfidenceSegments.map(\.text)
+                            lowConfidencePhrases: self.transcriptionService.lowConfidenceSegments.map(\.text),
+                            availableCategories: IndustrySeed.template(for: self.businessTypeEnum(from: businessType)).defaultCategories.map(\.name),
+                            industryVocabulary: self.industryVocabulary(for: self.businessTypeEnum(from: businessType)),
+                            categorizationHints: self.categorizationHints(for: self.businessTypeEnum(from: businessType))
                         )
                     )
                 }
@@ -323,7 +326,10 @@ final class RecordingViewModel {
                     context: StructuringRequestContext(
                         estimatedTopicCount: cleanedTranscript.estimatedTopicCount,
                         averageSegmentConfidence: self.transcriptionService.averageSegmentConfidence,
-                        lowConfidencePhrases: self.transcriptionService.lowConfidenceSegments.map(\.text)
+                        lowConfidencePhrases: self.transcriptionService.lowConfidenceSegments.map(\.text),
+                        availableCategories: IndustrySeed.template(for: self.businessTypeEnum(from: businessType)).defaultCategories.map(\.name),
+                        industryVocabulary: self.industryVocabulary(for: self.businessTypeEnum(from: businessType)),
+                        categorizationHints: self.categorizationHints(for: self.businessTypeEnum(from: businessType))
                     )
                 )
             }
@@ -434,6 +440,27 @@ final class RecordingViewModel {
     private func stopProcessingTimer() {
         processingTimer?.cancel()
         processingTimer = nil
+    }
+
+    private func businessTypeEnum(from value: String) -> BusinessType {
+        BusinessType(rawValue: value) ?? .restaurant
+    }
+
+    private func industryVocabulary(for businessType: BusinessType) -> [String] {
+        let terminology = IndustrySeed.template(for: businessType).terminology
+        return [
+            terminology.shiftHandoff,
+            terminology.location,
+            terminology.customer,
+            terminology.outOfStock
+        ]
+    }
+
+    private func categorizationHints(for businessType: BusinessType) -> [String] {
+        let template = IndustrySeed.template(for: businessType)
+        return template.defaultCategories.map { category in
+            "\(category.name): \(category.id)"
+        }
     }
 
     private func failureState(from reason: TranscriptionFailureReason?) -> RecordingFailureState {

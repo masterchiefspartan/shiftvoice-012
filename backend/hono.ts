@@ -1351,7 +1351,11 @@ const structureTranscriptSchema = z.object({
   transcript: z.string().min(1, "Transcript is required"),
   businessType: z.string().optional().default("restaurant"),
   availableCategories: z.array(z.string()).optional(),
+  industryVocabulary: z.array(z.string()).optional(),
+  categorizationHints: z.array(z.string()).optional(),
   estimatedTopicCount: z.number().int().min(1).max(30).optional(),
+  averageSegmentConfidence: z.number().min(0).max(1).optional(),
+  lowConfidencePhrases: z.array(z.string()).optional(),
 });
 
 const structuredNoteSchema = z.object({
@@ -1367,6 +1371,7 @@ const structuredNoteSchema = z.object({
       urgency: z.enum(["Immediate", "Next Shift", "This Week", "FYI"]).describe("How urgent this item is"),
       actionRequired: z.boolean().describe("Whether this item needs someone to take action"),
       actionTask: z.string().optional().describe("If actionRequired is true, a specific task description for what needs to be done"),
+      source_quote: z.string().describe("A short exact quote from the transcript that supports this item"),
     })
   ).describe("Each distinct issue, observation, or handoff item mentioned in the transcript. Split into SEPARATE items - one per distinct topic. Do NOT group multiple topics together."),
 });
@@ -1407,7 +1412,16 @@ app.post("/rest/structure-transcript", async (c) => {
     return errorResponse(c, 400, validation.error, "VALIDATION_ERROR");
   }
 
-  const { transcript, businessType, estimatedTopicCount } = validation.data;
+  const {
+    transcript,
+    businessType,
+    estimatedTopicCount,
+    availableCategories,
+    industryVocabulary,
+    categorizationHints,
+    averageSegmentConfidence,
+    lowConfidencePhrases,
+  } = validation.data;
 
   try {
     const firstPass = await generateObject({
@@ -1434,6 +1448,7 @@ STEP 3 — CREATE: For EACH distinct item, create a separate entry with:
 - "urgency": How urgent this specific item is
 - "actionRequired": true if someone needs to take action
 - "actionTask": If actionRequired, a specific task description starting with an imperative verb (e.g. "Replace the broken ice machine filter", "Call vendor to reorder chicken breast")
+- "source_quote": A short exact quote from the transcript that proves this item is grounded in source audio
 
 FEW-SHOT EXAMPLES:
 
@@ -1455,6 +1470,14 @@ CRITICAL RULES:
 - Use the worker's actual words and details, don't genericize
 - actionTask MUST start with an imperative verb and be specific enough to act on without re-reading the transcript
 - If a sentence mentions two different things to do ("fix X and order Y"), create TWO items
+- source_quote MUST be present for every item and MUST be copied verbatim from the transcript
+
+INDUSTRY CONTEXT:
+- Preferred categories: ${availableCategories?.join(", ") || "Use the default categories in schema"}
+- Industry vocabulary to preserve: ${industryVocabulary?.join(", ") || "N/A"}
+- Categorization hints: ${categorizationHints?.join(" | ") || "N/A"}
+- If average transcript confidence is low (${averageSegmentConfidence ?? 1}), rely strictly on exact quoted evidence.
+- Potentially low-confidence phrases: ${lowConfidencePhrases?.join(" | ") || "None"}
 
 Here is the transcript to structure:
 

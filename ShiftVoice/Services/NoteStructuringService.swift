@@ -6,6 +6,16 @@ nonisolated struct AIStructuredItem: Codable, Sendable {
     let urgency: String
     let actionRequired: Bool
     let actionTask: String?
+    let sourceQuote: String?
+
+    enum CodingKeys: String, CodingKey {
+        case content
+        case category
+        case urgency
+        case actionRequired
+        case actionTask
+        case sourceQuote = "source_quote"
+    }
 }
 
 nonisolated struct AIStructuredNote: Codable, Sendable {
@@ -52,11 +62,24 @@ nonisolated struct StructuringRequestContext: Sendable {
     let estimatedTopicCount: Int
     let averageSegmentConfidence: Double?
     let lowConfidencePhrases: [String]
+    let availableCategories: [String]
+    let industryVocabulary: [String]
+    let categorizationHints: [String]
 
-    init(estimatedTopicCount: Int, averageSegmentConfidence: Double? = nil, lowConfidencePhrases: [String] = []) {
+    init(
+        estimatedTopicCount: Int,
+        averageSegmentConfidence: Double? = nil,
+        lowConfidencePhrases: [String] = [],
+        availableCategories: [String] = [],
+        industryVocabulary: [String] = [],
+        categorizationHints: [String] = []
+    ) {
         self.estimatedTopicCount = estimatedTopicCount
         self.averageSegmentConfidence = averageSegmentConfidence
         self.lowConfidencePhrases = lowConfidencePhrases
+        self.availableCategories = availableCategories
+        self.industryVocabulary = industryVocabulary
+        self.categorizationHints = categorizationHints
     }
 }
 
@@ -108,6 +131,15 @@ final class NoteStructuringService {
         }
         if let lowConfidencePhrases = context?.lowConfidencePhrases, !lowConfidencePhrases.isEmpty {
             body["lowConfidencePhrases"] = lowConfidencePhrases
+        }
+        if let availableCategories = context?.availableCategories, !availableCategories.isEmpty {
+            body["availableCategories"] = availableCategories
+        }
+        if let industryVocabulary = context?.industryVocabulary, !industryVocabulary.isEmpty {
+            body["industryVocabulary"] = industryVocabulary
+        }
+        if let categorizationHints = context?.categorizationHints, !categorizationHints.isEmpty {
+            body["categorizationHints"] = categorizationHints
         }
 
         do {
@@ -190,7 +222,8 @@ final class NoteStructuringService {
                 category: category,
                 categoryTemplateId: templateId,
                 content: item.content,
-                urgency: urgency
+                urgency: urgency,
+                sourceQuote: item.sourceQuote
             ))
 
             if item.actionRequired, let task = item.actionTask, !task.isEmpty {
