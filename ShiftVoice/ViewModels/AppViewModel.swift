@@ -748,9 +748,16 @@ final class AppViewModel {
         let oldStatus = shiftNotes[noteIndex].actionItems[itemIndex].status
         guard oldStatus != newStatus else { return }
         let now = Date()
+        let entry = ChangeHistoryEntry(field: "status", fromValue: oldStatus.rawValue, toValue: newStatus.rawValue, changedBy: currentUserId, changedAt: now)
+        shiftNotes[noteIndex].actionItems[itemIndex].changeHistory.append(entry)
         shiftNotes[noteIndex].actionItems[itemIndex].status = newStatus
         shiftNotes[noteIndex].actionItems[itemIndex].statusUpdatedAt = now
         shiftNotes[noteIndex].actionItems[itemIndex].updatedAt = now
+        if newStatus == .resolved {
+            shiftNotes[noteIndex].actionItems[itemIndex].resolvedAt = now
+        } else if oldStatus == .resolved {
+            shiftNotes[noteIndex].actionItems[itemIndex].resolvedAt = nil
+        }
         shiftNotes[noteIndex].updatedAt = now
         shiftNotes[noteIndex].updatedAtClient = now
         writeShiftNote(shiftNotes[noteIndex], operation: .edit)
@@ -761,6 +768,9 @@ final class AppViewModel {
         guard let noteIndex = shiftNotes.firstIndex(where: { $0.id == noteId }),
               let itemIndex = shiftNotes[noteIndex].actionItems.firstIndex(where: { $0.id == actionItemId }) else { return }
         let now = Date()
+        let oldAssignee = shiftNotes[noteIndex].actionItems[itemIndex].assignee
+        let entry = ChangeHistoryEntry(field: "assignee", fromValue: oldAssignee, toValue: assignee ?? "Unassigned", changedBy: currentUserId, changedAt: now)
+        shiftNotes[noteIndex].actionItems[itemIndex].changeHistory.append(entry)
         shiftNotes[noteIndex].actionItems[itemIndex].assignee = assignee
         shiftNotes[noteIndex].actionItems[itemIndex].assigneeId = assigneeId
         shiftNotes[noteIndex].actionItems[itemIndex].assigneeUpdatedAt = now
@@ -1590,6 +1600,9 @@ final class AppViewModel {
         guard existingItem.urgency != newUrgency else { return }
 
         let now = Date()
+        let entry = ChangeHistoryEntry(field: "urgency", fromValue: existingItem.urgency.rawValue, toValue: newUrgency.rawValue, changedBy: currentUserId, changedAt: now)
+        var updatedHistory = existingItem.changeHistory
+        updatedHistory.append(entry)
         let updatedItem = ActionItem(
             id: existingItem.id,
             task: existingItem.task,
@@ -1607,7 +1620,9 @@ final class AppViewModel {
             assigneeUpdatedAtServer: existingItem.assigneeUpdatedAtServer,
             assigneeUpdatedByUserId: existingItem.assigneeUpdatedByUserId,
             hasConflict: existingItem.hasConflict,
-            conflictDescription: existingItem.conflictDescription
+            conflictDescription: existingItem.conflictDescription,
+            changeHistory: updatedHistory,
+            resolvedAt: existingItem.resolvedAt
         )
 
         shiftNotes[noteIndex].actionItems[itemIndex] = updatedItem

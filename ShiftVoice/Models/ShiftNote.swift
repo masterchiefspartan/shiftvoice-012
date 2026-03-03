@@ -136,6 +136,24 @@ nonisolated struct CategorizedItem: Identifiable, Codable, Sendable {
     }
 }
 
+nonisolated struct ChangeHistoryEntry: Identifiable, Codable, Sendable {
+    let id: String
+    let field: String
+    let fromValue: String?
+    let toValue: String
+    let changedBy: String
+    let changedAt: Date
+
+    init(id: String = UUID().uuidString, field: String, fromValue: String?, toValue: String, changedBy: String, changedAt: Date = Date()) {
+        self.id = id
+        self.field = field
+        self.fromValue = fromValue
+        self.toValue = toValue
+        self.changedBy = changedBy
+        self.changedAt = changedAt
+    }
+}
+
 nonisolated struct ActionItem: Identifiable, Codable, Sendable {
     let id: String
     let task: String
@@ -157,6 +175,8 @@ nonisolated struct ActionItem: Identifiable, Codable, Sendable {
     let entityType: String?
     let normalizedSubject: String?
     let actionClass: String?
+    var changeHistory: [ChangeHistoryEntry]
+    var resolvedAt: Date?
 
     init(
         id: String = UUID().uuidString,
@@ -178,7 +198,9 @@ nonisolated struct ActionItem: Identifiable, Codable, Sendable {
         conflictDescription: String? = nil,
         entityType: String? = nil,
         normalizedSubject: String? = nil,
-        actionClass: String? = nil
+        actionClass: String? = nil,
+        changeHistory: [ChangeHistoryEntry] = [],
+        resolvedAt: Date? = nil
     ) {
         self.id = id
         self.task = task
@@ -200,6 +222,8 @@ nonisolated struct ActionItem: Identifiable, Codable, Sendable {
         self.entityType = entityType
         self.normalizedSubject = normalizedSubject
         self.actionClass = actionClass
+        self.changeHistory = changeHistory
+        self.resolvedAt = resolvedAt
     }
 
     var displayInfo: CategoryDisplayInfo {

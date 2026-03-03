@@ -121,6 +121,15 @@ nonisolated struct CategorizedItemDTO: Codable, Sendable {
     let actionClass: String?
 }
 
+nonisolated struct ChangeHistoryEntryDTO: Codable, Sendable {
+    let id: String
+    let field: String?
+    let fromValue: String?
+    let toValue: String?
+    let changedBy: String?
+    let changedAt: String?
+}
+
 nonisolated struct ActionItemDTO: Codable, Sendable {
     let id: String
     let task: String?
@@ -135,6 +144,8 @@ nonisolated struct ActionItemDTO: Codable, Sendable {
     let entityType: String?
     let normalizedSubject: String?
     let actionClass: String?
+    let changeHistory: [ChangeHistoryEntryDTO]?
+    let resolvedAt: String?
 }
 
 nonisolated struct VoiceReplyDTO: Codable, Sendable {
@@ -549,6 +560,22 @@ final class APIService {
         if let entityType = item.entityType { dict["entityType"] = entityType }
         if let normalizedSubject = item.normalizedSubject { dict["normalizedSubject"] = normalizedSubject }
         if let actionClass = item.actionClass { dict["actionClass"] = actionClass }
+        if !item.changeHistory.isEmpty {
+            dict["changeHistory"] = item.changeHistory.map { encodeChangeHistoryEntry($0) }
+        }
+        if let resolvedAt = item.resolvedAt { dict["resolvedAt"] = dateFormatter.string(from: resolvedAt) }
+        return dict
+    }
+
+    private func encodeChangeHistoryEntry(_ entry: ChangeHistoryEntry) -> [String: Any] {
+        var dict: [String: Any] = [
+            "id": entry.id,
+            "field": entry.field,
+            "toValue": entry.toValue,
+            "changedBy": entry.changedBy,
+            "changedAt": dateFormatter.string(from: entry.changedAt)
+        ]
+        if let fromValue = entry.fromValue { dict["fromValue"] = fromValue }
         return dict
     }
 
@@ -693,6 +720,18 @@ final class APIService {
             if let str = dto.assigneeUpdatedAt { return dateFormatter.date(from: str) ?? updatedAt }
             return updatedAt
         }()
+        let changeHistory: [ChangeHistoryEntry] = (dto.changeHistory ?? []).compactMap { entryDTO in
+            guard let field = entryDTO.field, let toValue = entryDTO.toValue, let changedBy = entryDTO.changedBy else { return nil }
+            let changedAt: Date = {
+                if let str = entryDTO.changedAt { return dateFormatter.date(from: str) ?? Date() }
+                return Date()
+            }()
+            return ChangeHistoryEntry(id: entryDTO.id, field: field, fromValue: entryDTO.fromValue, toValue: toValue, changedBy: changedBy, changedAt: changedAt)
+        }
+        let resolvedAt: Date? = {
+            if let str = dto.resolvedAt { return dateFormatter.date(from: str) }
+            return nil
+        }()
         return ActionItem(
             id: dto.id,
             task: dto.task ?? "",
@@ -706,7 +745,9 @@ final class APIService {
             assigneeUpdatedAt: assigneeUpdatedAt,
             entityType: dto.entityType,
             normalizedSubject: dto.normalizedSubject,
-            actionClass: dto.actionClass
+            actionClass: dto.actionClass,
+            changeHistory: changeHistory,
+            resolvedAt: resolvedAt
         )
     }
 
