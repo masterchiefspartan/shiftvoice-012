@@ -169,10 +169,7 @@ final class AppViewModel {
     }
 
     var currentShiftType: ShiftType {
-        let hour = Calendar.current.component(.hour, from: Date())
-        if hour >= 5 && hour < 12 { return .opening }
-        if hour >= 12 && hour < 17 { return .mid }
-        return .closing
+        ShiftScheduleService.resolveShiftType(for: selectedLocation)
     }
 
     var currentShiftDisplayInfo: ShiftDisplayInfo {

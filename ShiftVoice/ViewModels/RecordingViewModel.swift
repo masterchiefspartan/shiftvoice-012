@@ -35,6 +35,9 @@ final class RecordingViewModel {
         let businessType: String
         let authToken: String?
         let userId: String?
+        let locationId: String?
+        let industryType: String?
+        let resolvedShiftType: String?
     }
 
     var isRecording: Bool { audioRecorder.isRecording }
@@ -56,7 +59,10 @@ final class RecordingViewModel {
         defaultShift: ShiftDisplayInfo,
         businessType: String,
         authToken: String?,
-        userId: String?
+        userId: String?,
+        locationId: String? = nil,
+        industryType: String? = nil,
+        resolvedShiftType: String? = nil
     ) {
         let duration = audioRecorder.recordingDuration
         let audioURL = audioRecorder.currentAudioURL
@@ -75,13 +81,16 @@ final class RecordingViewModel {
             defaultShift: defaultShift,
             businessType: businessType,
             authToken: authToken,
-            userId: userId
+            userId: userId,
+            locationId: locationId,
+            industryType: industryType,
+            resolvedShiftType: resolvedShiftType
         )
 
         let shiftInfo = selectedShift ?? defaultShift
 
         Task {
-            await processRecording(audioURL: audioURL, duration: duration, shiftInfo: shiftInfo, businessType: businessType, authToken: authToken, userId: userId, liveTranscript: liveText)
+            await processRecording(audioURL: audioURL, duration: duration, shiftInfo: shiftInfo, businessType: businessType, authToken: authToken, userId: userId, liveTranscript: liveText, locationId: locationId, industryType: industryType, resolvedShiftType: resolvedShiftType)
         }
     }
 
@@ -146,7 +155,10 @@ final class RecordingViewModel {
                             availableCategories: IndustrySeed.template(for: self.businessTypeEnum(from: businessType)).defaultCategories.map(\.name),
                             industryVocabulary: self.industryVocabulary(for: self.businessTypeEnum(from: businessType)),
                             categorizationHints: self.categorizationHints(for: self.businessTypeEnum(from: businessType))
-                        )
+                        ),
+                        shiftType: self.lastStopParams?.resolvedShiftType,
+                        locationId: self.lastStopParams?.locationId,
+                        industryType: self.lastStopParams?.industryType
                     )
                 }
                 group.addTask {
@@ -240,7 +252,7 @@ final class RecordingViewModel {
         isRetryingTranscription = false
     }
 
-    private func processRecording(audioURL: URL?, duration: TimeInterval, shiftInfo: ShiftDisplayInfo, businessType: String, authToken: String?, userId: String?, liveTranscript: String = "") async {
+    private func processRecording(audioURL: URL?, duration: TimeInterval, shiftInfo: ShiftDisplayInfo, businessType: String, authToken: String?, userId: String?, liveTranscript: String = "", locationId: String? = nil, industryType: String? = nil, resolvedShiftType: String? = nil) async {
         let hasLiveText = !liveTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
 
         if hasLiveText {
@@ -319,7 +331,7 @@ final class RecordingViewModel {
             if !transcript.isEmpty {
                 processingStage = .structuring
                 (summary, categorizedItems, actionItems, usedAI, warning, transcriptCoverage) = await structureTranscript(
-                    transcript, businessType: businessType, authToken: authToken, userId: userId
+                    transcript, businessType: businessType, authToken: authToken, userId: userId, locationId: locationId, industryType: industryType, resolvedShiftType: resolvedShiftType
                 )
             } else {
                 summary = ""
@@ -377,7 +389,7 @@ final class RecordingViewModel {
         }
     }
 
-    private func structureTranscript(_ transcript: String, businessType: String, authToken: String?, userId: String?) async -> (String, [CategorizedItem], [ActionItem], Bool, String?, String?) {
+    private func structureTranscript(_ transcript: String, businessType: String, authToken: String?, userId: String?, locationId: String? = nil, industryType: String? = nil, resolvedShiftType: String? = nil) async -> (String, [CategorizedItem], [ActionItem], Bool, String?, String?) {
         let cleanedTranscript = TranscriptCleaner.clean(transcript, lowConfidenceSegments: transcriptionService.lowConfidenceSegments)
         let aiResult = await withTaskGroup(of: Result<StructuringResult, StructuringError>?.self) { group -> Result<StructuringResult, StructuringError>? in
             group.addTask {
@@ -393,7 +405,10 @@ final class RecordingViewModel {
                         availableCategories: IndustrySeed.template(for: self.businessTypeEnum(from: businessType)).defaultCategories.map(\.name),
                         industryVocabulary: self.industryVocabulary(for: self.businessTypeEnum(from: businessType)),
                         categorizationHints: self.categorizationHints(for: self.businessTypeEnum(from: businessType))
-                    )
+                    ),
+                    shiftType: resolvedShiftType,
+                    locationId: locationId,
+                    industryType: industryType
                 )
             }
             group.addTask {
@@ -455,7 +470,8 @@ final class RecordingViewModel {
         guard trimmedFull.count > trimmedPrevious.count + 20 else { return }
 
         let (summary, categorizedItems, actionItems, usedAI, warning, transcriptCoverage) = await structureTranscript(
-            fullTranscript, businessType: businessType, authToken: authToken, userId: userId
+            fullTranscript, businessType: businessType, authToken: authToken, userId: userId,
+            locationId: lastStopParams?.locationId, industryType: lastStopParams?.industryType, resolvedShiftType: lastStopParams?.resolvedShiftType
         )
 
         guard usedAI else { return }

@@ -145,7 +145,7 @@ final class NoteStructuringService {
         self.featureFlags = featureFlags
     }
 
-    func structureTranscript(_ transcript: String, businessType: String, authToken: String?, userId: String?, context: StructuringRequestContext? = nil) async -> Result<StructuringResult, StructuringError> {
+    func structureTranscript(_ transcript: String, businessType: String, authToken: String?, userId: String?, context: StructuringRequestContext? = nil, shiftType: String? = nil, locationId: String? = nil, industryType: String? = nil) async -> Result<StructuringResult, StructuringError> {
         guard !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return .failure(.emptyTranscript)
         }
@@ -166,6 +166,9 @@ final class NoteStructuringService {
             "transcript": transcript,
             "businessType": businessType
         ]
+        if let shiftType { body["shiftType"] = shiftType }
+        if let locationId { body["locationId"] = locationId }
+        if let industryType { body["industryType"] = industryType }
         if let estimatedTopicCount = context?.estimatedTopicCount {
             body["estimatedTopicCount"] = estimatedTopicCount
         }

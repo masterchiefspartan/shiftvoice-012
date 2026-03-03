@@ -23,6 +23,7 @@ nonisolated enum ShiftType: String, CaseIterable, Identifiable, Codable, Sendabl
     case opening = "Opening"
     case mid = "Mid"
     case closing = "Closing"
+    case unscheduled = "Unscheduled"
 
     var id: String { rawValue }
 
@@ -31,6 +32,7 @@ nonisolated enum ShiftType: String, CaseIterable, Identifiable, Codable, Sendabl
         case .opening: return "sunrise.fill"
         case .mid: return "sun.max.fill"
         case .closing: return "moon.stars.fill"
+        case .unscheduled: return "clock.fill"
         }
     }
 }

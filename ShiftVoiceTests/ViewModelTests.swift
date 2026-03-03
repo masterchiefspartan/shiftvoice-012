@@ -267,7 +267,7 @@ struct ViewModelTests {
         let vm = AppViewModel()
         let shiftType = vm.currentShiftType
 
-        #expect([ShiftType.opening, .mid, .closing].contains(shiftType))
+        #expect([ShiftType.opening, .mid, .closing, .unscheduled].contains(shiftType))
     }
 
     // MARK: - Location Management Tests

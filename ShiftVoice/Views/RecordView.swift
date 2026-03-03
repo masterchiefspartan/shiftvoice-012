@@ -714,12 +714,17 @@ struct RecordView: View {
     private func stopRecording() {
         pulseScale = 1.0
         stopPromptRotation()
+        let location = viewModel.selectedLocation
+        let resolvedShift = ShiftScheduleService.resolveShiftTypeString(for: location)
         recording.stopRecording(
             selectedShift: selectedShiftDisplay,
             defaultShift: viewModel.currentShiftDisplayInfo,
             businessType: viewModel.organizationBusinessType.rawValue.lowercased(),
             authToken: viewModel.backendAuthToken,
-            userId: viewModel.currentUserId
+            userId: viewModel.currentUserId,
+            locationId: viewModel.selectedLocationId,
+            industryType: viewModel.organization.industryType.rawValue,
+            resolvedShiftType: resolvedShift
         )
     }
 

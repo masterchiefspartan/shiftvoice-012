@@ -23,6 +23,8 @@ extension ShiftType {
             return ShiftTemplate(id: "legacy_mid", name: "Mid", icon: "sun.max.fill", defaultStartHour: 14)
         case .closing:
             return ShiftTemplate(id: "legacy_closing", name: "Closing", icon: "moon.stars.fill", defaultStartHour: 22)
+        case .unscheduled:
+            return ShiftTemplate(id: "legacy_unscheduled", name: "Unscheduled", icon: "clock.fill", defaultStartHour: 0)
         }
     }
 

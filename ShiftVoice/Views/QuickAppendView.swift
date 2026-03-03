@@ -226,11 +226,16 @@ struct QuickAppendView: View {
 
         let aiResult = await withTaskGroup(of: Result<StructuringResult, StructuringError>?.self) { group -> Result<StructuringResult, StructuringError>? in
             group.addTask {
-                await self.noteStructuring.structureTranscript(
+                let location = self.viewModel.selectedLocation
+                let resolvedShift = ShiftScheduleService.resolveShiftTypeString(for: location)
+                return await self.noteStructuring.structureTranscript(
                     transcript,
                     businessType: businessType,
                     authToken: self.viewModel.backendAuthToken,
-                    userId: self.viewModel.currentUserId
+                    userId: self.viewModel.currentUserId,
+                    shiftType: resolvedShift,
+                    locationId: self.viewModel.selectedLocationId,
+                    industryType: self.viewModel.organization.industryType.rawValue
                 )
             }
             group.addTask {
