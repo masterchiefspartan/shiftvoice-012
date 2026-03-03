@@ -116,6 +116,9 @@ nonisolated struct CategorizedItemDTO: Codable, Sendable {
     let content: String?
     let urgency: String?
     let isResolved: Bool?
+    let entityType: String?
+    let normalizedSubject: String?
+    let actionClass: String?
 }
 
 nonisolated struct ActionItemDTO: Codable, Sendable {
@@ -129,6 +132,9 @@ nonisolated struct ActionItemDTO: Codable, Sendable {
     let updatedAt: String?
     let statusUpdatedAt: String?
     let assigneeUpdatedAt: String?
+    let entityType: String?
+    let normalizedSubject: String?
+    let actionClass: String?
 }
 
 nonisolated struct VoiceReplyDTO: Codable, Sendable {
@@ -521,6 +527,9 @@ final class APIService {
             "isResolved": item.isResolved
         ]
         if let templateId = item.categoryTemplateId { dict["categoryTemplateId"] = templateId }
+        if let entityType = item.entityType { dict["entityType"] = entityType }
+        if let normalizedSubject = item.normalizedSubject { dict["normalizedSubject"] = normalizedSubject }
+        if let actionClass = item.actionClass { dict["actionClass"] = actionClass }
         return dict
     }
 
@@ -537,6 +546,9 @@ final class APIService {
         ]
         if let templateId = item.categoryTemplateId { dict["categoryTemplateId"] = templateId }
         if let assignee = item.assignee { dict["assignee"] = assignee }
+        if let entityType = item.entityType { dict["entityType"] = entityType }
+        if let normalizedSubject = item.normalizedSubject { dict["normalizedSubject"] = normalizedSubject }
+        if let actionClass = item.actionClass { dict["actionClass"] = actionClass }
         return dict
     }
 
@@ -661,7 +673,10 @@ final class APIService {
             categoryTemplateId: dto.categoryTemplateId,
             content: dto.content ?? "",
             urgency: UrgencyLevel(rawValue: dto.urgency ?? "FYI") ?? .fyi,
-            isResolved: dto.isResolved ?? false
+            isResolved: dto.isResolved ?? false,
+            entityType: dto.entityType,
+            normalizedSubject: dto.normalizedSubject,
+            actionClass: dto.actionClass
         )
     }
 
@@ -688,7 +703,10 @@ final class APIService {
             assignee: dto.assignee,
             updatedAt: updatedAt,
             statusUpdatedAt: statusUpdatedAt,
-            assigneeUpdatedAt: assigneeUpdatedAt
+            assigneeUpdatedAt: assigneeUpdatedAt,
+            entityType: dto.entityType,
+            normalizedSubject: dto.normalizedSubject,
+            actionClass: dto.actionClass
         )
     }
 

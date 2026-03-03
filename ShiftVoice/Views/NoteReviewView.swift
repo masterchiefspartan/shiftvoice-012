@@ -1094,6 +1094,9 @@ struct EditableCategorizedItem: Identifiable, Equatable {
     var categoryTemplateId: String?
     var content: String
     var urgency: UrgencyLevel
+    let entityType: String?
+    let normalizedSubject: String?
+    let actionClass: String?
 
     init(from item: CategorizedItem) {
         self.id = item.id
@@ -1101,6 +1104,9 @@ struct EditableCategorizedItem: Identifiable, Equatable {
         self.categoryTemplateId = item.categoryTemplateId
         self.content = item.content
         self.urgency = item.urgency
+        self.entityType = item.entityType
+        self.normalizedSubject = item.normalizedSubject
+        self.actionClass = item.actionClass
     }
 
     func toCategorizedItem() -> CategorizedItem {
@@ -1109,7 +1115,10 @@ struct EditableCategorizedItem: Identifiable, Equatable {
             category: category,
             categoryTemplateId: categoryTemplateId,
             content: content,
-            urgency: urgency
+            urgency: urgency,
+            entityType: entityType,
+            normalizedSubject: normalizedSubject,
+            actionClass: actionClass
         )
     }
 }
@@ -1122,8 +1131,11 @@ struct EditableActionItem: Identifiable, Equatable {
     var urgency: UrgencyLevel
     var assignee: String?
     var assigneeId: String?
+    let entityType: String?
+    let normalizedSubject: String?
+    let actionClass: String?
 
-    init(id: String, task: String, category: NoteCategory, categoryTemplateId: String? = nil, urgency: UrgencyLevel, assignee: String? = nil, assigneeId: String? = nil) {
+    init(id: String, task: String, category: NoteCategory, categoryTemplateId: String? = nil, urgency: UrgencyLevel, assignee: String? = nil, assigneeId: String? = nil, entityType: String? = nil, normalizedSubject: String? = nil, actionClass: String? = nil) {
         self.id = id
         self.task = task
         self.category = category
@@ -1131,6 +1143,9 @@ struct EditableActionItem: Identifiable, Equatable {
         self.urgency = urgency
         self.assignee = assignee
         self.assigneeId = assigneeId
+        self.entityType = entityType
+        self.normalizedSubject = normalizedSubject
+        self.actionClass = actionClass
     }
 
     init(from item: ActionItem) {
@@ -1141,6 +1156,9 @@ struct EditableActionItem: Identifiable, Equatable {
         self.urgency = item.urgency
         self.assignee = item.assignee
         self.assigneeId = item.assigneeId
+        self.entityType = item.entityType
+        self.normalizedSubject = item.normalizedSubject
+        self.actionClass = item.actionClass
     }
 
     func toActionItem() -> ActionItem {
@@ -1151,7 +1169,10 @@ struct EditableActionItem: Identifiable, Equatable {
             categoryTemplateId: categoryTemplateId,
             urgency: urgency,
             assignee: assignee,
-            assigneeId: assigneeId
+            assigneeId: assigneeId,
+            entityType: entityType,
+            normalizedSubject: normalizedSubject,
+            actionClass: actionClass
         )
     }
 }

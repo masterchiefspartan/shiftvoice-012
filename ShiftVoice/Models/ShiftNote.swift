@@ -97,6 +97,9 @@ nonisolated struct CategorizedItem: Identifiable, Codable, Sendable {
     let urgency: UrgencyLevel
     let sourceQuote: String?
     var isResolved: Bool
+    let entityType: String?
+    let normalizedSubject: String?
+    let actionClass: String?
 
     init(
         id: String = UUID().uuidString,
@@ -105,7 +108,10 @@ nonisolated struct CategorizedItem: Identifiable, Codable, Sendable {
         content: String,
         urgency: UrgencyLevel,
         sourceQuote: String? = nil,
-        isResolved: Bool = false
+        isResolved: Bool = false,
+        entityType: String? = nil,
+        normalizedSubject: String? = nil,
+        actionClass: String? = nil
     ) {
         self.id = id
         self.category = category
@@ -114,6 +120,9 @@ nonisolated struct CategorizedItem: Identifiable, Codable, Sendable {
         self.urgency = urgency
         self.sourceQuote = sourceQuote
         self.isResolved = isResolved
+        self.entityType = entityType
+        self.normalizedSubject = normalizedSubject
+        self.actionClass = actionClass
     }
 
     var displayInfo: CategoryDisplayInfo {
@@ -143,6 +152,9 @@ nonisolated struct ActionItem: Identifiable, Codable, Sendable {
     var assigneeUpdatedByUserId: String?
     var hasConflict: Bool
     var conflictDescription: String?
+    let entityType: String?
+    let normalizedSubject: String?
+    let actionClass: String?
 
     init(
         id: String = UUID().uuidString,
@@ -161,7 +173,10 @@ nonisolated struct ActionItem: Identifiable, Codable, Sendable {
         assigneeUpdatedAtServer: Date? = nil,
         assigneeUpdatedByUserId: String? = nil,
         hasConflict: Bool = false,
-        conflictDescription: String? = nil
+        conflictDescription: String? = nil,
+        entityType: String? = nil,
+        normalizedSubject: String? = nil,
+        actionClass: String? = nil
     ) {
         self.id = id
         self.task = task
@@ -180,6 +195,9 @@ nonisolated struct ActionItem: Identifiable, Codable, Sendable {
         self.assigneeUpdatedByUserId = assigneeUpdatedByUserId
         self.hasConflict = hasConflict
         self.conflictDescription = conflictDescription
+        self.entityType = entityType
+        self.normalizedSubject = normalizedSubject
+        self.actionClass = actionClass
     }
 
     var displayInfo: CategoryDisplayInfo {

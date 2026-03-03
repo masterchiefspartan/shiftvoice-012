@@ -7,6 +7,9 @@ nonisolated struct AIStructuredItem: Codable, Sendable {
     let actionRequired: Bool
     let actionTask: String?
     let sourceQuote: String?
+    let entityType: String?
+    let normalizedSubject: String?
+    let actionClass: String?
 
     enum CodingKeys: String, CodingKey {
         case content
@@ -15,6 +18,9 @@ nonisolated struct AIStructuredItem: Codable, Sendable {
         case actionRequired
         case actionTask
         case sourceQuote = "source_quote"
+        case entityType = "entity_type"
+        case normalizedSubject = "normalized_subject"
+        case actionClass = "action_class"
     }
 }
 
@@ -272,7 +278,10 @@ final class NoteStructuringService {
                 categoryTemplateId: templateId,
                 content: item.content,
                 urgency: urgency,
-                sourceQuote: item.sourceQuote
+                sourceQuote: item.sourceQuote,
+                entityType: item.entityType,
+                normalizedSubject: item.normalizedSubject,
+                actionClass: item.actionClass
             ))
 
             if item.actionRequired, let task = item.actionTask, !task.isEmpty {
@@ -280,7 +289,10 @@ final class NoteStructuringService {
                     task: TranscriptProcessor.polishActionTask(task),
                     category: category,
                     categoryTemplateId: templateId,
-                    urgency: urgency
+                    urgency: urgency,
+                    entityType: item.entityType,
+                    normalizedSubject: item.normalizedSubject,
+                    actionClass: item.actionClass
                 ))
             }
         }
