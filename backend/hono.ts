@@ -1307,27 +1307,33 @@ app.delete("/rest/team/:memberId", async (c) => {
 
 // --- Audio Transcription (Whisper) ---
 
-app.post("/rest/transcribe", async (c) => {
-  const userId = c.req.header("x-user-id") || c.req.header("x-forwarded-for") || "anonymous";
-  if (!userId) return errorResponse(c, 400, "User identifier required", "BAD_REQUEST");
+const handleWhisperTranscribe = async (c: any) => {
+  const auth = authMiddleware(c);
+  if (!auth) return errorResponse(c, 401, "Unauthorized", "UNAUTHORIZED");
+
+  let formData: FormData;
+  try {
+    formData = await c.req.formData();
+  } catch {
+    return errorResponse(c, 400, "Invalid multipart form data", "VALIDATION_ERROR");
+  }
+
+  const audioField = formData.get("audio") ?? formData.get("file");
+  if (!audioField || !(audioField instanceof File)) {
+    return errorResponse(c, 400, "Audio file is required", "VALIDATION_ERROR");
+  }
+
+  const openAIKey = process.env.OPENAI_API_KEY;
+  if (!openAIKey) {
+    return errorResponse(c, 500, "Transcription service not configured", "STT_ERROR");
+  }
 
   try {
-    const formData = await c.req.formData();
-    const audioFile = formData.get("audio");
-    if (!audioFile || !(audioFile instanceof File)) {
-      return errorResponse(c, 400, "Audio file is required", "VALIDATION_ERROR");
-    }
-
-    const openAIKey = process.env.OPENAI_API_KEY;
-    if (!openAIKey) {
-      return errorResponse(c, 500, "Transcription service not configured", "STT_ERROR");
-    }
-
-    const language = (formData.get("language") as string | null) ?? "en";
+    const language = ((formData.get("language") as string | null) ?? "en").trim() || "en";
     const prompt = (formData.get("prompt") as string | null) ?? "";
 
     const sttFormData = new FormData();
-    sttFormData.append("file", audioFile);
+    sttFormData.append("file", audioField);
     sttFormData.append("model", "whisper-1");
     sttFormData.append("response_format", "json");
     sttFormData.append("language", language);
@@ -1356,7 +1362,10 @@ app.post("/rest/transcribe", async (c) => {
     console.error("Transcription failed:", error?.message || error);
     return errorResponse(c, 500, "Transcription failed", "STT_ERROR");
   }
-});
+};
+
+app.post("/rest/transcribe", handleWhisperTranscribe);
+app.post("/rest/transcribe-whisper", handleWhisperTranscribe);
 
 // --- AI Transcript Structuring ---
 
