@@ -53,9 +53,6 @@ final class TranscriptionService {
     var errorMessage: String?
     var usedCloudTranscription: Bool = true
     var failureReason: TranscriptionFailureReason?
-    var transcriptSegments: [TranscriptSegment] = []
-    var lowConfidenceSegments: [TranscriptSegment] = []
-    var averageSegmentConfidence: Double = 1.0
 
     private let cloudSession: URLSession = {
         let config = URLSessionConfiguration.default
@@ -118,9 +115,6 @@ final class TranscriptionService {
         errorMessage = nil
         usedCloudTranscription = true
         failureReason = nil
-        transcriptSegments = []
-        lowConfidenceSegments = []
-        averageSegmentConfidence = 1.0
 
         let validationResult = await validateAudioFile(at: url)
         guard handleValidationResult(validationResult, for: url) else {

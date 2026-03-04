@@ -138,7 +138,7 @@ final class RecordingViewModel {
 
         let retryVocab = industryVocabulary(for: businessTypeEnum(from: businessType))
         if let result = await transcriptionService.transcribeAudioFile(at: audioURL, authToken: authToken, userId: userId, industryVocabulary: retryVocab) {
-            let cleanedTranscript = TranscriptCleaner.clean(result, lowConfidenceSegments: transcriptionService.lowConfidenceSegments)
+            let cleanedTranscript = TranscriptCleaner.clean(result)
             let aiResult = await withTaskGroup(of: Result<StructuringResult, StructuringError>?.self) { group -> Result<StructuringResult, StructuringError>? in
                 group.addTask {
                     await self.noteStructuring.structureTranscript(
@@ -229,9 +229,9 @@ final class RecordingViewModel {
                 usedAI: usedAI,
                 structuringWarning: combinedWarning,
                 recordingFailureState: .none,
-                transcriptSegments: transcriptionService.transcriptSegments,
-                lowConfidenceSegments: transcriptionService.lowConfidenceSegments,
-                averageTranscriptConfidence: transcriptionService.averageSegmentConfidence,
+                transcriptSegments: [],
+                lowConfidenceSegments: [],
+                averageTranscriptConfidence: nil,
                 confidenceScore: reviewState.confidenceScore,
                 validationWarnings: validationResult.warnings,
                 warningItemIDs: validationResult.warningItemIDs
@@ -291,7 +291,7 @@ final class RecordingViewModel {
 
         recordingFailureState = currentFailureState
 
-        let cleanedTranscript = TranscriptCleaner.clean(transcript, lowConfidenceSegments: transcriptionService.lowConfidenceSegments)
+        let cleanedTranscript = TranscriptCleaner.clean(transcript)
         let validationResult = StructuringValidator.validate(
             transcript: cleanedTranscript.text,
             items: categorizedItems,
@@ -324,9 +324,9 @@ final class RecordingViewModel {
             usedAI: usedAI,
             structuringWarning: combinedWarning,
             recordingFailureState: currentFailureState,
-            transcriptSegments: transcriptionService.transcriptSegments,
-            lowConfidenceSegments: transcriptionService.lowConfidenceSegments,
-            averageTranscriptConfidence: transcriptionService.averageSegmentConfidence,
+            transcriptSegments: [],
+            lowConfidenceSegments: [],
+            averageTranscriptConfidence: nil,
             confidenceScore: reviewState.confidenceScore,
             validationWarnings: validationResult.warnings,
             warningItemIDs: validationResult.warningItemIDs
@@ -337,7 +337,7 @@ final class RecordingViewModel {
     }
 
     private func structureTranscript(_ transcript: String, businessType: String, authToken: String?, userId: String?, locationId: String? = nil, industryType: String? = nil, resolvedShiftType: String? = nil) async -> (String, [CategorizedItem], [ActionItem], Bool, String?, String?) {
-        let cleanedTranscript = TranscriptCleaner.clean(transcript, lowConfidenceSegments: transcriptionService.lowConfidenceSegments)
+        let cleanedTranscript = TranscriptCleaner.clean(transcript)
         let aiResult = await withTaskGroup(of: Result<StructuringResult, StructuringError>?.self) { group -> Result<StructuringResult, StructuringError>? in
             group.addTask {
                 await self.noteStructuring.structureTranscript(
@@ -440,7 +440,7 @@ final class RecordingViewModel {
         let terminology = IndustrySeed.template(for: bt).terminology
         return StructuringRequestContext(
             estimatedTopicCount: cleanedTranscript.estimatedTopicCount,
-            averageSegmentConfidence: transcriptionService.averageSegmentConfidence,
+            averageSegmentConfidence: nil,
             lowConfidencePhrases: cleanedTranscript.lowConfidencePhrases,
             availableCategories: IndustrySeed.template(for: bt).defaultCategories.map(\.name),
             industryVocabulary: industryVocabulary(for: bt),
