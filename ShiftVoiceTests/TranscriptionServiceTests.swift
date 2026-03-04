@@ -95,7 +95,6 @@ struct TranscriptionServiceTests {
 
         let prompt = WhisperPromptBuilder.build(from: terms)
 
-        #expect(prompt.contains("Shift handoff transcription vocabulary:"))
         #expect(prompt.contains("Barbacks"))
         #expect(prompt.contains("expo"))
         #expect(prompt.contains("86'd"))

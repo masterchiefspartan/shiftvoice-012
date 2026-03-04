@@ -8,17 +8,16 @@ nonisolated enum WhisperPromptBuilder {
         let normalizedTerms: [String] = normalizedUniqueTerms(from: industryVocabulary)
         guard !normalizedTerms.isEmpty else { return "" }
 
-        let prefix: String = "Shift handoff transcription vocabulary: "
-        var prompt: String = prefix
+        var prompt: String = ""
 
         for term in normalizedTerms {
-            let separator: String = prompt == prefix ? "" : ", "
+            let separator: String = prompt.isEmpty ? "" : ", "
             let candidate: String = prompt + separator + term
             guard candidate.count <= maxPromptCharacters else { break }
             prompt = candidate
         }
 
-        return prompt == prefix ? "" : prompt
+        return prompt
     }
 
     private static func normalizedUniqueTerms(from terms: [String]) -> [String] {

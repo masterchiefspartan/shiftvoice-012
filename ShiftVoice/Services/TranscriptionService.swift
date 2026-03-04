@@ -213,11 +213,9 @@ final class TranscriptionService {
         body.append("en".data(using: .utf8)!)
 
         let prompt = buildWhisperPrompt(industryVocabulary: industryVocabulary)
-        if !prompt.isEmpty {
-            body.append("\r\n--\(boundary)\r\n".data(using: .utf8)!)
-            body.append("Content-Disposition: form-data; name=\"prompt\"\r\n\r\n".data(using: .utf8)!)
-            body.append(prompt.data(using: .utf8)!)
-        }
+        body.append("\r\n--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"prompt\"\r\n\r\n".data(using: .utf8)!)
+        body.append(prompt.data(using: .utf8)!)
 
         body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
         request.httpBody = body
