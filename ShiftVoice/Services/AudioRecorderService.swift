@@ -29,11 +29,29 @@ final class AudioRecorderService: NSObject, AVAudioRecorderDelegate {
             .appendingPathComponent("ShiftVoiceRecordings", isDirectory: true)
     }
 
-    func requestPermission() async -> Bool {
-        await withCheckedContinuation { continuation in
-            AVAudioApplication.requestRecordPermission { granted in
-                continuation.resume(returning: granted)
+    func hasMicrophonePermission() -> Bool {
+        AVAudioApplication.shared.recordPermission == .granted
+    }
+
+    func isMicrophonePermissionDenied() -> Bool {
+        AVAudioApplication.shared.recordPermission == .denied
+    }
+
+    func requestPermissionIfNeeded() async -> Bool {
+        let permission = AVAudioApplication.shared.recordPermission
+        switch permission {
+        case .granted:
+            return true
+        case .denied:
+            return false
+        case .undetermined:
+            return await withCheckedContinuation { continuation in
+                AVAudioApplication.requestRecordPermission { granted in
+                    continuation.resume(returning: granted)
+                }
             }
+        @unknown default:
+            return false
         }
     }
 

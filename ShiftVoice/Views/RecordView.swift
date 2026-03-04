@@ -151,8 +151,7 @@ struct RecordView: View {
             }
 
             .task {
-                let granted = await recording.requestRecordingPermissions()
-                permissionGranted = granted
+                permissionGranted = recording.hasRecordingPermission()
                 recording.selectedVisibility = resolvedDefaultVisibility
                 allowVisibilityOverrideForThisRecording = false
             }
@@ -658,10 +657,32 @@ struct RecordView: View {
     }
 
     private func startRecording() {
-        guard permissionGranted else {
+        if recording.hasRecordingPermission() {
+            permissionGranted = true
+            startRecordingSession()
+            return
+        }
+
+        if recording.isRecordingPermissionDenied() {
+            permissionGranted = false
             showPermissionAlert = true
             return
         }
+
+        Task {
+            let granted = await recording.requestRecordingPermissionsIfNeeded()
+            await MainActor.run {
+                permissionGranted = granted
+                if granted {
+                    startRecordingSession()
+                } else {
+                    showPermissionAlert = true
+                }
+            }
+        }
+    }
+
+    private func startRecordingSession() {
         let thisMonthCount = viewModel.notesThisMonth
         if !subscription.canRecordNote(currentMonthNoteCount: thisMonthCount) {
             shouldResumeRecordingAfterPaywall = true

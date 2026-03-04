@@ -44,8 +44,16 @@ final class RecordingViewModel {
     var recordingDuration: TimeInterval { audioRecorder.recordingDuration }
     var audioLevels: [CGFloat] { audioRecorder.audioLevels }
 
-    func requestRecordingPermissions() async -> Bool {
-        await audioRecorder.requestPermission()
+    func hasRecordingPermission() -> Bool {
+        audioRecorder.hasMicrophonePermission()
+    }
+
+    func isRecordingPermissionDenied() -> Bool {
+        audioRecorder.isMicrophonePermissionDenied()
+    }
+
+    func requestRecordingPermissionsIfNeeded() async -> Bool {
+        await audioRecorder.requestPermissionIfNeeded()
     }
 
     func startRecording() {
