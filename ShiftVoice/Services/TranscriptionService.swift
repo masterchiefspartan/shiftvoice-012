@@ -15,7 +15,6 @@ nonisolated enum TranscriptionFailureReason: Sendable {
     case unsupportedAudioFormat
     case corruptAudioFile
     case cloudFailed
-    case localFailed(String)
     case noResult
 
     var isEmptyRecording: Bool {
@@ -41,8 +40,6 @@ nonisolated enum TranscriptionFailureReason: Sendable {
             return "The audio file could not be read. It may be corrupted."
         case .cloudFailed:
             return "Cloud transcription failed."
-        case .localFailed(let msg):
-            return msg
         case .noResult:
             return "No speech was detected in the recording."
         }

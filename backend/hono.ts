@@ -1328,7 +1328,7 @@ app.post("/rest/transcribe", async (c) => {
 
     const sttFormData = new FormData();
     sttFormData.append("file", audioFile);
-    sttFormData.append("model", "gpt-4o-mini-transcribe");
+    sttFormData.append("model", "whisper-1");
     sttFormData.append("response_format", "json");
     sttFormData.append("language", language);
     if (prompt.trim().length > 0) {
