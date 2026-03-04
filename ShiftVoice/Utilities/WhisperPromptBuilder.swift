@@ -4,10 +4,20 @@ nonisolated enum WhisperPromptBuilder {
     private static let maxPromptTokens: Int = 210
     private static let maxPromptCharacters: Int = 900
     private static let maxTerms: Int = 80
+    private static let cache: NSCache<NSString, NSString> = {
+        let cache = NSCache<NSString, NSString>()
+        cache.countLimit = 32
+        return cache
+    }()
 
     static func build(from industryVocabulary: [String]) -> String {
         let normalizedTerms: [String] = normalizedUniqueTerms(from: industryVocabulary)
         guard !normalizedTerms.isEmpty else { return "" }
+
+        let key: String = cacheKey(from: normalizedTerms)
+        if let cachedPrompt = cache.object(forKey: key as NSString) {
+            return String(cachedPrompt)
+        }
 
         var promptTerms: [String] = []
         var usedTokenCount: Int = 0
@@ -30,7 +40,9 @@ nonisolated enum WhisperPromptBuilder {
             }
         }
 
-        return promptTerms.joined(separator: ", ")
+        let prompt: String = promptTerms.joined(separator: ", ")
+        cache.setObject(prompt as NSString, forKey: key as NSString)
+        return prompt
     }
 
     private static func estimatedTokenCount(for text: String) -> Int {
@@ -41,6 +53,10 @@ nonisolated enum WhisperPromptBuilder {
         let wordLikePieces: [Substring] = trimmed.split(whereSeparator: { $0.isWhitespace || $0.isPunctuation })
         let roughByWords: Int = max(wordLikePieces.count, 1)
         return max(roughByCharacters, roughByWords)
+    }
+
+    private static func cacheKey(from terms: [String]) -> String {
+        terms.joined(separator: "|").lowercased()
     }
 
     private static func normalizedUniqueTerms(from terms: [String]) -> [String] {
