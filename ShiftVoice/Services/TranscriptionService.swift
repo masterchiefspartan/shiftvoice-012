@@ -252,13 +252,7 @@ final class TranscriptionService {
     }
 
     private func buildWhisperPrompt(industryVocabulary: [String]) -> String {
-        let uniqueTerms = Array(Set(industryVocabulary.map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
-            .filter { !$0.isEmpty }))
-            .sorted()
-        guard !uniqueTerms.isEmpty else { return "" }
-
-        let joined = uniqueTerms.prefix(60).joined(separator: ", ")
-        return "Shift handoff transcription vocabulary: \(joined)"
+        WhisperPromptBuilder.build(from: industryVocabulary)
     }
 
     func cancel() {

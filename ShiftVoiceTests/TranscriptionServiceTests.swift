@@ -89,4 +89,25 @@ struct TranscriptionServiceTests {
         #expect(service.failureReason == .noAudioFile)
         #expect(service.errorMessage == TranscriptionFailureReason.noAudioFile.userMessage)
     }
+
+    @Test func whisperPromptBuilderIncludesIndustryTermsAndDeduplicatesCaseInsensitively() {
+        let terms = ["Barbacks", "expo", "barbacks", "86'd", "  walk-in cooler  "]
+
+        let prompt = WhisperPromptBuilder.build(from: terms)
+
+        #expect(prompt.contains("Shift handoff transcription vocabulary:"))
+        #expect(prompt.contains("Barbacks"))
+        #expect(prompt.contains("expo"))
+        #expect(prompt.contains("86'd"))
+        #expect(prompt.contains("walk-in cooler"))
+        #expect(prompt.components(separatedBy: "Barbacks").count == 2)
+    }
+
+    @Test func whisperPromptBuilderLimitsPromptLengthForWhisperWindow() {
+        let terms = (1...200).map { "term\($0)" }
+
+        let prompt = WhisperPromptBuilder.build(from: terms)
+
+        #expect(prompt.count <= 700)
+    }
 }
