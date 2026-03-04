@@ -95,6 +95,7 @@ struct TranscriptionServiceTests {
 
         let prompt = WhisperPromptBuilder.build(from: terms)
 
+        #expect(prompt.hasPrefix("Shift handoff notes. Terms: "))
         #expect(prompt.contains("Barbacks"))
         #expect(prompt.contains("expo"))
         #expect(prompt.contains("86'd"))
@@ -107,6 +108,7 @@ struct TranscriptionServiceTests {
 
         let prompt = WhisperPromptBuilder.build(from: terms)
 
-        #expect(prompt.count <= 700)
+        #expect(prompt.hasPrefix("Shift handoff notes. Terms: "))
+        #expect(prompt.count <= 900)
     }
 }
