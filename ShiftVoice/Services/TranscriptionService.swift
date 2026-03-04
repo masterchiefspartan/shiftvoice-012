@@ -131,7 +131,7 @@ final class TranscriptionService {
         return handleValidationResult(validationResult, for: url)
     }
 
-    func transcribeAudioFile(at url: URL, authToken: String? = nil, userId: String? = nil) async -> String? {
+    func transcribeAudioFile(at url: URL, authToken: String? = nil, userId: String? = nil, industryVocabulary: [String] = []) async -> String? {
         isTranscribing = true
         transcribedText = ""
         errorMessage = nil
@@ -147,7 +147,7 @@ final class TranscriptionService {
             return nil
         }
 
-        let result = await raceTranscription(audioURL: url, authToken: authToken, userId: userId)
+        let result = await raceTranscription(audioURL: url, authToken: authToken, userId: userId, industryVocabulary: industryVocabulary)
         if result == nil && failureReason == nil {
             failureReason = .noResult
             errorMessage = TranscriptionFailureReason.noResult.userMessage
@@ -189,11 +189,11 @@ final class TranscriptionService {
         }
     }
 
-    private func raceTranscription(audioURL: URL, authToken: String?, userId: String?) async -> String? {
+    private func raceTranscription(audioURL: URL, authToken: String?, userId: String?, industryVocabulary: [String] = []) async -> String? {
         let canCloud = !baseURL.isEmpty
 
         if !canCloud {
-            return await transcribeLocally(at: audioURL)
+            return await transcribeLocally(at: audioURL, industryVocabulary: industryVocabulary)
         }
 
         return await withTaskGroup(of: (String?, Bool).self) { group in
@@ -202,7 +202,7 @@ final class TranscriptionService {
                 return (result, true)
             }
             group.addTask {
-                let result = await self.transcribeLocally(at: audioURL)
+                let result = await self.transcribeLocally(at: audioURL, industryVocabulary: industryVocabulary)
                 return (result, false)
             }
 
@@ -360,7 +360,7 @@ final class TranscriptionService {
         failLocalRecognition(.localFailed("Transcription was cancelled."))
     }
 
-    private func transcribeLocally(at url: URL) async -> String? {
+    private func transcribeLocally(at url: URL, industryVocabulary: [String] = []) async -> String? {
         guard let speechRecognizer, speechRecognizer.isAvailable else {
             failureReason = .localFailed("Speech recognition is not available.")
             errorMessage = "Speech recognition is not available."
@@ -376,6 +376,9 @@ final class TranscriptionService {
         let request = SFSpeechURLRecognitionRequest(url: url)
         request.shouldReportPartialResults = false
         request.addsPunctuation = true
+        if !industryVocabulary.isEmpty {
+            request.contextualStrings = industryVocabulary
+        }
 
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
@@ -427,9 +430,14 @@ final class TranscriptionService {
         errorMessage = nil
         isTranscribing = true
 
+    var activeIndustryVocabulary: [String] = []
+
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
         request.addsPunctuation = true
+        if !activeIndustryVocabulary.isEmpty {
+            request.contextualStrings = activeIndustryVocabulary
+        }
 
         let inputNode = engine.inputNode
         let recordingFormat = inputNode.outputFormat(forBus: 0)

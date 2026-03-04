@@ -1356,6 +1356,9 @@ const structureTranscriptSchema = z.object({
   estimatedTopicCount: z.number().int().min(1).max(30).optional(),
   averageSegmentConfidence: z.number().min(0).max(1).optional(),
   lowConfidencePhrases: z.array(z.string()).optional(),
+  industryRoles: z.array(z.string()).optional(),
+  industryEquipment: z.array(z.string()).optional(),
+  industrySlang: z.array(z.string()).optional(),
 });
 
 const structuredNoteSchema = z.object({
@@ -1421,6 +1424,9 @@ app.post("/rest/structure-transcript", async (c) => {
     categorizationHints,
     averageSegmentConfidence,
     lowConfidencePhrases,
+    industryRoles,
+    industryEquipment,
+    industrySlang,
   } = validation.data;
 
   try {
@@ -1472,12 +1478,32 @@ CRITICAL RULES:
 - If a sentence mentions two different things to do ("fix X and order Y"), create TWO items
 - source_quote MUST be present for every item and MUST be copied verbatim from the transcript
 
+TRANSCRIPT CORRECTION (apply BEFORE structuring):
+This transcript came from speech-to-text and may contain misheard industry terms. Before extracting items, mentally correct likely transcription errors using the industry vocabulary below. For example:
+- "bar backs" or "barbacks" → barback (a job position that assists bartenders)
+- "eighty six" or "86" → 86'd (item is unavailable)
+- "bus sir" or "buster" → busser (a job position that clears tables)
+- "expo" → expeditor (coordinates food leaving the kitchen)
+- "cambro" → Cambro (an insulated food transport container)
+- "mis en plas" or "meez" → mise en place
+Always interpret ambiguous words in favor of known industry terms listed below.
+
 INDUSTRY CONTEXT:
+- Business type: ${businessType}
 - Preferred categories: ${availableCategories?.join(", ") || "Use the default categories in schema"}
-- Industry vocabulary to preserve: ${industryVocabulary?.join(", ") || "N/A"}
 - Categorization hints: ${categorizationHints?.join(" | ") || "N/A"}
-- If average transcript confidence is low (${averageSegmentConfidence ?? 1}), rely strictly on exact quoted evidence.
-- Potentially low-confidence phrases: ${lowConfidencePhrases?.join(" | ") || "None"}
+
+INDUSTRY KNOWLEDGE BASE (use these to interpret transcript correctly):
+- Job positions/roles: ${industryRoles?.join(", ") || industryVocabulary?.join(", ") || "N/A"}
+- Equipment/tools: ${industryEquipment?.join(", ") || "N/A"}
+- Industry slang/jargon: ${industrySlang?.join(", ") || "N/A"}
+
+When the transcript mentions a person by role (e.g. "tell the barbacks", "have the busser", "let the expo know"), this is a STAFFING item and likely needs an action item assigned to that role. Treat role mentions as references to specific people — they ARE actionable.
+
+TRANSCRIPT QUALITY:
+- Average confidence: ${averageSegmentConfidence ?? 1}. If low, rely strictly on exact quoted evidence.
+- Potentially misheard phrases: ${lowConfidencePhrases?.join(" | ") || "None"}
+- General vocabulary hints: ${industryVocabulary?.join(", ") || "N/A"}
 
 Here is the transcript to structure:
 

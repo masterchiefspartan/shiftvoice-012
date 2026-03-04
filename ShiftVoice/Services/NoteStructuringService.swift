@@ -106,6 +106,9 @@ nonisolated struct StructuringRequestContext: Sendable {
     let availableCategories: [String]
     let industryVocabulary: [String]
     let categorizationHints: [String]
+    let industryRoles: [String]
+    let industryEquipment: [String]
+    let industrySlang: [String]
 
     init(
         estimatedTopicCount: Int,
@@ -113,7 +116,10 @@ nonisolated struct StructuringRequestContext: Sendable {
         lowConfidencePhrases: [String] = [],
         availableCategories: [String] = [],
         industryVocabulary: [String] = [],
-        categorizationHints: [String] = []
+        categorizationHints: [String] = [],
+        industryRoles: [String] = [],
+        industryEquipment: [String] = [],
+        industrySlang: [String] = []
     ) {
         self.estimatedTopicCount = estimatedTopicCount
         self.averageSegmentConfidence = averageSegmentConfidence
@@ -121,6 +127,9 @@ nonisolated struct StructuringRequestContext: Sendable {
         self.availableCategories = availableCategories
         self.industryVocabulary = industryVocabulary
         self.categorizationHints = categorizationHints
+        self.industryRoles = industryRoles
+        self.industryEquipment = industryEquipment
+        self.industrySlang = industrySlang
     }
 }
 
@@ -186,6 +195,15 @@ final class NoteStructuringService {
         }
         if let categorizationHints = context?.categorizationHints, !categorizationHints.isEmpty {
             body["categorizationHints"] = categorizationHints
+        }
+        if let industryRoles = context?.industryRoles, !industryRoles.isEmpty {
+            body["industryRoles"] = industryRoles
+        }
+        if let industryEquipment = context?.industryEquipment, !industryEquipment.isEmpty {
+            body["industryEquipment"] = industryEquipment
+        }
+        if let industrySlang = context?.industrySlang, !industrySlang.isEmpty {
+            body["industrySlang"] = industrySlang
         }
 
         do {

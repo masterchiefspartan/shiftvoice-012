@@ -203,7 +203,8 @@ struct QuickAppendView: View {
                     isProcessing = false
                     return
                 }
-                if let result = await transcription.transcribeAudioFile(at: url, authToken: viewModel.backendAuthToken, userId: viewModel.currentUserId) {
+                let vocab = IndustrySeed.template(for: viewModel.organizationBusinessType).terminology.allVocabulary
+                if let result = await transcription.transcribeAudioFile(at: url, authToken: viewModel.backendAuthToken, userId: viewModel.currentUserId, industryVocabulary: vocab) {
                     transcript = result
                 }
             }
@@ -228,11 +229,21 @@ struct QuickAppendView: View {
             group.addTask {
                 let location = self.viewModel.selectedLocation
                 let resolvedShift = ShiftScheduleService.resolveShiftTypeString(for: location)
+                let terminology = IndustrySeed.template(for: self.viewModel.organizationBusinessType).terminology
+                let cleaned = TranscriptCleaner.clean(transcript)
                 return await self.noteStructuring.structureTranscript(
                     transcript,
                     businessType: businessType,
                     authToken: self.viewModel.backendAuthToken,
                     userId: self.viewModel.currentUserId,
+                    context: StructuringRequestContext(
+                        estimatedTopicCount: cleaned.estimatedTopicCount,
+                        availableCategories: IndustrySeed.template(for: self.viewModel.organizationBusinessType).defaultCategories.map(\.name),
+                        industryVocabulary: terminology.allVocabulary,
+                        industryRoles: terminology.roles,
+                        industryEquipment: terminology.equipment,
+                        industrySlang: terminology.slang
+                    ),
                     shiftType: resolvedShift,
                     locationId: self.viewModel.selectedLocationId,
                     industryType: self.viewModel.organization.industryType.rawValue

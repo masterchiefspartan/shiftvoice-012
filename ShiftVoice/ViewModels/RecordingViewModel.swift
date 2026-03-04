@@ -139,7 +139,8 @@ final class RecordingViewModel {
         }
         logger.info("Retry transcription validation passed for file \(audioURL.lastPathComponent, privacy: .public)")
 
-        if let result = await transcriptionService.transcribeAudioFile(at: audioURL, authToken: authToken, userId: userId) {
+        let retryVocab = industryVocabulary(for: businessTypeEnum(from: businessType))
+        if let result = await transcriptionService.transcribeAudioFile(at: audioURL, authToken: authToken, userId: userId, industryVocabulary: retryVocab) {
             let cleanedTranscript = TranscriptCleaner.clean(result, lowConfidenceSegments: transcriptionService.lowConfidenceSegments)
             let aiResult = await withTaskGroup(of: Result<StructuringResult, StructuringError>?.self) { group -> Result<StructuringResult, StructuringError>? in
                 group.addTask {
@@ -148,14 +149,7 @@ final class RecordingViewModel {
                         businessType: businessType,
                         authToken: authToken,
                         userId: userId,
-                        context: StructuringRequestContext(
-                            estimatedTopicCount: cleanedTranscript.estimatedTopicCount,
-                            averageSegmentConfidence: self.transcriptionService.averageSegmentConfidence,
-                            lowConfidencePhrases: cleanedTranscript.lowConfidencePhrases,
-                            availableCategories: IndustrySeed.template(for: self.businessTypeEnum(from: businessType)).defaultCategories.map(\.name),
-                            industryVocabulary: self.industryVocabulary(for: self.businessTypeEnum(from: businessType)),
-                            categorizationHints: self.categorizationHints(for: self.businessTypeEnum(from: businessType))
-                        ),
+                        context: self.buildStructuringContext(cleanedTranscript: cleanedTranscript, businessType: businessType),
                         shiftType: self.lastStopParams?.resolvedShiftType,
                         locationId: self.lastStopParams?.locationId,
                         industryType: self.lastStopParams?.industryType
@@ -306,7 +300,8 @@ final class RecordingViewModel {
                 let isValid = await transcriptionService.validateBeforeTranscription(at: audioURL)
                 if isValid {
                     logger.info("Process recording validation passed for file \(audioURL.lastPathComponent, privacy: .public)")
-                    if let result = await transcriptionService.transcribeAudioFile(at: audioURL, authToken: authToken, userId: userId) {
+                    let vocab = industryVocabulary(for: businessTypeEnum(from: businessType))
+                    if let result = await transcriptionService.transcribeAudioFile(at: audioURL, authToken: authToken, userId: userId, industryVocabulary: vocab) {
                         transcript = result
                     } else {
                         let reason = transcriptionService.failureReason
@@ -398,14 +393,7 @@ final class RecordingViewModel {
                     businessType: businessType,
                     authToken: authToken,
                     userId: userId,
-                    context: StructuringRequestContext(
-                        estimatedTopicCount: cleanedTranscript.estimatedTopicCount,
-                        averageSegmentConfidence: self.transcriptionService.averageSegmentConfidence,
-                        lowConfidencePhrases: cleanedTranscript.lowConfidencePhrases,
-                        availableCategories: IndustrySeed.template(for: self.businessTypeEnum(from: businessType)).defaultCategories.map(\.name),
-                        industryVocabulary: self.industryVocabulary(for: self.businessTypeEnum(from: businessType)),
-                        categorizationHints: self.categorizationHints(for: self.businessTypeEnum(from: businessType))
-                    ),
+                    context: self.buildStructuringContext(cleanedTranscript: cleanedTranscript, businessType: businessType),
                     shiftType: resolvedShiftType,
                     locationId: locationId,
                     industryType: industryType
@@ -463,7 +451,8 @@ final class RecordingViewModel {
         }
         logger.info("Background refinement validation passed for file \(audioURL.lastPathComponent, privacy: .public)")
 
-        guard let fullTranscript = await transcriptionService.transcribeAudioFile(at: audioURL, authToken: authToken, userId: userId) else { return }
+        let refineVocab = industryVocabulary(for: businessTypeEnum(from: businessType))
+        guard let fullTranscript = await transcriptionService.transcribeAudioFile(at: audioURL, authToken: authToken, userId: userId, industryVocabulary: refineVocab) else { return }
 
         let trimmedFull = fullTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedPrevious = previousTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -555,13 +544,7 @@ final class RecordingViewModel {
     }
 
     private func industryVocabulary(for businessType: BusinessType) -> [String] {
-        let terminology = IndustrySeed.template(for: businessType).terminology
-        return [
-            terminology.shiftHandoff,
-            terminology.location,
-            terminology.customer,
-            terminology.outOfStock
-        ]
+        IndustrySeed.template(for: businessType).terminology.allVocabulary
     }
 
     private func categorizationHints(for businessType: BusinessType) -> [String] {
@@ -569,6 +552,22 @@ final class RecordingViewModel {
         return template.defaultCategories.map { category in
             "\(category.name): \(category.id)"
         }
+    }
+
+    private func buildStructuringContext(cleanedTranscript: CleanedTranscript, businessType: String) -> StructuringRequestContext {
+        let bt = businessTypeEnum(from: businessType)
+        let terminology = IndustrySeed.template(for: bt).terminology
+        return StructuringRequestContext(
+            estimatedTopicCount: cleanedTranscript.estimatedTopicCount,
+            averageSegmentConfidence: transcriptionService.averageSegmentConfidence,
+            lowConfidencePhrases: cleanedTranscript.lowConfidencePhrases,
+            availableCategories: IndustrySeed.template(for: bt).defaultCategories.map(\.name),
+            industryVocabulary: industryVocabulary(for: bt),
+            categorizationHints: categorizationHints(for: bt),
+            industryRoles: terminology.roles,
+            industryEquipment: terminology.equipment,
+            industrySlang: terminology.slang
+        )
     }
 
     private func adjustedReviewState(validationResult: ValidationResult, usedAI: Bool) -> (confidenceScore: Double, needsUserReview: Bool) {
