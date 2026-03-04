@@ -8,11 +8,16 @@ struct OnboardingView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            topBar
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+
             if viewModel.currentStep != 5 {
                 progressBar
                     .padding(.horizontal, 24)
                     .padding(.top, 12)
             }
+            
 
             Group {
                 switch viewModel.currentStep {
@@ -77,6 +82,35 @@ struct OnboardingView: View {
         default:
             return true
         }
+    }
+
+    private var topBar: some View {
+        HStack {
+            if viewModel.currentStep > 0 {
+                Button {
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        viewModel.goBack()
+                    }
+                } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(SVTheme.textPrimary)
+                        .frame(width: 36, height: 36)
+                        .background(SVTheme.surface)
+                        .clipShape(.rect(cornerRadius: 10))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10)
+                                .stroke(SVTheme.surfaceBorder, lineWidth: 1)
+                        )
+                }
+            } else {
+                Color.clear
+                    .frame(width: 36, height: 36)
+            }
+
+            Spacer()
+        }
+        .frame(height: 44)
     }
 
     private var progressBar: some View {
