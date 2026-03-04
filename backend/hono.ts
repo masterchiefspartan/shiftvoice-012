@@ -1318,16 +1318,28 @@ app.post("/rest/transcribe", async (c) => {
       return errorResponse(c, 400, "Audio file is required", "VALIDATION_ERROR");
     }
 
-    const language = formData.get("language") as string | null;
-
-    const sttFormData = new FormData();
-    sttFormData.append("audio", audioFile);
-    if (language) {
-      sttFormData.append("language", language);
+    const openAIKey = process.env.OPENAI_API_KEY;
+    if (!openAIKey) {
+      return errorResponse(c, 500, "Transcription service not configured", "STT_ERROR");
     }
 
-    const sttResponse = await fetch("https://toolkit.rork.com/stt/transcribe/", {
+    const language = (formData.get("language") as string | null) ?? "en";
+    const prompt = (formData.get("prompt") as string | null) ?? "";
+
+    const sttFormData = new FormData();
+    sttFormData.append("file", audioFile);
+    sttFormData.append("model", "gpt-4o-mini-transcribe");
+    sttFormData.append("response_format", "json");
+    sttFormData.append("language", language);
+    if (prompt.trim().length > 0) {
+      sttFormData.append("prompt", prompt);
+    }
+
+    const sttResponse = await fetch("https://api.openai.com/v1/audio/transcriptions", {
       method: "POST",
+      headers: {
+        Authorization: `Bearer ${openAIKey}`,
+      },
       body: sttFormData,
     });
 
@@ -1337,8 +1349,9 @@ app.post("/rest/transcribe", async (c) => {
       return errorResponse(c, 502, "Transcription service unavailable", "STT_ERROR");
     }
 
-    const result = await sttResponse.json() as { text: string; language: string };
-    return c.json({ success: true, text: result.text, language: result.language });
+    const result = await sttResponse.json() as { text?: string; language?: string };
+    const text = (result.text ?? "").trim();
+    return c.json({ success: text.length > 0, text, language: result.language ?? language });
   } catch (error: any) {
     console.error("Transcription failed:", error?.message || error);
     return errorResponse(c, 500, "Transcription failed", "STT_ERROR");

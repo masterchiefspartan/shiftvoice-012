@@ -198,7 +198,12 @@ final class TranscriptionService {
 
         return await withTaskGroup(of: (String?, Bool).self) { group in
             group.addTask {
-                let result = await self.transcribeViaCloud(audioURL: audioURL, authToken: authToken, userId: userId)
+                let result = await self.transcribeViaCloud(
+                    audioURL: audioURL,
+                    authToken: authToken,
+                    userId: userId,
+                    industryVocabulary: industryVocabulary
+                )
                 return (result, true)
             }
             group.addTask {
@@ -241,7 +246,7 @@ final class TranscriptionService {
         }
     }
 
-    private func transcribeViaCloud(audioURL: URL, authToken: String?, userId: String?) async -> String? {
+    private func transcribeViaCloud(audioURL: URL, authToken: String?, userId: String?, industryVocabulary: [String]) async -> String? {
         guard let endpoint = URL(string: "\(baseURL)/api/rest/transcribe") else { return nil }
 
         let audioData: Data
@@ -270,6 +275,18 @@ final class TranscriptionService {
         body.append("Content-Disposition: form-data; name=\"audio\"; filename=\"\(filename)\"\r\n".data(using: .utf8)!)
         body.append("Content-Type: \(mimeType)\r\n\r\n".data(using: .utf8)!)
         body.append(audioData)
+
+        body.append("\r\n--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"language\"\r\n\r\n".data(using: .utf8)!)
+        body.append("en".data(using: .utf8)!)
+
+        let prompt = buildWhisperPrompt(industryVocabulary: industryVocabulary)
+        if !prompt.isEmpty {
+            body.append("\r\n--\(boundary)\r\n".data(using: .utf8)!)
+            body.append("Content-Disposition: form-data; name=\"prompt\"\r\n\r\n".data(using: .utf8)!)
+            body.append(prompt.data(using: .utf8)!)
+        }
+
         body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
 
         request.httpBody = body
@@ -289,6 +306,16 @@ final class TranscriptionService {
         } catch {
             return nil
         }
+    }
+
+    private func buildWhisperPrompt(industryVocabulary: [String]) -> String {
+        let uniqueTerms = Array(Set(industryVocabulary.map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+            .filter { !$0.isEmpty }))
+            .sorted()
+        guard !uniqueTerms.isEmpty else { return "" }
+
+        let joined = uniqueTerms.prefix(60).joined(separator: ", ")
+        return "Shift handoff transcription vocabulary: \(joined)"
     }
 
     private final class ContinuationGuard<T: Sendable>: @unchecked Sendable {
