@@ -433,7 +433,6 @@
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_NSCameraUsageDescription = "ShiftVoice needs camera access to attach photos to shift notes.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "ShiftVoice needs microphone access to record voice shift notes.";
-				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "ShiftVoice uses speech recognition to transcribe your voice notes into text.";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
@@ -469,7 +468,6 @@
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSCameraUsageDescription = "ShiftVoice needs camera access to attach photos to shift notes.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "ShiftVoice needs microphone access to record voice shift notes.";
-				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "ShiftVoice uses speech recognition to transcribe your voice notes into text.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

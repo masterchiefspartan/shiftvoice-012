@@ -45,9 +45,7 @@ final class RecordingViewModel {
     var audioLevels: [CGFloat] { audioRecorder.audioLevels }
 
     func requestRecordingPermissions() async -> Bool {
-        let micGranted = await audioRecorder.requestPermission()
-        let speechGranted = await transcriptionService.requestPermission()
-        return micGranted && speechGranted
+        await audioRecorder.requestPermission()
     }
 
     func startRecording() {
@@ -66,7 +64,6 @@ final class RecordingViewModel {
     ) {
         let duration = audioRecorder.recordingDuration
         let audioURL = audioRecorder.currentAudioURL
-        let liveText = transcriptionService.transcribedText
         audioRecorder.stopRecording()
         isProcessing = true
         processingStage = .transcribing
@@ -90,7 +87,7 @@ final class RecordingViewModel {
         let shiftInfo = selectedShift ?? defaultShift
 
         Task {
-            await processRecording(audioURL: audioURL, duration: duration, shiftInfo: shiftInfo, businessType: businessType, authToken: authToken, userId: userId, liveTranscript: liveText, locationId: locationId, industryType: industryType, resolvedShiftType: resolvedShiftType)
+            await processRecording(audioURL: audioURL, duration: duration, shiftInfo: shiftInfo, businessType: businessType, authToken: authToken, userId: userId, locationId: locationId, industryType: industryType, resolvedShiftType: resolvedShiftType)
         }
     }
 
@@ -246,142 +243,97 @@ final class RecordingViewModel {
         isRetryingTranscription = false
     }
 
-    private func processRecording(audioURL: URL?, duration: TimeInterval, shiftInfo: ShiftDisplayInfo, businessType: String, authToken: String?, userId: String?, liveTranscript: String = "", locationId: String? = nil, industryType: String? = nil, resolvedShiftType: String? = nil) async {
-        let hasLiveText = !liveTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    private func processRecording(audioURL: URL?, duration: TimeInterval, shiftInfo: ShiftDisplayInfo, businessType: String, authToken: String?, userId: String?, locationId: String? = nil, industryType: String? = nil, resolvedShiftType: String? = nil) async {
+        var transcript = ""
+        var currentFailureState: RecordingFailureState = .none
 
-        if hasLiveText {
-            processingStage = .structuring
+        processingStage = .transcribing
 
-            let (instantSummary, instantCategories, instantActions, instantUsedAI, instantWarning) = instantStructureTranscript(
-                liveTranscript,
-                businessType: businessType
-            )
-
-            processingStage = .finalizing
-
-            pendingReviewData = PendingNoteReviewData(
-                rawTranscript: liveTranscript,
-                audioDuration: duration,
-                audioUrl: audioURL?.lastPathComponent,
-                shiftInfo: shiftInfo,
-                summary: instantSummary,
-                categorizedItems: instantCategories,
-                actionItems: instantActions,
-                usedAI: instantUsedAI,
-                structuringWarning: instantWarning,
-                recordingFailureState: .none,
-                transcriptSegments: transcriptionService.transcriptSegments,
-                lowConfidenceSegments: transcriptionService.lowConfidenceSegments,
-                averageTranscriptConfidence: transcriptionService.averageSegmentConfidence,
-                confidenceScore: 1.0,
-                validationWarnings: [],
-                warningItemIDs: []
-            )
-            stopProcessingTimer()
-            processingStage = nil
-            isProcessing = false
-
-            if let audioURL {
-                Task {
-                    await refineWithFullTranscription(
-                        audioURL: audioURL, duration: duration, shiftInfo: shiftInfo,
-                        businessType: businessType, authToken: authToken, userId: userId,
-                        previousTranscript: liveTranscript
-                    )
-                }
-            }
-        } else {
-            var transcript = ""
-            var currentFailureState: RecordingFailureState = .none
-
-            processingStage = .transcribing
-
-            if let audioURL {
-                let isValid = await transcriptionService.validateBeforeTranscription(at: audioURL)
-                if isValid {
-                    logger.info("Process recording validation passed for file \(audioURL.lastPathComponent, privacy: .public)")
-                    let vocab = industryVocabulary(for: businessTypeEnum(from: businessType))
-                    if let result = await transcriptionService.transcribeAudioFile(at: audioURL, authToken: authToken, userId: userId, industryVocabulary: vocab) {
-                        transcript = result
-                    } else {
-                        let reason = transcriptionService.failureReason
-                        currentFailureState = failureState(from: reason)
-                    }
+        if let audioURL {
+            let isValid = await transcriptionService.validateBeforeTranscription(at: audioURL)
+            if isValid {
+                logger.info("Process recording validation passed for file \(audioURL.lastPathComponent, privacy: .public)")
+                let vocab = industryVocabulary(for: businessTypeEnum(from: businessType))
+                if let result = await transcriptionService.transcribeAudioFile(at: audioURL, authToken: authToken, userId: userId, industryVocabulary: vocab) {
+                    transcript = result
                 } else {
-                    logger.error("Process recording blocked by validation for file \(audioURL.lastPathComponent, privacy: .public)")
                     let reason = transcriptionService.failureReason
                     currentFailureState = failureState(from: reason)
                 }
             } else {
-                currentFailureState = .transcriptionFailed(message: "No audio file was recorded.")
+                logger.error("Process recording blocked by validation for file \(audioURL.lastPathComponent, privacy: .public)")
+                let reason = transcriptionService.failureReason
+                currentFailureState = failureState(from: reason)
             }
-
-            var summary: String
-            var categorizedItems: [CategorizedItem]
-            var actionItems: [ActionItem]
-            var usedAI = false
-            var warning: String?
-            var transcriptCoverage: String?
-
-            if !transcript.isEmpty {
-                processingStage = .structuring
-                (summary, categorizedItems, actionItems, usedAI, warning, transcriptCoverage) = await structureTranscript(
-                    transcript, businessType: businessType, authToken: authToken, userId: userId, locationId: locationId, industryType: industryType, resolvedShiftType: resolvedShiftType
-                )
-            } else {
-                summary = ""
-                categorizedItems = []
-                actionItems = []
-            }
-
-            processingStage = .finalizing
-
-            recordingFailureState = currentFailureState
-
-            let cleanedTranscript = TranscriptCleaner.clean(transcript, lowConfidenceSegments: transcriptionService.lowConfidenceSegments)
-            let validationResult = StructuringValidator.validate(
-                transcript: cleanedTranscript.text,
-                items: categorizedItems,
-                estimatedTopicCount: cleanedTranscript.estimatedTopicCount,
-                transcriptCoverage: transcriptCoverage
-            )
-            let reviewState = adjustedReviewState(validationResult: validationResult, usedAI: usedAI)
-            let combinedWarning = combineWarnings(
-                warning,
-                validationWarnings: validationResult.warnings,
-                needsUserReview: reviewState.needsUserReview,
-                usedAI: usedAI
-            )
-            structuringTelemetryLogger.log(
-                .validationEvaluated(
-                    warningCount: validationResult.warnings.count,
-                    confidenceScore: reviewState.confidenceScore,
-                    needsUserReview: reviewState.needsUserReview
-                )
-            )
-
-            pendingReviewData = PendingNoteReviewData(
-                rawTranscript: transcript,
-                audioDuration: duration,
-                audioUrl: audioURL?.lastPathComponent,
-                shiftInfo: shiftInfo,
-                summary: summary,
-                categorizedItems: validationResult.items,
-                actionItems: actionItems,
-                usedAI: usedAI,
-                structuringWarning: combinedWarning,
-                recordingFailureState: currentFailureState,
-                transcriptSegments: transcriptionService.transcriptSegments,
-                lowConfidenceSegments: transcriptionService.lowConfidenceSegments,
-                averageTranscriptConfidence: transcriptionService.averageSegmentConfidence,
-                confidenceScore: reviewState.confidenceScore,
-                validationWarnings: validationResult.warnings,
-                warningItemIDs: validationResult.warningItemIDs
-            )
-            stopProcessingTimer()
-            processingStage = nil
-            isProcessing = false
+        } else {
+            currentFailureState = .transcriptionFailed(message: "No audio file was recorded.")
         }
+
+        var summary: String
+        var categorizedItems: [CategorizedItem]
+        var actionItems: [ActionItem]
+        var usedAI = false
+        var warning: String?
+        var transcriptCoverage: String?
+
+        if !transcript.isEmpty {
+            processingStage = .structuring
+            (summary, categorizedItems, actionItems, usedAI, warning, transcriptCoverage) = await structureTranscript(
+                transcript, businessType: businessType, authToken: authToken, userId: userId, locationId: locationId, industryType: industryType, resolvedShiftType: resolvedShiftType
+            )
+        } else {
+            summary = ""
+            categorizedItems = []
+            actionItems = []
+        }
+
+        processingStage = .finalizing
+
+        recordingFailureState = currentFailureState
+
+        let cleanedTranscript = TranscriptCleaner.clean(transcript, lowConfidenceSegments: transcriptionService.lowConfidenceSegments)
+        let validationResult = StructuringValidator.validate(
+            transcript: cleanedTranscript.text,
+            items: categorizedItems,
+            estimatedTopicCount: cleanedTranscript.estimatedTopicCount,
+            transcriptCoverage: transcriptCoverage
+        )
+        let reviewState = adjustedReviewState(validationResult: validationResult, usedAI: usedAI)
+        let combinedWarning = combineWarnings(
+            warning,
+            validationWarnings: validationResult.warnings,
+            needsUserReview: reviewState.needsUserReview,
+            usedAI: usedAI
+        )
+        structuringTelemetryLogger.log(
+            .validationEvaluated(
+                warningCount: validationResult.warnings.count,
+                confidenceScore: reviewState.confidenceScore,
+                needsUserReview: reviewState.needsUserReview
+            )
+        )
+
+        pendingReviewData = PendingNoteReviewData(
+            rawTranscript: transcript,
+            audioDuration: duration,
+            audioUrl: audioURL?.lastPathComponent,
+            shiftInfo: shiftInfo,
+            summary: summary,
+            categorizedItems: validationResult.items,
+            actionItems: actionItems,
+            usedAI: usedAI,
+            structuringWarning: combinedWarning,
+            recordingFailureState: currentFailureState,
+            transcriptSegments: transcriptionService.transcriptSegments,
+            lowConfidenceSegments: transcriptionService.lowConfidenceSegments,
+            averageTranscriptConfidence: transcriptionService.averageSegmentConfidence,
+            confidenceScore: reviewState.confidenceScore,
+            validationWarnings: validationResult.warnings,
+            warningItemIDs: validationResult.warningItemIDs
+        )
+        stopProcessingTimer()
+        processingStage = nil
+        isProcessing = false
     }
 
     private func structureTranscript(_ transcript: String, businessType: String, authToken: String?, userId: String?, locationId: String? = nil, industryType: String? = nil, resolvedShiftType: String? = nil) async -> (String, [CategorizedItem], [ActionItem], Bool, String?, String?) {
@@ -429,82 +381,11 @@ final class RecordingViewModel {
         }
     }
 
-    private func instantStructureTranscript(_ transcript: String, businessType: String) -> (String, [CategorizedItem], [ActionItem], Bool, String?) {
-        let summary = TranscriptProcessor.generateSummary(from: transcript)
-        let categories = TranscriptProcessor.generateCategories(from: transcript, businessType: businessType)
-        let actions = TranscriptProcessor.generateActionItems(from: categories)
-        return (summary, categories, actions, true, nil)
-    }
-
     private func offlineFallback(transcript: String, businessType: String, warning: String) -> (String, [CategorizedItem], [ActionItem], Bool, String?) {
         let summary = TranscriptProcessor.generateSummary(from: transcript)
         let categories = TranscriptProcessor.generateCategories(from: transcript, businessType: businessType)
         let actions = TranscriptProcessor.generateActionItems(from: categories)
         return (summary, categories, actions, false, warning)
-    }
-
-    private func refineWithFullTranscription(audioURL: URL, duration: TimeInterval, shiftInfo: ShiftDisplayInfo, businessType: String, authToken: String?, userId: String?, previousTranscript: String) async {
-        let isValid = await transcriptionService.validateBeforeTranscription(at: audioURL)
-        guard isValid else {
-            logger.error("Background refinement blocked by validation for file \(audioURL.lastPathComponent, privacy: .public)")
-            return
-        }
-        logger.info("Background refinement validation passed for file \(audioURL.lastPathComponent, privacy: .public)")
-
-        let refineVocab = industryVocabulary(for: businessTypeEnum(from: businessType))
-        guard let fullTranscript = await transcriptionService.transcribeAudioFile(at: audioURL, authToken: authToken, userId: userId, industryVocabulary: refineVocab) else { return }
-
-        let trimmedFull = fullTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedPrevious = previousTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmedFull.count > trimmedPrevious.count + 20 else { return }
-
-        let (summary, categorizedItems, actionItems, usedAI, warning, transcriptCoverage) = await structureTranscript(
-            fullTranscript, businessType: businessType, authToken: authToken, userId: userId,
-            locationId: lastStopParams?.locationId, industryType: lastStopParams?.industryType, resolvedShiftType: lastStopParams?.resolvedShiftType
-        )
-
-        guard usedAI else { return }
-        guard !hasUserEditedReview else { return }
-
-        let cleanedTranscript = TranscriptCleaner.clean(fullTranscript, lowConfidenceSegments: transcriptionService.lowConfidenceSegments)
-        let validationResult = StructuringValidator.validate(
-            transcript: cleanedTranscript.text,
-            items: categorizedItems,
-            estimatedTopicCount: cleanedTranscript.estimatedTopicCount,
-            transcriptCoverage: transcriptCoverage
-        )
-        let reviewState = adjustedReviewState(validationResult: validationResult, usedAI: usedAI)
-        let combinedWarning = combineWarnings(
-            warning,
-            validationWarnings: validationResult.warnings,
-            needsUserReview: reviewState.needsUserReview,
-            usedAI: usedAI
-        )
-        structuringTelemetryLogger.log(
-            .validationEvaluated(
-                warningCount: validationResult.warnings.count,
-                confidenceScore: reviewState.confidenceScore,
-                needsUserReview: reviewState.needsUserReview
-            )
-        )
-
-        pendingReviewData = PendingNoteReviewData(
-            rawTranscript: fullTranscript,
-            audioDuration: duration,
-            audioUrl: audioURL.lastPathComponent,
-            shiftInfo: shiftInfo,
-            summary: summary,
-            categorizedItems: validationResult.items,
-            actionItems: actionItems,
-            usedAI: usedAI,
-            structuringWarning: combinedWarning,
-            recordingFailureState: .none,
-            transcriptSegments: transcriptionService.transcriptSegments,
-            lowConfidenceSegments: transcriptionService.lowConfidenceSegments,
-            averageTranscriptConfidence: transcriptionService.averageSegmentConfidence,
-            confidenceScore: reviewState.confidenceScore,
-            validationWarnings: validationResult.warnings
-        )
     }
 
     func cancelProcessing() {

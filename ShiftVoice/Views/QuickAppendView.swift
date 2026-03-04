@@ -179,34 +179,28 @@ struct QuickAppendView: View {
 
     private func stopAndProcess() {
         let audioURL = recorder.currentAudioURL
-        let liveText = transcription.transcribedText
         recorder.stopRecording()
         isProcessing = true
 
         Task {
-            await processAppend(audioURL: audioURL, liveText: liveText)
+            await processAppend(audioURL: audioURL)
         }
     }
 
-    private func processAppend(audioURL: URL?, liveText: String) async {
+    private func processAppend(audioURL: URL?) async {
         var transcript = ""
 
-        let hasLive = !liveText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        if hasLive {
-            transcript = liveText
-        } else {
-            processingStage = .transcribing
-            if let url = audioURL {
-                let isValid = await transcription.validateBeforeTranscription(at: url)
-                guard isValid else {
-                    errorMessage = transcription.failureReason?.userMessage ?? "Unable to transcribe this recording."
-                    isProcessing = false
-                    return
-                }
-                let vocab = IndustrySeed.template(for: viewModel.organizationBusinessType).terminology.allVocabulary
-                if let result = await transcription.transcribeAudioFile(at: url, authToken: viewModel.backendAuthToken, userId: viewModel.currentUserId, industryVocabulary: vocab) {
-                    transcript = result
-                }
+        processingStage = .transcribing
+        if let url = audioURL {
+            let isValid = await transcription.validateBeforeTranscription(at: url)
+            guard isValid else {
+                errorMessage = transcription.failureReason?.userMessage ?? "Unable to transcribe this recording."
+                isProcessing = false
+                return
+            }
+            let vocab = IndustrySeed.template(for: viewModel.organizationBusinessType).terminology.allVocabulary
+            if let result = await transcription.transcribeAudioFile(at: url, authToken: viewModel.backendAuthToken, userId: viewModel.currentUserId, industryVocabulary: vocab) {
+                transcript = result
             }
         }
 

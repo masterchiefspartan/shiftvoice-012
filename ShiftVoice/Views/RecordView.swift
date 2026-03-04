@@ -147,7 +147,7 @@ struct RecordView: View {
                 }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("ShiftVoice needs microphone and speech recognition access to record and transcribe your shift notes. Please enable them in Settings.")
+                Text("ShiftVoice needs microphone access to record and transcribe your shift notes. Please enable it in Settings.")
             }
 
             .task {
@@ -259,15 +259,11 @@ struct RecordView: View {
             Spacer()
 
             if recording.isRecording {
-                if !guidedPrompts.isEmpty && recording.transcriptionService.transcribedText.isEmpty {
+                if !guidedPrompts.isEmpty {
                     guidedPromptBubble
                         .padding(.horizontal, 24)
                         .padding(.bottom, 8)
                 }
-
-                liveTranscriptView
-                    .padding(.horizontal, 24)
-                    .padding(.bottom, 8)
 
                 waveformDisplay
                     .padding(.bottom, 24)
@@ -406,27 +402,6 @@ struct RecordView: View {
         }
     }
 
-    private var liveTranscriptView: some View {
-        Group {
-            if !recording.transcriptionService.transcribedText.isEmpty {
-                ScrollView {
-                    Text(recording.transcriptionService.transcribedText)
-                        .font(.subheadline)
-                        .foregroundStyle(SVTheme.textSecondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .frame(maxHeight: 80)
-                .padding(12)
-                .background(SVTheme.surfaceSecondary)
-                .clipShape(.rect(cornerRadius: 10))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10)
-                        .stroke(SVTheme.surfaceBorder, lineWidth: 1)
-                )
-            }
-        }
-    }
-
     private var waveformDisplay: some View {
         HStack(spacing: 3) {
             ForEach(0..<30, id: \.self) { index in
@@ -462,15 +437,6 @@ struct RecordView: View {
                 Text(processingSubtitle)
                     .font(.caption)
                     .foregroundStyle(SVTheme.textTertiary)
-            }
-
-            if !recording.transcriptionService.transcribedText.isEmpty {
-                Text(recording.transcriptionService.transcribedText)
-                    .font(.caption)
-                    .foregroundStyle(SVTheme.textSecondary)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(3)
-                    .padding(.horizontal, 32)
             }
 
             if recording.processingElapsed >= 15 {
