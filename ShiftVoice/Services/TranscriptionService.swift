@@ -80,8 +80,8 @@ final class TranscriptionService {
 
     private let cloudSession: URLSession = {
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 15
-        config.timeoutIntervalForResource = 30
+        config.timeoutIntervalForRequest = 60
+        config.timeoutIntervalForResource = 120
         return URLSession(configuration: config)
     }()
 
@@ -309,13 +309,25 @@ final class TranscriptionService {
 
             return text
         } catch {
-            if let urlError = error as? URLError, urlError.code == .notConnectedToInternet {
-                failureReason = .noConnection
-                errorMessage = TranscriptionFailureReason.noConnection.userMessage
+            if let urlError = error as? URLError {
+                switch urlError.code {
+                case .notConnectedToInternet, .networkConnectionLost, .dataNotAllowed:
+                    failureReason = .noConnection
+                    errorMessage = TranscriptionFailureReason.noConnection.userMessage
+                case .timedOut:
+                    failureReason = .cloudFailed
+                    errorMessage = "Transcription timed out. Please try again — shorter recordings process faster."
+                case .cannotFindHost, .cannotConnectToHost, .dnsLookupFailed:
+                    failureReason = .cloudFailed
+                    errorMessage = "Could not reach transcription server. Check your connection and try again."
+                default:
+                    failureReason = .cloudFailed
+                    errorMessage = "Cloud transcription failed (\(urlError.code.rawValue)). Please retry."
+                }
                 return nil
             }
             failureReason = .cloudFailed
-            errorMessage = error.localizedDescription.isEmpty ? TranscriptionFailureReason.cloudFailed.userMessage : error.localizedDescription
+            errorMessage = "Cloud transcription failed. Please retry."
             return nil
         }
     }
