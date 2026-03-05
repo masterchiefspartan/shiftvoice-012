@@ -464,7 +464,7 @@ final class AuthenticationService {
         Task {
             do {
                 let idToken = try await user.getIDToken()
-                let name = user.displayName ?? ""
+                let name = self.resolvedBackendDisplayName(for: user)
                 let email = user.email ?? ""
                 let uid = user.uid
 
@@ -507,7 +507,7 @@ final class AuthenticationService {
                 let response = try await APIService.shared.firebaseAuth(
                     idToken: idToken,
                     uid: user.uid,
-                    name: user.displayName ?? "",
+                    name: self.resolvedBackendDisplayName(for: user),
                     email: user.email ?? ""
                 )
                 if response.success, let token = response.token {
@@ -618,6 +618,24 @@ final class AuthenticationService {
         default:
             errorMessage = error.localizedDescription
         }
+    }
+
+    private func resolvedBackendDisplayName(for user: FirebaseAuth.User) -> String {
+        let trimmedDisplayName = user.displayName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if trimmedDisplayName.count >= 2 {
+            return trimmedDisplayName
+        }
+
+        if let email = user.email?.trimmingCharacters(in: .whitespacesAndNewlines),
+           let localPart = email.split(separator: "@").first {
+            let candidate = String(localPart).replacingOccurrences(of: ".", with: " ")
+            let normalized = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+            if normalized.count >= 2 {
+                return normalized
+            }
+        }
+
+        return "ShiftVoice User"
     }
 
     private func isValidEmail(_ email: String) -> Bool {
