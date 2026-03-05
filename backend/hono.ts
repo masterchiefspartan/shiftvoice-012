@@ -3,7 +3,6 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import * as crypto from "crypto";
 import * as z from "zod";
-import { generateObject, generateText } from "@rork-ai/toolkit-sdk";
 
 import { appRouter } from "./trpc/app-router";
 import { createContext } from "./trpc/create-context";
@@ -1433,6 +1432,78 @@ const structuredNoteSchema = z.object({
   ).describe("Each distinct issue, observation, or handoff item mentioned in the transcript. Split into SEPARATE items - one per distinct topic. Do NOT group multiple topics together."),
 });
 
+type ChatMessage = {
+  role: "user" | "assistant" | "system";
+  content: string;
+};
+
+async function generateStructuredNote(messages: ChatMessage[]): Promise<z.infer<typeof structuredNoteSchema>> {
+  const openAIKey = process.env.OPENAI_API_KEY;
+  if (!openAIKey) {
+    throw new Error("OPENAI_API_KEY missing");
+  }
+
+  const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${openAIKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "gpt-4o-mini",
+      temperature: 0.2,
+      response_format: { type: "json_object" },
+      messages,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorPayload = await response.text().catch(() => "");
+    throw new Error(`Structured generation failed (${response.status}): ${errorPayload}`);
+  }
+
+  const payload = await response.json() as {
+    choices?: Array<{ message?: { content?: string } }>;
+  };
+  const rawContent = payload.choices?.[0]?.message?.content ?? "";
+  const parsed = JSON.parse(rawContent);
+  const validation = structuredNoteSchema.safeParse(parsed);
+  if (!validation.success) {
+    throw new Error("Structured generation produced invalid schema output");
+  }
+  return validation.data;
+}
+
+async function generateRefinedText(messages: ChatMessage[]): Promise<string> {
+  const openAIKey = process.env.OPENAI_API_KEY;
+  if (!openAIKey) {
+    throw new Error("OPENAI_API_KEY missing");
+  }
+
+  const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${openAIKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "gpt-4o-mini",
+      temperature: 0.2,
+      messages,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorPayload = await response.text().catch(() => "");
+    throw new Error(`Text generation failed (${response.status}): ${errorPayload}`);
+  }
+
+  const payload = await response.json() as {
+    choices?: Array<{ message?: { content?: string } }>;
+  };
+  return (payload.choices?.[0]?.message?.content ?? "").trim();
+}
+
 function estimateExpectedItemCount(transcript: string): number {
   const lower = transcript.toLowerCase();
   let cues = 0;
@@ -1484,11 +1555,10 @@ app.post("/rest/structure-transcript", async (c) => {
   } = validation.data;
 
   try {
-    const firstPass = await generateObject({
-      messages: [
-        {
-          role: "user",
-          content: `You are an expert shift handoff assistant for a ${businessType} business. Your job is to take a raw voice transcript from a shift worker and structure it into separate, actionable items.
+    const firstPass = await generateStructuredNote([
+      {
+        role: "user",
+        content: `You are an expert shift handoff assistant for a ${businessType} business. Your job is to take a raw voice transcript from a shift worker and structure it into separate, actionable items.
 
 EXTRACTION PROCESS (follow these steps in order):
 
@@ -1563,9 +1633,8 @@ Here is the transcript to structure:
 
 "${transcript}"`
         }
-      ],
-      schema: structuredNoteSchema,
-    });
+      ]
+    );
 
     const extractedCount = firstPass.items?.length ?? 0;
     const expectedMin = Math.max(estimateExpectedItemCount(transcript), estimatedTopicCount ?? 1);
@@ -1573,11 +1642,10 @@ Here is the transcript to structure:
     if (extractedCount < expectedMin && extractedCount > 0) {
       try {
         const existingItems = firstPass.items.map((i: any) => i.content).join("\n- ");
-        const recoveryPass = await generateObject({
-          messages: [
-            {
-              role: "user",
-              content: `You are reviewing a shift handoff transcript for a ${businessType} business. A first pass already extracted some items, but it may have MISSED some.
+        const recoveryPass = await generateStructuredNote([
+          {
+            role: "user",
+            content: `You are reviewing a shift handoff transcript for a ${businessType} business. A first pass already extracted some items, but it may have MISSED some.
 
 Here is the original transcript:
 "${transcript}"
@@ -1594,9 +1662,8 @@ Rules:
 - Each new item must describe a DISTINCT topic not covered above
 - Use the worker's actual words and details`
             }
-          ],
-          schema: structuredNoteSchema,
-        });
+          ]
+        );
 
         if (recoveryPass.items?.length > 0) {
           firstPass.items.push(...recoveryPass.items);
@@ -1630,14 +1697,12 @@ app.post("/rest/refine-action-item", async (c) => {
   const { text } = validation.data;
 
   try {
-    const refined = await generateText({
-      messages: [
-        {
-          role: "user",
-          content: `Rewrite this shift handoff action item to be professional, clear, and actionable. Keep it concise (one sentence, starting with an imperative verb). Do not add information that wasn't in the original. Only return the rewritten text, nothing else.\n\nOriginal: "${text}"`
-        }
-      ]
-    });
+    const refined = await generateRefinedText([
+      {
+        role: "user",
+        content: `Rewrite this shift handoff action item to be professional, clear, and actionable. Keep it concise (one sentence, starting with an imperative verb). Do not add information that wasn't in the original. Only return the rewritten text, nothing else.\n\nOriginal: "${text}"`
+      }
+    ]);
 
     return c.json({ success: true, refined: refined.trim() });
   } catch (error: any) {
