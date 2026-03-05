@@ -513,8 +513,9 @@ final class AuthenticationService {
                 if response.success, let token = response.token {
                     self.backendToken = token
                     self.backendAuthFailed = false
-                    _ = KeychainService.saveBackendToken(token)
-                    APIService.shared.setAuth(token: token, userId: response.userId ?? user.uid)
+                    let resolvedUserId = response.userId ?? user.uid
+                    _ = KeychainService.saveBackendAuthContext(token: token, userId: resolvedUserId)
+                    APIService.shared.setAuth(token: token, userId: resolvedUserId)
                     return true
                 }
                 self.backendAuthFailed = true
@@ -536,8 +537,9 @@ final class AuthenticationService {
                 if response.success, let token = response.token {
                     backendToken = token
                     backendAuthFailed = false
-                    _ = KeychainService.saveBackendToken(token)
-                    APIService.shared.setAuth(token: token, userId: response.userId ?? userId)
+                    let resolvedUserId = response.userId ?? userId
+                    _ = KeychainService.saveBackendAuthContext(token: token, userId: resolvedUserId)
+                    APIService.shared.setAuth(token: token, userId: resolvedUserId)
                     return
                 } else if let serverError = response.error {
                     errorMessage = serverError
@@ -562,10 +564,16 @@ final class AuthenticationService {
     }
 
     func restoreBackendToken() {
-        guard let token = KeychainService.loadBackendToken(), !token.isEmpty else { return }
-        backendToken = token
-        guard let userId = currentUserId, !userId.isEmpty else { return }
-        APIService.shared.setAuth(token: token, userId: userId)
+        guard let currentUserId, !currentUserId.isEmpty else { return }
+        guard let context = KeychainService.loadBackendAuthContext() else { return }
+        guard context.userId == currentUserId else {
+            KeychainService.clearBackendToken()
+            backendToken = nil
+            APIService.shared.clearAuth()
+            return
+        }
+        backendToken = context.token
+        APIService.shared.setAuth(token: context.token, userId: currentUserId)
     }
 
     // MARK: - Helpers
