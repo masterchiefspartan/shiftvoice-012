@@ -481,7 +481,6 @@ final class AuthenticationService {
     }
 
     func retryBackendAuthIfNeeded() async -> Bool {
-        guard backendAuthFailed || backendToken == nil else { return true }
         guard !isRetryingBackendAuth else { return false }
         guard let user = Auth.auth().currentUser else { return false }
         guard APIService.shared.isConfigured else { return false }
@@ -490,7 +489,7 @@ final class AuthenticationService {
         defer { isRetryingBackendAuth = false }
 
         do {
-            let idToken = try await user.getIDToken()
+            let idToken = try await user.getIDToken(forcingRefresh: true)
             let response = try await APIService.shared.firebaseAuth(
                 idToken: idToken,
                 uid: user.uid,
@@ -504,10 +503,12 @@ final class AuthenticationService {
                 APIService.shared.setAuth(token: token, userId: response.userId ?? user.uid)
                 return true
             }
+            backendAuthFailed = true
+            return false
         } catch {
             backendAuthFailed = true
+            return false
         }
-        return false
     }
 
     private func performBackendAuth(_ authCall: () async throws -> AuthResponse, userId: String) async {
