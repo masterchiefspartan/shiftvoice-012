@@ -146,7 +146,14 @@ final class TranscriptionService {
             return nil
         }
 
-        let result = await transcribeViaCloud(audioURL: url, durationSeconds: durationSeconds, authToken: authToken, userId: userId, industryVocabulary: industryVocabulary)
+        let result = await transcribeViaCloud(
+            audioURL: url,
+            durationSeconds: durationSeconds,
+            authToken: authToken,
+            userId: userId,
+            industryVocabulary: industryVocabulary,
+            shouldAttemptUnauthorizedRecovery: true
+        )
         if let result {
             transcribedText = result
         } else if failureReason == nil {
@@ -191,7 +198,14 @@ final class TranscriptionService {
         }
     }
 
-    private func transcribeViaCloud(audioURL: URL, durationSeconds: TimeInterval?, authToken: String?, userId: String?, industryVocabulary: [String]) async -> String? {
+    private func transcribeViaCloud(
+        audioURL: URL,
+        durationSeconds: TimeInterval?,
+        authToken: String?,
+        userId: String?,
+        industryVocabulary: [String],
+        shouldAttemptUnauthorizedRecovery: Bool
+    ) async -> String? {
         guard !baseURL.isEmpty else {
             failureReason = .cloudFailed
             errorMessage = "Transcription service is not configured yet. Please update the app and try again."
@@ -212,8 +226,22 @@ final class TranscriptionService {
             return nil
         }
 
-        let trimmedToken = authToken?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedUserId = userId?.trimmingCharacters(in: .whitespacesAndNewlines)
+        var trimmedToken = authToken?.trimmingCharacters(in: .whitespacesAndNewlines)
+        var trimmedUserId = userId?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if (trimmedToken?.isEmpty ?? true) || (trimmedUserId?.isEmpty ?? true) {
+            trimmedToken = APIService.shared.currentAuthToken?.trimmingCharacters(in: .whitespacesAndNewlines)
+            trimmedUserId = APIService.shared.currentUserId?.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        if ((trimmedToken?.isEmpty ?? true) || (trimmedUserId?.isEmpty ?? true)) && shouldAttemptUnauthorizedRecovery {
+            let recovered = await APIService.shared.recoverUnauthorizedSessionIfNeeded()
+            if recovered {
+                trimmedToken = APIService.shared.currentAuthToken?.trimmingCharacters(in: .whitespacesAndNewlines)
+                trimmedUserId = APIService.shared.currentUserId?.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+
         guard let token = trimmedToken, !token.isEmpty, let uid = trimmedUserId, !uid.isEmpty else {
             failureReason = .unauthorized
             errorMessage = TranscriptionFailureReason.unauthorized.userMessage
@@ -268,6 +296,17 @@ final class TranscriptionService {
 
             guard httpResponse.statusCode == 200 else {
                 if httpResponse.statusCode == 401 {
+                    if shouldAttemptUnauthorizedRecovery,
+                       await APIService.shared.recoverUnauthorizedSessionIfNeeded() {
+                        return await transcribeViaCloud(
+                            audioURL: audioURL,
+                            durationSeconds: durationSeconds,
+                            authToken: APIService.shared.currentAuthToken,
+                            userId: APIService.shared.currentUserId,
+                            industryVocabulary: industryVocabulary,
+                            shouldAttemptUnauthorizedRecovery: false
+                        )
+                    }
                     failureReason = .unauthorized
                     errorMessage = TranscriptionFailureReason.unauthorized.userMessage
                     return nil

@@ -269,6 +269,11 @@ final class APIService {
         unauthorizedRecoveryHandler = handler
     }
 
+    func recoverUnauthorizedSessionIfNeeded() async -> Bool {
+        guard let unauthorizedRecoveryHandler else { return false }
+        return await unauthorizedRecoveryHandler()
+    }
+
     private func makeRequest(path: String, method: String = "GET", body: Any? = nil, shouldAttemptUnauthorizedRecovery: Bool = true) async throws -> Data {
         guard !baseURL.isEmpty else { throw APIError.invalidURL }
         guard let url = URL(string: "\(baseURL)/api/rest/\(path)") else { throw APIError.invalidURL }
