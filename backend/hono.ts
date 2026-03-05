@@ -1307,6 +1307,9 @@ app.delete("/rest/team/:memberId", async (c) => {
 
 // --- Audio Transcription (Whisper) ---
 
+const MAX_WHISPER_FILE_BYTES = 25 * 1024 * 1024;
+const MAX_TRANSCRIPTION_DURATION_SECONDS = 3 * 60;
+
 const handleWhisperTranscribe = async (c: any) => {
   const auth = authMiddleware(c);
   if (!auth) return errorResponse(c, 401, "Unauthorized", "UNAUTHORIZED");
@@ -1321,6 +1324,22 @@ const handleWhisperTranscribe = async (c: any) => {
   const audioField = formData.get("audio") ?? formData.get("file");
   if (!audioField || !(audioField instanceof File)) {
     return errorResponse(c, 400, "Audio file is required", "VALIDATION_ERROR");
+  }
+
+  if (audioField.size <= 0) {
+    return errorResponse(c, 400, "Audio file is empty", "STT_EMPTY_AUDIO");
+  }
+  if (audioField.size > MAX_WHISPER_FILE_BYTES) {
+    return errorResponse(c, 413, "Audio file exceeds 25MB limit", "STT_FILE_TOO_LARGE");
+  }
+
+  const durationField = formData.get("durationSeconds");
+  const durationSeconds = typeof durationField === "string" ? Number(durationField) : NaN;
+  if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) {
+    return errorResponse(c, 400, "Audio duration is required", "STT_DURATION_REQUIRED");
+  }
+  if (durationSeconds > MAX_TRANSCRIPTION_DURATION_SECONDS) {
+    return errorResponse(c, 400, "Recording is too long. Maximum duration is 3 minutes.", "STT_DURATION_EXCEEDED");
   }
 
   const openAIKey = process.env.OPENAI_API_KEY;
@@ -1350,8 +1369,21 @@ const handleWhisperTranscribe = async (c: any) => {
     });
 
     if (!sttResponse.ok) {
-      const errorText = await sttResponse.text().catch(() => "Unknown error");
-      console.error("STT API error:", sttResponse.status, errorText);
+      const errorPayload = await sttResponse.json().catch(() => null) as {
+        error?: { message?: string; type?: string; code?: string };
+      } | null;
+      const openAIType = errorPayload?.error?.type ?? "";
+      const openAICode = errorPayload?.error?.code ?? "";
+      const openAIMessage = errorPayload?.error?.message ?? "Transcription service unavailable";
+      console.error("STT API error:", sttResponse.status, openAIType || openAICode || openAIMessage);
+
+      if (sttResponse.status === 429) {
+        if (openAIType === "insufficient_quota" || openAICode === "insufficient_quota") {
+          return errorResponse(c, 429, "Transcription quota exhausted. Please try again later.", "STT_QUOTA_EXCEEDED");
+        }
+        return errorResponse(c, 429, "Transcription is rate-limited. Please retry shortly.", "STT_RATE_LIMITED");
+      }
+
       return errorResponse(c, 502, "Transcription service unavailable", "STT_ERROR");
     }
 

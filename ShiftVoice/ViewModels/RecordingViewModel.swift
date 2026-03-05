@@ -145,7 +145,7 @@ final class RecordingViewModel {
         logger.info("Retry transcription validation passed for file \(audioURL.lastPathComponent, privacy: .public)")
 
         let retryVocab = industryVocabulary(for: businessTypeEnum(from: businessType))
-        if let result = await transcriptionService.transcribeAudioFile(at: audioURL, authToken: authToken, userId: userId, industryVocabulary: retryVocab) {
+        if let result = await transcriptionService.transcribeAudioFile(at: audioURL, durationSeconds: reviewData.audioDuration, authToken: authToken, userId: userId, industryVocabulary: retryVocab) {
             let cleanedTranscript = TranscriptCleaner.clean(result)
             let aiResult = await withTaskGroup(of: Result<StructuringResult, StructuringError>?.self) { group -> Result<StructuringResult, StructuringError>? in
                 group.addTask {
@@ -262,7 +262,7 @@ final class RecordingViewModel {
             if isValid {
                 logger.info("Process recording validation passed for file \(audioURL.lastPathComponent, privacy: .public)")
                 let vocab = industryVocabulary(for: businessTypeEnum(from: businessType))
-                if let result = await transcriptionService.transcribeAudioFile(at: audioURL, authToken: authToken, userId: userId, industryVocabulary: vocab) {
+                if let result = await transcriptionService.transcribeAudioFile(at: audioURL, durationSeconds: duration, authToken: authToken, userId: userId, industryVocabulary: vocab) {
                     transcript = result
                 } else {
                     let reason = transcriptionService.failureReason

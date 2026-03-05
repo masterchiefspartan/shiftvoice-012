@@ -199,7 +199,7 @@ struct QuickAppendView: View {
                 return
             }
             let vocab = IndustrySeed.template(for: viewModel.organizationBusinessType).terminology.allVocabulary
-            if let result = await transcription.transcribeAudioFile(at: url, authToken: viewModel.backendAuthToken, userId: viewModel.currentUserId, industryVocabulary: vocab) {
+            if let result = await transcription.transcribeAudioFile(at: url, durationSeconds: recorder.recordingDuration, authToken: viewModel.backendAuthToken, userId: viewModel.currentUserId, industryVocabulary: vocab) {
                 transcript = result
             }
         }

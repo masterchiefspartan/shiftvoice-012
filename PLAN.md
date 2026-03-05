@@ -60,18 +60,22 @@ Transform ShiftVoice from a voice-first shift notes tool into the **operating sy
 - 3-minute auto-stop has no user warning
 
 **Deliverables:**
-1. Validate audio file exists and has non-zero size before transcribing
-2. Continuation safety wrapper (track if already resumed)
-3. 30-second warning before auto-stop with haptic
-4. Clear distinction between "transcription failed" vs "empty recording"
-5. Retry transcription button on review screen
-6. Audio level indicator during recording (confirms mic is picking up)
+- [x] Validate audio file exists and has non-zero size before transcribing
+- [ ] Continuation safety wrapper (track if already resumed)
+- [x] 30-second warning before auto-stop with haptic
+- [x] Clear distinction between "transcription failed" vs "empty recording"
+- [x] Retry transcription button on review screen
+- [x] Audio level indicator during recording (confirms mic is picking up)
+- [x] Backend transcription guardrails (auth required, 25MB max file, 3-minute max duration)
+- [x] OpenAI Whisper error mapping (rate limit/quota) surfaced to iOS with user-friendly retry guidance
 
 **Tests:**
-- Audio file validation (zero-size, missing file, valid file)
-- Transcription failure handling paths
-- Auto-stop warning timing
-- Empty vs failed transcript UI state
+- [x] Audio file validation (zero-size, missing file, valid file)
+- [x] Transcription failure handling paths
+- [x] Auto-stop warning timing
+- [x] Empty vs failed transcript UI state
+- [x] Build verification after transcription safety/cost-control changes
+- [ ] End-to-end failure-path integration tests for backend `STT_*` error code mapping
 
 ---
 
@@ -395,7 +399,7 @@ Primary CTAs:
 | 2 | Transcript Splitting | ✅ Done | Critical | Medium | — |
 | 3 | Error Handling | ✅ Done | High | Low-Med | — |
 | 4 | Data Sync Integrity | ✅ Done | High | High | — |
-| 5 | Recording Reliability | 🔲 | Medium | Medium | Week 3 |
+| 5 | Recording Reliability | 🟨 In Progress | Medium | Medium | Week 3 |
 | 6 | Performance, Polish & Activation | ✅ Done | Medium | Medium | — |
 | 7 | Shift Handoff Reports | 🔲 | Critical | High | Week 5-7 |
 | 8 | @Mentions & Escalation | 🔲 | Critical | High | Week 7-9 |

@@ -8,6 +8,12 @@ nonisolated struct TranscribeResponse: Codable, Sendable {
     let error: String?
 }
 
+nonisolated struct TranscriptionErrorResponse: Codable, Sendable {
+    let success: Bool?
+    let error: String?
+    let code: String?
+}
+
 nonisolated enum TranscriptionFailureReason: Sendable {
     case noAudioFile
     case emptyAudioFile
@@ -15,6 +21,11 @@ nonisolated enum TranscriptionFailureReason: Sendable {
     case unsupportedAudioFormat
     case corruptAudioFile
     case noConnection
+    case rateLimited
+    case quotaExceeded
+    case fileTooLarge
+    case durationExceeded
+    case unauthorized
     case cloudFailed
     case noResult
 
@@ -41,6 +52,16 @@ nonisolated enum TranscriptionFailureReason: Sendable {
             return "The audio file could not be read. It may be corrupted."
         case .noConnection:
             return "No connection — transcription requires internet."
+        case .rateLimited:
+            return "Transcription is busy right now. Please retry in a moment."
+        case .quotaExceeded:
+            return "Transcription quota exhausted. Please try again later."
+        case .fileTooLarge:
+            return "Recording is too large to transcribe (max 25MB)."
+        case .durationExceeded:
+            return "Recording is too long. Please keep it under 3 minutes."
+        case .unauthorized:
+            return "Session expired. Please sign in again."
         case .cloudFailed:
             return "Cloud transcription failed."
         case .noResult:
@@ -112,7 +133,7 @@ final class TranscriptionService {
         return handleValidationResult(validationResult, for: url)
     }
 
-    func transcribeAudioFile(at url: URL, authToken: String? = nil, userId: String? = nil, industryVocabulary: [String] = []) async -> String? {
+    func transcribeAudioFile(at url: URL, durationSeconds: TimeInterval? = nil, authToken: String? = nil, userId: String? = nil, industryVocabulary: [String] = []) async -> String? {
         isTranscribing = true
         transcribedText = ""
         errorMessage = nil
@@ -125,7 +146,7 @@ final class TranscriptionService {
             return nil
         }
 
-        let result = await transcribeViaCloud(audioURL: url, authToken: authToken, userId: userId, industryVocabulary: industryVocabulary)
+        let result = await transcribeViaCloud(audioURL: url, durationSeconds: durationSeconds, authToken: authToken, userId: userId, industryVocabulary: industryVocabulary)
         if let result {
             transcribedText = result
         } else if failureReason == nil {
@@ -170,7 +191,7 @@ final class TranscriptionService {
         }
     }
 
-    private func transcribeViaCloud(audioURL: URL, authToken: String?, userId: String?, industryVocabulary: [String]) async -> String? {
+    private func transcribeViaCloud(audioURL: URL, durationSeconds: TimeInterval?, authToken: String?, userId: String?, industryVocabulary: [String]) async -> String? {
         guard !baseURL.isEmpty else {
             failureReason = .cloudFailed
             errorMessage = TranscriptionFailureReason.cloudFailed.userMessage
@@ -204,6 +225,12 @@ final class TranscriptionService {
 
         let filename = audioURL.lastPathComponent
         let mimeType = filename.hasSuffix(".m4a") ? "audio/m4a" : "audio/\(audioURL.pathExtension)"
+        let resolvedDurationSeconds: TimeInterval
+        if let durationSeconds {
+            resolvedDurationSeconds = durationSeconds
+        } else {
+            resolvedDurationSeconds = await measuredDurationSeconds(for: audioURL)
+        }
 
         var body = Data()
         body.append("--\(boundary)\r\n".data(using: .utf8)!)
@@ -215,6 +242,10 @@ final class TranscriptionService {
         body.append("Content-Disposition: form-data; name=\"language\"\r\n\r\n".data(using: .utf8)!)
         body.append("en".data(using: .utf8)!)
 
+        body.append("\r\n--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"durationSeconds\"\r\n\r\n".data(using: .utf8)!)
+        body.append("\(resolvedDurationSeconds)".data(using: .utf8)!)
+
         let prompt = buildWhisperPrompt(industryVocabulary: industryVocabulary)
         body.append("\r\n--\(boundary)\r\n".data(using: .utf8)!)
         body.append("Content-Disposition: form-data; name=\"prompt\"\r\n\r\n".data(using: .utf8)!)
@@ -225,7 +256,34 @@ final class TranscriptionService {
 
         do {
             let (data, response) = try await cloudSession.data(for: request)
-            guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+            guard let httpResponse = response as? HTTPURLResponse else {
+                failureReason = .cloudFailed
+                errorMessage = TranscriptionFailureReason.cloudFailed.userMessage
+                return nil
+            }
+
+            guard httpResponse.statusCode == 200 else {
+                if httpResponse.statusCode == 401 {
+                    failureReason = .unauthorized
+                    errorMessage = TranscriptionFailureReason.unauthorized.userMessage
+                    return nil
+                }
+                if let backendError = try? JSONDecoder().decode(TranscriptionErrorResponse.self, from: data) {
+                    switch backendError.code {
+                    case "STT_RATE_LIMITED":
+                        failureReason = .rateLimited
+                    case "STT_QUOTA_EXCEEDED":
+                        failureReason = .quotaExceeded
+                    case "STT_FILE_TOO_LARGE":
+                        failureReason = .fileTooLarge
+                    case "STT_DURATION_EXCEEDED":
+                        failureReason = .durationExceeded
+                    default:
+                        failureReason = .cloudFailed
+                    }
+                    errorMessage = failureReason?.userMessage ?? backendError.error ?? TranscriptionFailureReason.cloudFailed.userMessage
+                    return nil
+                }
                 failureReason = .cloudFailed
                 errorMessage = TranscriptionFailureReason.cloudFailed.userMessage
                 return nil
@@ -253,6 +311,18 @@ final class TranscriptionService {
 
     private func buildWhisperPrompt(industryVocabulary: [String]) -> String {
         WhisperPromptBuilder.build(from: industryVocabulary)
+    }
+
+    private func measuredDurationSeconds(for audioURL: URL) async -> TimeInterval {
+        let asset = AVURLAsset(url: audioURL)
+        do {
+            let duration = try await asset.load(.duration)
+            let seconds = CMTimeGetSeconds(duration)
+            guard seconds.isFinite, seconds > 0 else { return 0 }
+            return seconds
+        } catch {
+            return 0
+        }
     }
 
     func cancel() {
