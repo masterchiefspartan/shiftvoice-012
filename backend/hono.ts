@@ -12,6 +12,10 @@ const app = new Hono();
 
 app.use("*", cors());
 
+app.get("/rest/health", (c) => {
+  return c.json({ ok: true, ts: Date.now() });
+});
+
 app.use(
   "/trpc/*",
   trpcServer({
@@ -1712,3 +1716,4 @@ app.post("/rest/refine-action-item", async (c) => {
 });
 
 export default app;
+

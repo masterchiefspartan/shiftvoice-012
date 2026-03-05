@@ -8,6 +8,11 @@ nonisolated struct TranscribeResponse: Codable, Sendable {
     let error: String?
 }
 
+nonisolated struct ToolkitSTTResponse: Codable, Sendable {
+    let text: String?
+    let language: String?
+}
+
 nonisolated struct TranscriptionErrorResponse: Codable, Sendable {
     let success: Bool?
     let error: String?
@@ -84,8 +89,15 @@ final class TranscriptionService {
 
     private let cloudSession: URLSession = {
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 60
-        config.timeoutIntervalForResource = 120
+        config.timeoutIntervalForRequest = 30
+        config.timeoutIntervalForResource = 45
+        return URLSession(configuration: config)
+    }()
+
+    private let toolkitSession: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 45
+        config.timeoutIntervalForResource = 60
         return URLSession(configuration: config)
     }()
 
@@ -96,6 +108,12 @@ final class TranscriptionService {
     private var baseURL: String {
         let url = Config.EXPO_PUBLIC_RORK_API_BASE_URL
         if url.isEmpty || url == "EXPO_PUBLIC_RORK_API_BASE_URL" { return "" }
+        return url
+    }
+
+    private var toolkitURL: String {
+        let url = Config.EXPO_PUBLIC_TOOLKIT_URL
+        if url.isEmpty || url == "EXPO_PUBLIC_TOOLKIT_URL" { return "" }
         return url
     }
 
@@ -162,15 +180,42 @@ final class TranscriptionService {
             shouldAttemptUnauthorizedRecovery: true,
             context: context
         )
+
         if let result {
             transcribedText = result
-        } else if failureReason == nil {
+            isTranscribing = false
+            return result
+        }
+
+        let backendFailure = failureReason
+        if backendFailure == .cloudFailed || backendFailure == nil {
+            logger.info("Transcription attempt=\(context.id, privacy: .public) backend failed, trying toolkit fallback")
+            failureReason = nil
+            errorMessage = nil
+
+            let audioData: Data? = try? Data(contentsOf: url)
+            if let audioData {
+                let toolkitResult = await transcribeViaToolkit(audioData: audioData, audioURL: url, context: context)
+                if let toolkitResult {
+                    transcribedText = toolkitResult
+                    isTranscribing = false
+                    return toolkitResult
+                }
+            }
+
+            if failureReason == nil {
+                failureReason = backendFailure ?? .cloudFailed
+                errorMessage = (backendFailure ?? .cloudFailed).userMessage
+            }
+        }
+
+        if failureReason == nil {
             failureReason = .noResult
             errorMessage = TranscriptionFailureReason.noResult.userMessage
         }
 
         isTranscribing = false
-        return result
+        return nil
     }
 
     private func handleValidationResult(_ result: AudioValidationResult, for url: URL) -> Bool {
@@ -203,6 +248,78 @@ final class TranscriptionService {
         case .valid:
             logger.info("Validation passed for file \(url.lastPathComponent, privacy: .public)")
             return true
+        }
+    }
+
+    private func transcribeViaToolkit(audioData: Data, audioURL: URL, context: AttemptContext) async -> String? {
+        guard !toolkitURL.isEmpty else {
+            logger.error("Toolkit STT attempt=\(context.id, privacy: .public) skipped: no toolkit URL configured")
+            return nil
+        }
+
+        let sttEndpoint = toolkitURL.hasSuffix("/") ? "\(toolkitURL)stt/transcribe/" : "\(toolkitURL)/stt/transcribe/"
+        guard let url = URL(string: sttEndpoint) else {
+            logger.error("Toolkit STT attempt=\(context.id, privacy: .public) skipped: invalid URL")
+            return nil
+        }
+
+        let boundary = UUID().uuidString
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+
+        let filename = audioURL.lastPathComponent
+        let mimeType = filename.hasSuffix(".m4a") ? "audio/m4a" : "audio/\(audioURL.pathExtension)"
+
+        var body = Data()
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"audio\"; filename=\"\(filename)\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: \(mimeType)\r\n\r\n".data(using: .utf8)!)
+        body.append(audioData)
+
+        body.append("\r\n--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"language\"\r\n\r\n".data(using: .utf8)!)
+        body.append("en".data(using: .utf8)!)
+
+        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+        request.httpBody = body
+
+        logger.info("Toolkit STT attempt=\(context.id, privacy: .public) sending request")
+
+        do {
+            let (data, response) = try await toolkitSession.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse else {
+                logger.error("Toolkit STT attempt=\(context.id, privacy: .public) invalid response")
+                return nil
+            }
+
+            guard httpResponse.statusCode == 200 else {
+                logger.error("Toolkit STT attempt=\(context.id, privacy: .public) failed status=\(httpResponse.statusCode, privacy: .public)")
+                return nil
+            }
+
+            let result = try JSONDecoder().decode(ToolkitSTTResponse.self, from: data)
+            guard let text = result.text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                logger.info("Toolkit STT attempt=\(context.id, privacy: .public) returned empty text")
+                failureReason = .noResult
+                errorMessage = TranscriptionFailureReason.noResult.userMessage
+                return nil
+            }
+
+            logger.info("Toolkit STT attempt=\(context.id, privacy: .public) succeeded")
+            return text
+        } catch {
+            if let urlError = error as? URLError {
+                switch urlError.code {
+                case .notConnectedToInternet, .networkConnectionLost, .dataNotAllowed:
+                    failureReason = .noConnection
+                    errorMessage = TranscriptionFailureReason.noConnection.userMessage
+                default:
+                    break
+                }
+            }
+            logger.error("Toolkit STT attempt=\(context.id, privacy: .public) error: \(error.localizedDescription, privacy: .public)")
+            return nil
         }
     }
 
@@ -256,8 +373,8 @@ final class TranscriptionService {
 
         guard let token = trimmedToken, !token.isEmpty, let uid = trimmedUserId, !uid.isEmpty else {
             logger.error("Transcription attempt=\(context.id, privacy: .public) failed due to missing auth after recovery")
-            failureReason = .unauthorized
-            errorMessage = TranscriptionFailureReason.unauthorized.userMessage
+            failureReason = .cloudFailed
+            errorMessage = "Could not authenticate with transcription server. Trying fallback..."
             return nil
         }
 
@@ -322,8 +439,14 @@ final class TranscriptionService {
                             context: context
                         )
                     }
-                    failureReason = .unauthorized
-                    errorMessage = TranscriptionFailureReason.unauthorized.userMessage
+                    failureReason = .cloudFailed
+                    errorMessage = "Backend authentication failed. Trying fallback..."
+                    return nil
+                }
+                if httpResponse.statusCode == 503 {
+                    logger.error("Transcription attempt=\(context.id, privacy: .public) backend unavailable (503)")
+                    failureReason = .cloudFailed
+                    errorMessage = "Backend temporarily unavailable. Trying fallback..."
                     return nil
                 }
                 if let backendError = try? JSONDecoder().decode(TranscriptionErrorResponse.self, from: data) {
@@ -354,18 +477,18 @@ final class TranscriptionService {
                     errorMessage = TranscriptionFailureReason.noConnection.userMessage
                 case .timedOut:
                     failureReason = .cloudFailed
-                    errorMessage = "Transcription timed out. Please try again — shorter recordings process faster."
+                    errorMessage = "Backend timed out. Trying fallback..."
                 case .cannotFindHost, .cannotConnectToHost, .dnsLookupFailed:
                     failureReason = .cloudFailed
-                    errorMessage = "Could not reach transcription server. Check your connection and try again."
+                    errorMessage = "Could not reach backend. Trying fallback..."
                 default:
                     failureReason = .cloudFailed
-                    errorMessage = "Cloud transcription failed (\(urlError.code.rawValue)). Please retry."
+                    errorMessage = "Cloud transcription failed. Trying fallback..."
                 }
                 return nil
             }
             failureReason = .cloudFailed
-            errorMessage = "Cloud transcription failed. Please retry."
+            errorMessage = "Cloud transcription failed. Trying fallback..."
             return nil
         }
     }
