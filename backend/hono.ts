@@ -9,13 +9,13 @@ import { createContext } from "./trpc/create-context";
 import { storage } from "./storage";
 
 const app = new Hono();
-const redeployStamp = "2026-03-05T12:00:00Z";
-void redeployStamp;
+const DEPLOY_VERSION = "v2026.03.05.4-full-recreate";
+console.log(`[ShiftVoice] Backend starting — ${DEPLOY_VERSION} at ${new Date().toISOString()}`);
 
 app.use("*", cors());
 
 app.get("/rest/health", (c) => {
-  return c.json({ ok: true, ts: Date.now() });
+  return c.json({ ok: true, ts: Date.now(), version: DEPLOY_VERSION });
 });
 
 app.use(
@@ -778,7 +778,7 @@ seedDemoData();
 // --- Health ---
 
 app.get("/", (c) => {
-  return c.json({ status: "ok", message: "ShiftVoice API is running", stats: storage.getStats() });
+  return c.json({ status: "ok", message: "ShiftVoice API is running", version: DEPLOY_VERSION, stats: storage.getStats() });
 });
 
 // --- Auth Endpoints ---
@@ -1718,4 +1718,3 @@ app.post("/rest/refine-action-item", async (c) => {
 });
 
 export default app;
-
