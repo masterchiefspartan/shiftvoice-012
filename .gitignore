@@ -28,6 +28,9 @@ Package.resolved
 *.swp
 *~
 
+# Firebase config (contains API keys)
+GoogleService-Info.plist
+
 # Rork
 .rork/
 rork-eslint.config.js
