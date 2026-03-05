@@ -194,7 +194,7 @@ final class TranscriptionService {
     private func transcribeViaCloud(audioURL: URL, durationSeconds: TimeInterval?, authToken: String?, userId: String?, industryVocabulary: [String]) async -> String? {
         guard !baseURL.isEmpty else {
             failureReason = .cloudFailed
-            errorMessage = TranscriptionFailureReason.cloudFailed.userMessage
+            errorMessage = "Transcription service is not configured yet. Please update the app and try again."
             return nil
         }
         guard let endpoint = URL(string: "\(baseURL)/api/rest/transcribe") else {
@@ -212,16 +212,20 @@ final class TranscriptionService {
             return nil
         }
 
+        let trimmedToken = authToken?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedUserId = userId?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let token = trimmedToken, !token.isEmpty, let uid = trimmedUserId, !uid.isEmpty else {
+            failureReason = .unauthorized
+            errorMessage = TranscriptionFailureReason.unauthorized.userMessage
+            return nil
+        }
+
         let boundary = UUID().uuidString
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
-        if let token = authToken {
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        }
-        if let uid = userId {
-            request.setValue(uid, forHTTPHeaderField: "X-User-Id")
-        }
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue(uid, forHTTPHeaderField: "X-User-Id")
 
         let filename = audioURL.lastPathComponent
         let mimeType = filename.hasSuffix(".m4a") ? "audio/m4a" : "audio/\(audioURL.pathExtension)"
@@ -272,16 +276,23 @@ final class TranscriptionService {
                     switch backendError.code {
                     case "STT_RATE_LIMITED":
                         failureReason = .rateLimited
+                        errorMessage = TranscriptionFailureReason.rateLimited.userMessage
                     case "STT_QUOTA_EXCEEDED":
                         failureReason = .quotaExceeded
+                        errorMessage = TranscriptionFailureReason.quotaExceeded.userMessage
                     case "STT_FILE_TOO_LARGE":
                         failureReason = .fileTooLarge
+                        errorMessage = TranscriptionFailureReason.fileTooLarge.userMessage
                     case "STT_DURATION_EXCEEDED":
                         failureReason = .durationExceeded
+                        errorMessage = TranscriptionFailureReason.durationExceeded.userMessage
+                    case "UNAUTHORIZED":
+                        failureReason = .unauthorized
+                        errorMessage = TranscriptionFailureReason.unauthorized.userMessage
                     default:
                         failureReason = .cloudFailed
+                        errorMessage = backendError.error ?? TranscriptionFailureReason.cloudFailed.userMessage
                     }
-                    errorMessage = failureReason?.userMessage ?? backendError.error ?? TranscriptionFailureReason.cloudFailed.userMessage
                     return nil
                 }
                 failureReason = .cloudFailed
@@ -304,7 +315,7 @@ final class TranscriptionService {
                 return nil
             }
             failureReason = .cloudFailed
-            errorMessage = TranscriptionFailureReason.cloudFailed.userMessage
+            errorMessage = error.localizedDescription.isEmpty ? TranscriptionFailureReason.cloudFailed.userMessage : error.localizedDescription
             return nil
         }
     }
