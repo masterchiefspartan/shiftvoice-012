@@ -178,11 +178,10 @@ struct QuickAppendView: View {
     }
 
     private func stopAndProcess() {
-        let audioURL = recorder.currentAudioURL
-        recorder.stopRecording()
         isProcessing = true
 
         Task {
+            let audioURL = await recorder.stopRecordingAndAwaitFinalizedFile()
             await processAppend(audioURL: audioURL)
         }
     }

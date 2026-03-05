@@ -61,7 +61,7 @@ Transform ShiftVoice from a voice-first shift notes tool into the **operating sy
 
 **Deliverables:**
 - [x] Validate audio file exists and has non-zero size before transcribing
-- [ ] Continuation safety wrapper (track if already resumed)
+- [x] Continuation safety wrapper (track if already resumed)
 - [x] 30-second warning before auto-stop with haptic
 - [x] Clear distinction between "transcription failed" vs "empty recording"
 - [x] Retry transcription button on review screen

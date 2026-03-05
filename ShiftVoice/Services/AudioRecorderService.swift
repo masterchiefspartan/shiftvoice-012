@@ -1,6 +1,7 @@
 import AVFoundation
 import Accelerate
 import UIKit
+import OSLog
 
 @Observable
 final class AudioRecorderService: NSObject, AVAudioRecorderDelegate {
@@ -23,6 +24,16 @@ final class AudioRecorderService: NSObject, AVAudioRecorderDelegate {
     private var recordingStartedAt: Date?
     private var didEmitAutoStopWarning: Bool = false
     private var lifecycleObservers: [NSObjectProtocol] = []
+    private var stopRecordingContinuation: CheckedContinuation<URL?, Never>?
+    private var hasResumedStopRecordingContinuation: Bool = false
+    private var pendingStopRecordingURL: URL?
+    private var stopRecordingFallbackTask: Task<Void, Never>?
+    private let stopRecordingWaitWindow: Duration = .seconds(2)
+    private let stopRecordingFallbackDelay: Duration = .milliseconds(600)
+    private let fileFinalizationPollInterval: Duration = .milliseconds(120)
+    private let fileFinalizationPollAttempts: Int = 12
+    private let minimumExpectedRecordedBytes: UInt64 = 256
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "ShiftVoice", category: "AudioRecorder")
 
     private var recordingDirectory: URL {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
@@ -108,19 +119,32 @@ final class AudioRecorderService: NSObject, AVAudioRecorderDelegate {
     }
 
     func stopRecording() {
-        meteringTimer?.invalidate()
-        meteringTimer = nil
-        durationTimer?.invalidate()
-        durationTimer = nil
-        audioRecorder?.stop()
-        isRecording = false
-        autoStopWarningActive = false
-        recordingStartedAt = nil
-        unregisterLifecycleObservers()
+        stopRecordingNow()
+    }
 
-        do {
-            try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-        } catch {}
+    func stopRecordingAndAwaitFinalizedFile() async -> URL? {
+        let candidateURL = currentAudioURL
+        stopRecordingNow()
+
+        guard let candidateURL else {
+            return nil
+        }
+
+        if await isAudioFileReady(at: candidateURL) {
+            return candidateURL
+        }
+
+        return await withCheckedContinuation { continuation in
+            stopRecordingFallbackTask?.cancel()
+            stopRecordingContinuation = continuation
+            hasResumedStopRecordingContinuation = false
+            pendingStopRecordingURL = candidateURL
+            stopRecordingFallbackTask = Task { @MainActor [weak self] in
+                guard let self else { return }
+                try? await Task.sleep(for: stopRecordingWaitWindow)
+                await self.resumeStopRecordingContinuationIfNeeded(with: candidateURL)
+            }
+        }
     }
 
     private func startMetering() {
@@ -225,6 +249,72 @@ final class AudioRecorderService: NSObject, AVAudioRecorderDelegate {
             if !flag {
                 errorMessage = "Recording finished unexpectedly."
             }
+
+            let finalizedURL = pendingStopRecordingURL ?? currentAudioURL
+            if let finalizedURL {
+                stopRecordingFallbackTask?.cancel()
+                stopRecordingFallbackTask = Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    if await self.isAudioFileReady(at: finalizedURL) {
+                        await self.resumeStopRecordingContinuationIfNeeded(with: finalizedURL)
+                        return
+                    }
+                    try? await Task.sleep(for: stopRecordingFallbackDelay)
+                    await self.resumeStopRecordingContinuationIfNeeded(with: finalizedURL)
+                }
+            } else {
+                await resumeStopRecordingContinuationIfNeeded(with: nil)
+            }
         }
+    }
+
+    private func stopRecordingNow() {
+        meteringTimer?.invalidate()
+        meteringTimer = nil
+        durationTimer?.invalidate()
+        durationTimer = nil
+        audioRecorder?.stop()
+        isRecording = false
+        autoStopWarningActive = false
+        recordingStartedAt = nil
+        unregisterLifecycleObservers()
+
+        do {
+            try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        } catch {}
+    }
+
+    private func isAudioFileReady(at url: URL) async -> Bool {
+        let fileManager = FileManager.default
+        for _ in 0..<fileFinalizationPollAttempts {
+            guard fileManager.fileExists(atPath: url.path),
+                  let attrs = try? fileManager.attributesOfItem(atPath: url.path),
+                  let size = attrs[.size] as? UInt64,
+                  size >= minimumExpectedRecordedBytes else {
+                try? await Task.sleep(for: fileFinalizationPollInterval)
+                continue
+            }
+
+            let asset = AVURLAsset(url: url)
+            if let isPlayable = try? await asset.load(.isPlayable), isPlayable {
+                return true
+            }
+
+            try? await Task.sleep(for: fileFinalizationPollInterval)
+        }
+
+        logger.error("Recorded file was not ready in wait window for \(url.lastPathComponent, privacy: .public)")
+        return false
+    }
+
+    private func resumeStopRecordingContinuationIfNeeded(with url: URL?) async {
+        guard !hasResumedStopRecordingContinuation else { return }
+        hasResumedStopRecordingContinuation = true
+        pendingStopRecordingURL = nil
+        stopRecordingFallbackTask?.cancel()
+        stopRecordingFallbackTask = nil
+        let continuation = stopRecordingContinuation
+        stopRecordingContinuation = nil
+        continuation?.resume(returning: url)
     }
 }

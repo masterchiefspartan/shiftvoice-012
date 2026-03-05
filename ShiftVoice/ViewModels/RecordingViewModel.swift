@@ -72,8 +72,6 @@ final class RecordingViewModel {
         resolvedShiftType: String? = nil
     ) {
         let duration = audioRecorder.recordingDuration
-        let audioURL = audioRecorder.currentAudioURL
-        audioRecorder.stopRecording()
         isProcessing = true
         processingStage = .transcribing
         hasUserEditedReview = false
@@ -96,6 +94,7 @@ final class RecordingViewModel {
         let shiftInfo = selectedShift ?? defaultShift
 
         Task {
+            let audioURL = await audioRecorder.stopRecordingAndAwaitFinalizedFile()
             await processRecording(audioURL: audioURL, duration: duration, shiftInfo: shiftInfo, businessType: businessType, authToken: authToken, userId: userId, locationId: locationId, industryType: industryType, resolvedShiftType: resolvedShiftType)
         }
     }
