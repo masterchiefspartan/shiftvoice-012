@@ -9,6 +9,8 @@ import { createContext } from "./trpc/create-context";
 import { storage } from "./storage";
 
 const app = new Hono();
+const redeployStamp = "2026-03-05T00:00:00Z";
+void redeployStamp;
 
 app.use("*", cors());
 
