@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 
 nonisolated struct AIStructuredItem: Codable, Sendable {
     let content: String
@@ -139,6 +140,7 @@ final class NoteStructuringService {
     private let session: URLSession
     private let decoder: JSONDecoder
     private let featureFlags: FeatureFlagService
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "ShiftVoice", category: "NoteStructuring")
 
     private var baseURL: String {
         let url = Config.EXPO_PUBLIC_RORK_API_BASE_URL
@@ -154,12 +156,13 @@ final class NoteStructuringService {
         self.featureFlags = featureFlags
     }
 
-    func structureTranscript(_ transcript: String, businessType: String, authToken: String?, userId: String?, context: StructuringRequestContext? = nil, shiftType: String? = nil, locationId: String? = nil, industryType: String? = nil) async -> Result<StructuringResult, StructuringError> {
+    func structureTranscript(_ transcript: String, businessType: String, authToken: String?, userId: String?, context: StructuringRequestContext? = nil, shiftType: String? = nil, locationId: String? = nil, industryType: String? = nil, attemptId: String? = nil, shouldAttemptUnauthorizedRecovery: Bool = true) async -> Result<StructuringResult, StructuringError> {
         guard !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return .failure(.emptyTranscript)
         }
         guard !baseURL.isEmpty else { return .failure(.noBaseURL) }
         guard let url = URL(string: "\(baseURL)/api/rest/structure-transcript") else { return .failure(.invalidURL) }
+        let correlationId = attemptId ?? UUID().uuidString
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -167,8 +170,17 @@ final class NoteStructuringService {
 
         let apiToken = APIService.shared.currentAuthToken?.trimmingCharacters(in: .whitespacesAndNewlines)
         let apiUserId = APIService.shared.currentUserId?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let resolvedToken = apiToken?.isEmpty == false ? apiToken : authToken?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let resolvedUserId = apiUserId?.isEmpty == false ? apiUserId : userId?.trimmingCharacters(in: .whitespacesAndNewlines)
+        var resolvedToken = apiToken?.isEmpty == false ? apiToken : authToken?.trimmingCharacters(in: .whitespacesAndNewlines)
+        var resolvedUserId = apiUserId?.isEmpty == false ? apiUserId : userId?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if ((resolvedToken?.isEmpty ?? true) || (resolvedUserId?.isEmpty ?? true)) && shouldAttemptUnauthorizedRecovery {
+            logger.info("Structuring attempt=\(correlationId, privacy: .public) missing auth headers; triggering recovery")
+            let recovered = await APIService.shared.recoverUnauthorizedSessionIfNeeded()
+            if recovered {
+                resolvedToken = APIService.shared.currentAuthToken?.trimmingCharacters(in: .whitespacesAndNewlines)
+                resolvedUserId = APIService.shared.currentUserId?.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
 
         if let token = resolvedToken, !token.isEmpty {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -221,9 +233,27 @@ final class NoteStructuringService {
             }
 
             guard httpResponse.statusCode == 200 else {
+                if httpResponse.statusCode == 401, shouldAttemptUnauthorizedRecovery,
+                   await APIService.shared.recoverUnauthorizedSessionIfNeeded() {
+                    logger.info("Structuring attempt=\(correlationId, privacy: .public) recovered after 401; retrying once")
+                    return await structureTranscript(
+                        transcript,
+                        businessType: businessType,
+                        authToken: APIService.shared.currentAuthToken,
+                        userId: APIService.shared.currentUserId,
+                        context: context,
+                        shiftType: shiftType,
+                        locationId: locationId,
+                        industryType: industryType,
+                        attemptId: correlationId,
+                        shouldAttemptUnauthorizedRecovery: false
+                    )
+                }
                 if let errorResp = try? decoder.decode(AIStructureResponse.self, from: data), let msg = errorResp.error {
+                    logger.error("Structuring attempt=\(correlationId, privacy: .public) failed status=\(httpResponse.statusCode, privacy: .public) error=\(msg, privacy: .public)")
                     return .failure(.aiUnavailable(msg))
                 }
+                logger.error("Structuring attempt=\(correlationId, privacy: .public) failed status=\(httpResponse.statusCode, privacy: .public)")
                 return .failure(.serverError("Server returned status \(httpResponse.statusCode)."))
             }
 

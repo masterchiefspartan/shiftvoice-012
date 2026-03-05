@@ -57,6 +57,7 @@ final class AuthenticationService {
     private var isGoogleConfigured: Bool = false
     private(set) var backendAuthFailed: Bool = false
     private var isRetryingBackendAuth: Bool = false
+    private var backendAuthTask: Task<Bool, Never>?
 
     init() {
         configureGoogleSignIn()
@@ -88,6 +89,7 @@ final class AuthenticationService {
                 guard let self else { return }
                 if let user {
                     self.currentUserId = user.uid
+                    self.restoreBackendToken()
                     self.isSignedIn = true
                     self.authenticateWithBackend(firebaseUser: user)
                 } else {
@@ -481,34 +483,50 @@ final class AuthenticationService {
     }
 
     func retryBackendAuthIfNeeded() async -> Bool {
-        guard !isRetryingBackendAuth else { return false }
+        if let backendAuthTask {
+            return await backendAuthTask.value
+        }
+
         guard let user = Auth.auth().currentUser else { return false }
         guard APIService.shared.isConfigured else { return false }
 
-        isRetryingBackendAuth = true
-        defer { isRetryingBackendAuth = false }
-
-        do {
-            let idToken = try await user.getIDToken(forcingRefresh: true)
-            let response = try await APIService.shared.firebaseAuth(
-                idToken: idToken,
-                uid: user.uid,
-                name: user.displayName ?? "",
-                email: user.email ?? ""
-            )
-            if response.success, let token = response.token {
-                backendToken = token
-                backendAuthFailed = false
-                _ = KeychainService.saveBackendToken(token)
-                APIService.shared.setAuth(token: token, userId: response.userId ?? user.uid)
-                return true
+        let task = Task<Bool, Never> { @MainActor [weak self] in
+            guard let self else { return false }
+            if self.isRetryingBackendAuth {
+                return false
             }
-            backendAuthFailed = true
-            return false
-        } catch {
-            backendAuthFailed = true
-            return false
+
+            self.isRetryingBackendAuth = true
+            defer {
+                self.isRetryingBackendAuth = false
+                self.backendAuthTask = nil
+            }
+
+            do {
+                let idToken = try await user.getIDToken(forcingRefresh: true)
+                let response = try await APIService.shared.firebaseAuth(
+                    idToken: idToken,
+                    uid: user.uid,
+                    name: user.displayName ?? "",
+                    email: user.email ?? ""
+                )
+                if response.success, let token = response.token {
+                    self.backendToken = token
+                    self.backendAuthFailed = false
+                    _ = KeychainService.saveBackendToken(token)
+                    APIService.shared.setAuth(token: token, userId: response.userId ?? user.uid)
+                    return true
+                }
+                self.backendAuthFailed = true
+                return false
+            } catch {
+                self.backendAuthFailed = true
+                return false
+            }
         }
+
+        backendAuthTask = task
+        return await task.value
     }
 
     private func performBackendAuth(_ authCall: () async throws -> AuthResponse, userId: String) async {

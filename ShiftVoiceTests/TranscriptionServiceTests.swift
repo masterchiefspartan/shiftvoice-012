@@ -111,4 +111,21 @@ struct TranscriptionServiceTests {
         #expect(prompt.hasPrefix("Shift handoff notes. Terms: "))
         #expect(prompt.count <= 900)
     }
+
+    @Test func backendErrorCodesMapToExpectedTranscriptionFailureReasons() {
+        #expect(TranscriptionService.mapBackendFailureReason(code: "STT_RATE_LIMITED") == .rateLimited)
+        #expect(TranscriptionService.mapBackendFailureReason(code: "STT_QUOTA_EXCEEDED") == .quotaExceeded)
+        #expect(TranscriptionService.mapBackendFailureReason(code: "STT_FILE_TOO_LARGE") == .fileTooLarge)
+        #expect(TranscriptionService.mapBackendFailureReason(code: "STT_DURATION_EXCEEDED") == .durationExceeded)
+        #expect(TranscriptionService.mapBackendFailureReason(code: "UNAUTHORIZED") == .unauthorized)
+        #expect(TranscriptionService.mapBackendFailureReason(code: "STT_UNKNOWN") == .cloudFailed)
+    }
+
+    @Test func nonAuthSttErrorsDoNotMapToSessionExpiredMessage() {
+        let fileTooLargeReason = TranscriptionService.mapBackendFailureReason(code: "STT_FILE_TOO_LARGE")
+        let quotaReason = TranscriptionService.mapBackendFailureReason(code: "STT_QUOTA_EXCEEDED")
+
+        #expect(fileTooLargeReason.userMessage != TranscriptionFailureReason.unauthorized.userMessage)
+        #expect(quotaReason.userMessage != TranscriptionFailureReason.unauthorized.userMessage)
+    }
 }

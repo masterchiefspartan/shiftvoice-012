@@ -14,7 +14,7 @@ nonisolated struct TranscriptionErrorResponse: Codable, Sendable {
     let code: String?
 }
 
-nonisolated enum TranscriptionFailureReason: Sendable {
+nonisolated enum TranscriptionFailureReason: Sendable, Equatable {
     case noAudioFile
     case emptyAudioFile
     case audioTooShort(minimum: TimeInterval, actual: TimeInterval)
@@ -72,6 +72,10 @@ nonisolated enum TranscriptionFailureReason: Sendable {
 
 @Observable
 final class TranscriptionService {
+    private struct AttemptContext {
+        let id: String
+        let source: String
+    }
     var transcribedText: String = ""
     var isTranscribing: Bool = false
     var errorMessage: String?
@@ -133,7 +137,7 @@ final class TranscriptionService {
         return handleValidationResult(validationResult, for: url)
     }
 
-    func transcribeAudioFile(at url: URL, durationSeconds: TimeInterval? = nil, authToken: String? = nil, userId: String? = nil, industryVocabulary: [String] = []) async -> String? {
+    func transcribeAudioFile(at url: URL, durationSeconds: TimeInterval? = nil, authToken: String? = nil, userId: String? = nil, industryVocabulary: [String] = [], attemptId: String? = nil, source: String = "record") async -> String? {
         isTranscribing = true
         transcribedText = ""
         errorMessage = nil
@@ -146,13 +150,17 @@ final class TranscriptionService {
             return nil
         }
 
+        let context = AttemptContext(id: attemptId ?? UUID().uuidString, source: source)
+        logger.info("Transcription pipeline started attempt=\(context.id, privacy: .public) source=\(context.source, privacy: .public)")
+
         let result = await transcribeViaCloud(
             audioURL: url,
             durationSeconds: durationSeconds,
             authToken: authToken,
             userId: userId,
             industryVocabulary: industryVocabulary,
-            shouldAttemptUnauthorizedRecovery: true
+            shouldAttemptUnauthorizedRecovery: true,
+            context: context
         )
         if let result {
             transcribedText = result
@@ -204,7 +212,8 @@ final class TranscriptionService {
         authToken: String?,
         userId: String?,
         industryVocabulary: [String],
-        shouldAttemptUnauthorizedRecovery: Bool
+        shouldAttemptUnauthorizedRecovery: Bool,
+        context: AttemptContext
     ) async -> String? {
         guard !baseURL.isEmpty else {
             failureReason = .cloudFailed
@@ -237,6 +246,7 @@ final class TranscriptionService {
         }
 
         if ((trimmedToken?.isEmpty ?? true) || (trimmedUserId?.isEmpty ?? true)) && shouldAttemptUnauthorizedRecovery {
+            logger.info("Transcription attempt=\(context.id, privacy: .public) missing auth, triggering recovery")
             let recovered = await APIService.shared.recoverUnauthorizedSessionIfNeeded()
             if recovered {
                 trimmedToken = APIService.shared.currentAuthToken?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -245,6 +255,7 @@ final class TranscriptionService {
         }
 
         guard let token = trimmedToken, !token.isEmpty, let uid = trimmedUserId, !uid.isEmpty else {
+            logger.error("Transcription attempt=\(context.id, privacy: .public) failed due to missing auth after recovery")
             failureReason = .unauthorized
             errorMessage = TranscriptionFailureReason.unauthorized.userMessage
             return nil
@@ -300,13 +311,15 @@ final class TranscriptionService {
                 if httpResponse.statusCode == 401 {
                     if shouldAttemptUnauthorizedRecovery,
                        await APIService.shared.recoverUnauthorizedSessionIfNeeded() {
+                        logger.info("Transcription attempt=\(context.id, privacy: .public) recovered from backend 401, retrying once")
                         return await transcribeViaCloud(
                             audioURL: audioURL,
                             durationSeconds: durationSeconds,
                             authToken: APIService.shared.currentAuthToken,
                             userId: APIService.shared.currentUserId,
                             industryVocabulary: industryVocabulary,
-                            shouldAttemptUnauthorizedRecovery: false
+                            shouldAttemptUnauthorizedRecovery: false,
+                            context: context
                         )
                     }
                     failureReason = .unauthorized
@@ -314,26 +327,10 @@ final class TranscriptionService {
                     return nil
                 }
                 if let backendError = try? JSONDecoder().decode(TranscriptionErrorResponse.self, from: data) {
-                    switch backendError.code {
-                    case "STT_RATE_LIMITED":
-                        failureReason = .rateLimited
-                        errorMessage = TranscriptionFailureReason.rateLimited.userMessage
-                    case "STT_QUOTA_EXCEEDED":
-                        failureReason = .quotaExceeded
-                        errorMessage = TranscriptionFailureReason.quotaExceeded.userMessage
-                    case "STT_FILE_TOO_LARGE":
-                        failureReason = .fileTooLarge
-                        errorMessage = TranscriptionFailureReason.fileTooLarge.userMessage
-                    case "STT_DURATION_EXCEEDED":
-                        failureReason = .durationExceeded
-                        errorMessage = TranscriptionFailureReason.durationExceeded.userMessage
-                    case "UNAUTHORIZED":
-                        failureReason = .unauthorized
-                        errorMessage = TranscriptionFailureReason.unauthorized.userMessage
-                    default:
-                        failureReason = .cloudFailed
-                        errorMessage = backendError.error ?? TranscriptionFailureReason.cloudFailed.userMessage
-                    }
+                    let mappedReason = mapBackendFailureReason(code: backendError.code)
+                    failureReason = mappedReason
+                    errorMessage = backendError.error.flatMap { mappedReason == .cloudFailed ? $0 : nil } ?? mappedReason.userMessage
+                    logger.error("Transcription attempt=\(context.id, privacy: .public) failed status=\(httpResponse.statusCode, privacy: .public) code=\(backendError.code ?? "NONE", privacy: .public) mapped=\(String(describing: mappedReason), privacy: .public)")
                     return nil
                 }
                 failureReason = .cloudFailed
@@ -371,6 +368,27 @@ final class TranscriptionService {
             errorMessage = "Cloud transcription failed. Please retry."
             return nil
         }
+    }
+
+    nonisolated static func mapBackendFailureReason(code: String?) -> TranscriptionFailureReason {
+        switch code {
+        case "STT_RATE_LIMITED":
+            return .rateLimited
+        case "STT_QUOTA_EXCEEDED":
+            return .quotaExceeded
+        case "STT_FILE_TOO_LARGE":
+            return .fileTooLarge
+        case "STT_DURATION_EXCEEDED":
+            return .durationExceeded
+        case "UNAUTHORIZED":
+            return .unauthorized
+        default:
+            return .cloudFailed
+        }
+    }
+
+    private func mapBackendFailureReason(code: String?) -> TranscriptionFailureReason {
+        Self.mapBackendFailureReason(code: code)
     }
 
     private func buildWhisperPrompt(industryVocabulary: [String]) -> String {

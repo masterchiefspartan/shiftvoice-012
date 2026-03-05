@@ -75,7 +75,7 @@ Transform ShiftVoice from a voice-first shift notes tool into the **operating sy
 - [x] Auto-stop warning timing
 - [x] Empty vs failed transcript UI state
 - [x] Build verification after transcription safety/cost-control changes
-- [ ] End-to-end failure-path integration tests for backend `STT_*` error code mapping
+- [x] End-to-end failure-path integration tests for backend `STT_*` error code mapping
 
 ---
 

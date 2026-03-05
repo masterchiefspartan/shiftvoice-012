@@ -16,6 +16,7 @@ final class RecordingViewModel {
     private let structuringCache = StructuringCache.shared
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "ShiftVoice", category: "RecordingFlow")
     private let structuringTelemetryLogger = StructuringTelemetryLogger.shared
+    private let authFailureMessage = "Session expired. Please sign in again."
 
     var isProcessing: Bool = false
     var processingStage: ProcessingStage? = nil
@@ -100,6 +101,7 @@ final class RecordingViewModel {
     }
 
     func retryTranscription(authToken: String?, userId: String?, businessType: String) async {
+        let attemptId = UUID().uuidString
         guard let reviewData = pendingReviewData else {
             recordingFailureState = .transcriptionFailed(message: "Couldn't retry because no review data is available.")
             return
@@ -144,20 +146,36 @@ final class RecordingViewModel {
         }
         logger.info("Retry transcription validation passed for file \(audioURL.lastPathComponent, privacy: .public)")
 
+        let auth = await resolvedAuthContext(authToken: authToken, userId: userId, attemptId: attemptId)
+        guard auth.isReady else {
+            recordingFailureState = .transcriptionFailed(message: authFailureMessage)
+            isRetryingTranscription = false
+            return
+        }
+
         let retryVocab = industryVocabulary(for: businessTypeEnum(from: businessType))
-        if let result = await transcriptionService.transcribeAudioFile(at: audioURL, durationSeconds: reviewData.audioDuration, authToken: authToken, userId: userId, industryVocabulary: retryVocab) {
+        if let result = await transcriptionService.transcribeAudioFile(
+            at: audioURL,
+            durationSeconds: reviewData.audioDuration,
+            authToken: auth.token,
+            userId: auth.userId,
+            industryVocabulary: retryVocab,
+            attemptId: attemptId,
+            source: "retry"
+        ) {
             let cleanedTranscript = TranscriptCleaner.clean(result)
             let aiResult = await withTaskGroup(of: Result<StructuringResult, StructuringError>?.self) { group -> Result<StructuringResult, StructuringError>? in
                 group.addTask {
                     await self.noteStructuring.structureTranscript(
                         cleanedTranscript.text,
                         businessType: businessType,
-                        authToken: authToken,
-                        userId: userId,
+                        authToken: auth.token,
+                        userId: auth.userId,
                         context: self.buildStructuringContext(cleanedTranscript: cleanedTranscript, businessType: businessType),
                         shiftType: self.lastStopParams?.resolvedShiftType,
                         locationId: self.lastStopParams?.locationId,
-                        industryType: self.lastStopParams?.industryType
+                        industryType: self.lastStopParams?.industryType,
+                        attemptId: attemptId
                     )
                 }
                 group.addTask {
@@ -252,17 +270,55 @@ final class RecordingViewModel {
     }
 
     private func processRecording(audioURL: URL?, duration: TimeInterval, shiftInfo: ShiftDisplayInfo, businessType: String, authToken: String?, userId: String?, locationId: String? = nil, industryType: String? = nil, resolvedShiftType: String? = nil) async {
+        let attemptId = UUID().uuidString
         var transcript = ""
         var currentFailureState: RecordingFailureState = .none
 
         processingStage = .transcribing
+
+        let auth = await resolvedAuthContext(authToken: authToken, userId: userId, attemptId: attemptId)
+        guard auth.isReady else {
+            logger.error("Recording pipeline attempt=\(attemptId, privacy: .public) blocked: auth not ready")
+            currentFailureState = .transcriptionFailed(message: authFailureMessage)
+            recordingFailureState = currentFailureState
+            pendingReviewData = PendingNoteReviewData(
+                rawTranscript: "",
+                audioDuration: duration,
+                audioUrl: audioURL?.lastPathComponent,
+                shiftInfo: shiftInfo,
+                summary: "",
+                categorizedItems: [],
+                actionItems: [],
+                usedAI: false,
+                structuringWarning: nil,
+                recordingFailureState: currentFailureState,
+                transcriptSegments: [],
+                lowConfidenceSegments: [],
+                averageTranscriptConfidence: nil,
+                confidenceScore: 0,
+                validationWarnings: [],
+                warningItemIDs: []
+            )
+            stopProcessingTimer()
+            processingStage = nil
+            isProcessing = false
+            return
+        }
 
         if let audioURL {
             let isValid = await transcriptionService.validateBeforeTranscription(at: audioURL)
             if isValid {
                 logger.info("Process recording validation passed for file \(audioURL.lastPathComponent, privacy: .public)")
                 let vocab = industryVocabulary(for: businessTypeEnum(from: businessType))
-                if let result = await transcriptionService.transcribeAudioFile(at: audioURL, durationSeconds: duration, authToken: authToken, userId: userId, industryVocabulary: vocab) {
+                if let result = await transcriptionService.transcribeAudioFile(
+                    at: audioURL,
+                    durationSeconds: duration,
+                    authToken: auth.token,
+                    userId: auth.userId,
+                    industryVocabulary: vocab,
+                    attemptId: attemptId,
+                    source: "record"
+                ) {
                     transcript = result
                 } else {
                     let reason = transcriptionService.failureReason
@@ -287,7 +343,14 @@ final class RecordingViewModel {
         if !transcript.isEmpty {
             processingStage = .structuring
             (summary, categorizedItems, actionItems, usedAI, warning, transcriptCoverage) = await structureTranscript(
-                transcript, businessType: businessType, authToken: authToken, userId: userId, locationId: locationId, industryType: industryType, resolvedShiftType: resolvedShiftType
+                transcript,
+                businessType: businessType,
+                authToken: auth.token,
+                userId: auth.userId,
+                locationId: locationId,
+                industryType: industryType,
+                resolvedShiftType: resolvedShiftType,
+                attemptId: attemptId
             )
         } else {
             summary = ""
@@ -344,7 +407,7 @@ final class RecordingViewModel {
         isProcessing = false
     }
 
-    private func structureTranscript(_ transcript: String, businessType: String, authToken: String?, userId: String?, locationId: String? = nil, industryType: String? = nil, resolvedShiftType: String? = nil) async -> (String, [CategorizedItem], [ActionItem], Bool, String?, String?) {
+    private func structureTranscript(_ transcript: String, businessType: String, authToken: String?, userId: String?, locationId: String? = nil, industryType: String? = nil, resolvedShiftType: String? = nil, attemptId: String? = nil) async -> (String, [CategorizedItem], [ActionItem], Bool, String?, String?) {
         let cleanedTranscript = TranscriptCleaner.clean(transcript)
         let aiResult = await withTaskGroup(of: Result<StructuringResult, StructuringError>?.self) { group -> Result<StructuringResult, StructuringError>? in
             group.addTask {
@@ -356,7 +419,8 @@ final class RecordingViewModel {
                     context: self.buildStructuringContext(cleanedTranscript: cleanedTranscript, businessType: businessType),
                     shiftType: resolvedShiftType,
                     locationId: locationId,
-                    industryType: industryType
+                    industryType: industryType,
+                    attemptId: attemptId
                 )
             }
             group.addTask {
@@ -485,6 +549,22 @@ final class RecordingViewModel {
         }
         let combined = messages.joined(separator: " ")
         return combined.isEmpty ? nil : combined
+    }
+
+    private func resolvedAuthContext(authToken: String?, userId: String?, attemptId: String) async -> (token: String?, userId: String?, isReady: Bool) {
+        let candidateToken = APIService.shared.currentAuthToken?.trimmingCharacters(in: .whitespacesAndNewlines) ?? authToken?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let candidateUserId = APIService.shared.currentUserId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? userId?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if let candidateToken, !candidateToken.isEmpty, let candidateUserId, !candidateUserId.isEmpty {
+            return (candidateToken, candidateUserId, true)
+        }
+
+        logger.info("Recording pipeline attempt=\(attemptId, privacy: .public) awaiting auth recovery")
+        let recovered = await APIService.shared.recoverUnauthorizedSessionIfNeeded()
+        let refreshedToken = APIService.shared.currentAuthToken?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let refreshedUserId = APIService.shared.currentUserId?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let ready = recovered && ((refreshedToken?.isEmpty == false) && (refreshedUserId?.isEmpty == false))
+        return (refreshedToken, refreshedUserId, ready)
     }
 
     private func failureState(from reason: TranscriptionFailureReason?) -> RecordingFailureState {
