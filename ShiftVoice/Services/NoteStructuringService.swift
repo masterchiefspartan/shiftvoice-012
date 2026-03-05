@@ -164,10 +164,16 @@ final class NoteStructuringService {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        if let token = authToken {
+
+        let apiToken = APIService.shared.currentAuthToken?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let apiUserId = APIService.shared.currentUserId?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedToken = apiToken?.isEmpty == false ? apiToken : authToken?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedUserId = apiUserId?.isEmpty == false ? apiUserId : userId?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if let token = resolvedToken, !token.isEmpty {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
-        if let uid = userId {
+        if let uid = resolvedUserId, !uid.isEmpty {
             request.setValue(uid, forHTTPHeaderField: "X-User-Id")
         }
 

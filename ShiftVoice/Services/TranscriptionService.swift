@@ -226,8 +226,10 @@ final class TranscriptionService {
             return nil
         }
 
-        var trimmedToken = authToken?.trimmingCharacters(in: .whitespacesAndNewlines)
-        var trimmedUserId = userId?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let apiToken = APIService.shared.currentAuthToken?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let apiUserId = APIService.shared.currentUserId?.trimmingCharacters(in: .whitespacesAndNewlines)
+        var trimmedToken = apiToken?.isEmpty == false ? apiToken : authToken?.trimmingCharacters(in: .whitespacesAndNewlines)
+        var trimmedUserId = apiUserId?.isEmpty == false ? apiUserId : userId?.trimmingCharacters(in: .whitespacesAndNewlines)
 
         if (trimmedToken?.isEmpty ?? true) || (trimmedUserId?.isEmpty ?? true) {
             trimmedToken = APIService.shared.currentAuthToken?.trimmingCharacters(in: .whitespacesAndNewlines)
