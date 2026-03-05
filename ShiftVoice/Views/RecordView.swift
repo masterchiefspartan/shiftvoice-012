@@ -139,7 +139,7 @@ struct RecordView: View {
                     .id(reviewData.rawTranscript + "|" + reviewData.summary)
                 }
             }
-            .alert("Permissions Required", isPresented: $showPermissionAlert) {
+            .alert("Microphone access required", isPresented: $showPermissionAlert) {
                 Button("Open Settings") {
                     if let url = URL(string: UIApplication.openSettingsURLString) {
                         UIApplication.shared.open(url)
@@ -147,7 +147,7 @@ struct RecordView: View {
                 }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("ShiftVoice needs microphone access to record and transcribe your shift notes. Please enable it in Settings.")
+                Text("ShiftVoice needs microphone access to record notes. Please enable it in Settings.")
             }
 
             .task {
@@ -187,6 +187,16 @@ struct RecordView: View {
 
     private var recordingInterface: some View {
         VStack(spacing: 0) {
+            if !permissionGranted && recording.isRecordingPermissionDenied() {
+                ContentUnavailableView {
+                    Label("Microphone access required", systemImage: "mic.slash")
+                } description: {
+                    Text("Enable microphone access in Settings to record shift notes.")
+                }
+                .padding(.horizontal, 24)
+                .padding(.top, 20)
+            }
+
             VStack(alignment: .leading, spacing: 14) {
                 Text(recordingModeTitle)
                     .font(.system(.largeTitle, design: .serif, weight: .bold))

@@ -14,6 +14,7 @@ nonisolated enum TranscriptionFailureReason: Sendable {
     case audioTooShort(minimum: TimeInterval, actual: TimeInterval)
     case unsupportedAudioFormat
     case corruptAudioFile
+    case noConnection
     case cloudFailed
     case noResult
 
@@ -38,6 +39,8 @@ nonisolated enum TranscriptionFailureReason: Sendable {
             return "Unsupported audio format. Please try recording again."
         case .corruptAudioFile:
             return "The audio file could not be read. It may be corrupted."
+        case .noConnection:
+            return "No connection — transcription requires internet."
         case .cloudFailed:
             return "Cloud transcription failed."
         case .noResult:
@@ -237,6 +240,11 @@ final class TranscriptionService {
 
             return text
         } catch {
+            if let urlError = error as? URLError, urlError.code == .notConnectedToInternet {
+                failureReason = .noConnection
+                errorMessage = TranscriptionFailureReason.noConnection.userMessage
+                return nil
+            }
             failureReason = .cloudFailed
             errorMessage = TranscriptionFailureReason.cloudFailed.userMessage
             return nil
